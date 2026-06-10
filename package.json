@@ -1,0 +1,31 @@
+{
+  "name": "trpgmaster",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-assisted GM system for TRPG sessions",
+  "workspaces": [
+    "shared",
+    "server",
+    "app"
+  ],
+  "scripts": {
+    "server:dev": "cd server && npm run dev",
+    "server:build": "cd server && npm run build",
+    "app:start": "cd app && npm start",
+    "app:android": "cd app && npm run android",
+    "app:ios": "cd app && npm run ios",
+    "build:shared": "cd shared && npm run build",
+    "lint": "eslint shared/src server/src app/src --ext .ts,.tsx"
+  },
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "react-native": "0.73.6"
+  }
+}

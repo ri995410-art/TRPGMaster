@@ -1,0 +1,546 @@
+SiliconFlow API 说明:这是一个API key然后给不同的模型使用
+sk-iorrobbumgjijvsoqmvnojkpwkkjdzuprrlddfzalemggthk
+
+对话模型API文档，使用模型为nex-agi/Nex-N2-Pro
+API REFERENCE
+Create a Chat Completion
+Creates a model response for the given chat conversation.
+
+https://api.siliconflow.cn/v1
+POST
+/
+chat
+/
+completions
+Copy
+Authorization
+
+bearerAuth
+Authorization
+Bearer <token>
+required
+Use the following format for authentication: Bearer
+
+In: header
+
+Request Body
+
+application/json
+LLM
+VLM
+model
+string
+required
+Corresponding Model Name. We periodically update our models to enhance service quality. Changes may include model on/offlining or capability adjustments. We will strive to notify you via announcements or push messages. For a complete list of available models, please check the Models.
+
+Example"Pro/zai-org/GLM-4.7"
+messages
+array<object>
+required
+A list of messages comprising the conversation so far.
+
+Array Item
+stream
+boolean
+If set, tokens are returned as Server-Sent Events as they are made available. Stream terminates with data: [DONE]
+
+Value infalse | true
+max_tokens
+integer
+The maximum number of tokens to generate. Ensure that input tokens + max_tokens do not exceed the model’s context window. As some services are still being updated, avoid setting max_tokens to the window’s upper bound; reserve ~10k tokens as buffer for input and system overhead. See Models for details.
+
+enable_thinking
+boolean
+Switches between thinking and non-thinking modes. This field supports the following models:
+
+
+- Pro/zai-org/GLM-5
+- Pro/zai-org/GLM-4.7
+- deepseek-ai/DeepSeek-V3.2
+- Pro/deepseek-ai/DeepSeek-V3.2
+- zai-org/GLM-4.6
+- Qwen/Qwen3-8B
+- Qwen/Qwen3-14B
+- Qwen/Qwen3-32B
+- Qwen/Qwen3-30B-A3B
+- tencent/Hunyuan-A13B-Instruct
+- zai-org/GLM-4.5V
+- deepseek-ai/DeepSeek-V3.1-Terminus
+- Pro/deepseek-ai/DeepSeek-V3.1-Terminus        
+- Qwen/Qwen3.5-397B-A17B
+- Qwen/Qwen3.5-122B-A10B
+- Qwen/Qwen3.5-35B-A3B
+- Qwen/Qwen3.5-27B
+- Qwen/Qwen3.5-9B
+- Qwen/Qwen3.5-4B  
+Value infalse | true
+thinking_budget
+integer
+Maximum number of tokens for chain-of-thought output. This field applies to most Reasoning models.
+
+Range128 <= value <= 32768
+reasoning_effort
+string
+This field only applies to deepseek-ai/DeepSeek-V4-Flash. In thinking mode, the default effort for regular requests is high; for certain complex agent-type requests (such as Claude Code, OpenCode), the effort is automatically set to max. In thinking mode, for compatibility reasons, low and medium are mapped to high, and xhigh is mapped to max.
+
+Value in"high" | "max"
+min_p
+number
+Dynamic filtering threshold that adapts based on token probabilities.This field only applies to Qwen3.
+
+Formatfloat
+Rangevalue <= 1
+stop
+string | array<string>
+Up to 4 sequences where the API will stop generating further tokens. The returned text will not contain the stop sequence.
+
+temperature
+number
+Determines the degree of randomness in the response.
+
+Formatfloat
+Rangevalue <= 2
+top_p
+number
+An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p probability mass. So 0.1 means only the tokens comprising the top 10% probability mass are considered.
+
+We generally recommend altering this or temperature but not both.
+
+Formatfloat
+Range0.1 <= value <= 1
+top_k
+number
+Formatfloat
+Rangevalue <= 100
+frequency_penalty
+number
+Number between -2.0 and 2.0. Positive values penalize new tokens based on their existing frequency in the text so far, decreasing the model's likelihood to repeat the same line verbatim.
+
+Formatfloat
+Range-2 <= value <= 2
+n
+integer
+Number of generations to return
+
+Example1
+response_format
+Text | JSON schema | JSON object
+An object specifying the format that the model must output.
+
+Setting to { "type": "json_schema", "json_schema": {...} } enables Structured Outputs which ensures the model will match your supplied JSON schema.
+
+Setting to { "type": "json_object" } enables the older JSON mode, which ensures the message the model generates is valid JSON. Using json_schema is preferred for models that support it.
+
+Text
+JSON schema
+JSON object
+Default response format. Used to generate text responses.
+
+type
+string
+required
+The type of response format being defined. Always text.
+
+Value in"text"
+tools
+array<object>
+A list of tools the model may call. Currently, only functions are supported as a tool. Use this to provide a list of functions the model may generate JSON inputs for. A max of 128 functions are supported.
+
+Array Item
+Response Body
+200
+
+application/json
+The response from the model. The response header contains the x-siliconcloud-trace-id field, which serves as a unique identifier for tracing requests, facilitating log queries and issue troubleshooting.
+
+TypeScript Definitions
+
+Use the response body type in TypeScript.
+
+Copy
+id
+string
+choices
+array<object>
+Array Item
+usage
+object
+Show Attributes
+created
+integer
+model
+string
+object
+string
+Value in"chat.completion"
+400
+
+application/json
+401
+
+application/json
+403
+
+application/json
+404
+
+application/json
+429
+
+application/json
+503
+
+application/json
+504
+
+application/json
+cURL
+python
+javascript
+cURL-Streaming
+python-Streaming
+javascript-Streaming
+cURL-Image-input
+python-Image-input
+javascript-Image-input
+cURL-Function
+python-Function
+javascript-Function
+
+curl --request POST \
+  --url https://api.siliconflow.cn/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "model": "Pro/zai-org/GLM-4.7",
+    "messages": [
+      {"role": "system", "content": "你是一个有用的助手x"},
+      {"role": "user", "content": "你好，请介绍一下你自己"}
+    ]
+  }'
+200
+400
+401
+403
+404
+429
+503
+504
+Default
+
+{
+  "id": "019bdaa55225ef854b320e9b838f77ce",
+  "object": "chat.completion",
+  "created": 1768899826,
+  "model": "Pro/zai-org/GLM-4.7",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "你好！...",
+        "reasoning_content": "..."
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 15,
+    "completion_tokens": 1540,
+    "total_tokens": 1555,
+    "completion_tokens_details": {
+      "reasoning_tokens": 1190
+    },
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "prompt_cache_hit_tokens": 0,
+    "prompt_cache_miss_tokens": 15
+  },
+  "system_fingerprint": ""
+}
+Streaming
+Image input
+Function
+
+
+语音转文字模型API文档，使用模型为TeleAI/TeleSpeechASR
+Create a Audio Transcription
+Creates an audio transcription.
+
+https://api.siliconflow.cn/v1
+POST
+/
+audio
+/
+transcriptions
+Copy
+Authorization
+
+bearerAuth
+Authorization
+Bearer <token>
+required
+Use the following format for authentication: Bearer
+
+In: header
+
+Request Body
+
+multipart/form-data
+file
+file
+required
+The audio file object (not file name) to transcribe. File upload specifications are limited to:duration not exceeding 1 hour, and file size not exceeding 50MB.
+
+Formatbinary
+Example"/path/to/file/audio.mp3"
+model
+string
+required
+Corresponding Model Name. To better enhance service quality, we will make periodic changes to the models provided by this service, including but not limited to model on/offlining and adjustments to model service capabilities. We will notify you of such changes through appropriate means such as announcements or message pushes where feasible.
+
+Value in"FunAudioLLM/SenseVoiceSmall" | "TeleAI/TeleSpeechASR"
+Example"FunAudioLLM/SenseVoiceSmall"
+Response Body
+200
+
+application/json
+The response from the model. The response header contains the x-siliconcloud-trace-id field, which serves as a unique identifier for tracing requests, facilitating log queries and issue troubleshooting.
+
+TypeScript Definitions
+
+Use the response body type in TypeScript.
+
+Copy
+text
+string
+required
+The transcribed text.
+
+400
+
+application/json
+401
+
+application/json
+403
+
+application/json
+404
+
+application/json
+429
+
+application/json
+503
+
+application/json
+504
+
+application/json
+cURL
+Python
+javascript
+
+curl --request POST \
+  --url https://api.siliconflow.cn/v1/audio/transcriptions \
+  -H "Authorization: Bearer <YOUR_API_KEY>" \
+  -F "file=@path/to/your/audio.mp3" \
+  -F "model=FunAudioLLM/SenseVoiceSmall"
+200
+400
+401
+403
+404
+429
+503
+504
+
+{
+  "text": "string"
+}
+
+
+文生图模型API文档，使用模型为Kwai-Kolors/Kolors
+Image Generation
+Creates an image response for the given prompt. The URL for the generated image is valid for one hour. Please make sure to download and store it promptly to avoid any issues due to URL expiration.
+
+https://api.siliconflow.cn/v1
+POST
+/
+images
+/
+generations
+Copy
+Authorization
+
+bearerAuth
+Authorization
+Bearer <token>
+required
+Use the following format for authentication: Bearer
+
+In: header
+
+Request Body
+
+application/json
+model
+string
+required
+Corresponding Model Name. To better enhance service quality, we will make periodic changes to the models provided by this service, including but not limited to model on/offlining and adjustments to model service capabilities. We will notify you of such changes through appropriate means such as announcements or message pushes where feasible. For a complete list of available models, please check the Models.
+
+Example"Qwen/Qwen-Image-Edit-2509"
+prompt
+string
+required
+Example"an island near sea, with seagulls, moon shining over the sea, light house, boats int he background, fish flying over the sea"
+negative_prompt
+Negative Prompt
+negative prompt
+
+image_size
+Image size, format is [width]x[height].
+Image resolution in "widthxheight" format (Required). To ensure optimal quality, using the recommended values for your model is strongly advised. Qwen/Qwen-Image-Edit-2509 and Qwen/Qwen-Image-Edit not support this field. Recommended Values:
+
+For Kolor model:
+"1024x1024" (1:1)
+"960x1280" (3:4)
+"768x1024" (3:4)
+"720x1440" (1:2)
+"720x1280" (9:16)
+For Qwen-Image model:
+"1328x1328" (1:1)
+"1664x928" (16:9)
+"928x1664" (9:16)
+"1472x1140" (4:3)
+"1140x1472" (3:4)
+"1584x1056" (3:2)
+"1056x1584" (2:3)
+batch_size
+Number Images
+number of output images. Only applicable to Kwai-Kolors/Kolors.
+
+Default1
+Range1 <= value <= 4
+seed
+Seed
+Rangevalue <= 9999999999
+num_inference_steps
+Number Inference Steps
+number of inference steps
+
+Default20
+Range1 <= value <= 100
+guidance_scale
+Guidance Scale
+This value is used to control the degree of match between the generated image and the given prompt. The higher the value, the more the generated image will tend to strictly match the text prompt. The lower the value, the more creative and diverse the generated image will be, potentially containing more unexpected elements. Only applicable to Kwai-Kolors/Kolors.
+
+Default7.5
+Rangevalue <= 20
+cfg
+CFG Scale
+CFG (Classifier-Free Guidance) is a technique that adjusts how closely generated outputs follow input prompts by balancing precision and creativity. This field is only applicable to Qwen/Qwen-Image models. For text generation scenarios, the CFG value must be greater than 1. The official configuration uses 50 steps with CFG 4.0. When CFG is set too small, it becomes nearly impossible to generate text.
+
+Range0.1 <= value <= 20
+image
+Upload Image
+The image used for uploading an image can be in base64 format or a URL.
+
+Value in"data:image/png;base64, XXX" | "img_url"
+Example"https://inews.gtimg.com/om_bt/Os3eJ8u3SgB3Kd-zrRRhgfR5hUvdwcVPKUTNO6O7sZfUwAA/641"
+image2
+Upload Image
+The image used for uploading an image can be in base64 format or a URL. This field is only applicable to Qwen/Qwen-Image-Edit-2509.
+
+Value in"data:image/png;base64, XXX" | "img_url"
+Example"https://inews.gtimg.com/om_bt/Os3eJ8u3SgB3Kd-zrRRhgfR5hUvdwcVPKUTNO6O7sZfUwAA/641"
+image3
+Upload Image
+The image used for uploading an image can be in base64 format or a URL. This field is only applicable to Qwen/Qwen-Image-Edit-2509.
+
+Value in"data:image/png;base64, XXX" | "img_url"
+Example"https://inews.gtimg.com/om_bt/Os3eJ8u3SgB3Kd-zrRRhgfR5hUvdwcVPKUTNO6O7sZfUwAA/641"
+Response Body
+200
+
+application/json
+The response from the model. The response header contains the x-siliconcloud-trace-id field, which serves as a unique identifier for tracing requests, facilitating log queries and issue troubleshooting.
+
+TypeScript Definitions
+
+Use the response body type in TypeScript.
+
+Copy
+images
+array<object>
+Array Item
+timings
+object
+Show Attributes
+seed
+integer
+400
+
+application/json
+401
+
+application/json
+403
+
+application/json
+404
+
+application/json
+429
+
+application/json
+503
+
+application/json
+504
+
+application/json
+cURL-T2Image
+python-T2Image
+javascript-T2Image
+cURL-I2Image
+python-I2Image
+javascript-I2Image
+cURL-Qwen/Qwen-Image-Edit-2509
+python-Qwen/Qwen-Image-Edit-2509
+javascript-Qwen/Qwen-Image-Edit-2509
+
+curl --request POST \
+  --url https://api.siliconflow.cn/v1/images/generations \
+  --header 'Authorization: Bearer YOUR-API-KEY' \
+  --header 'Content-Type: application/json' \
+  --data '{
+  "model": "Kwai-Kolors/Kolors",
+  "prompt": "an island near sea, with seagulls, moon shining over the sea, light house, boats int he background, fish flying over the sea",
+  "image_size": "1024x1024",
+  "batch_size": 1,
+  "num_inference_steps": 20,
+  "guidance_scale": 7.5
+}'
+200
+400
+401
+403
+404
+429
+503
+504
+
+{
+  "images": [
+    {
+      "url": "string"
+    }
+  ],
+  "timings": {
+    "inference": 0.1
+  },
+  "seed": 0
+}

@@ -1,0 +1,50 @@
+[
+  {
+    "id": "padded-armor",
+    "name": "填充布甲",
+    "nameEn": "Padded Armor",
+    "baseThreshold": 5,
+    "baseThresholdSevere": 11,
+    "armorSlots": 3,
+    "evasionPenalty": 0,
+    "traits": ["nimble"],
+    "armorTier": 1,
+    "description": "灵活：闪避值+1。"
+  },
+  {
+    "id": "leather-armor",
+    "name": "皮甲",
+    "nameEn": "Leather Armor",
+    "baseThreshold": 6,
+    "baseThresholdSevere": 13,
+    "armorSlots": 3,
+    "evasionPenalty": 0,
+    "traits": [],
+    "armorTier": 1,
+    "description": "标准轻甲，无特性。"
+  },
+  {
+    "id": "chain-armor",
+    "name": "链甲",
+    "nameEn": "Chain Armor",
+    "baseThreshold": 7,
+    "baseThresholdSevere": 15,
+    "armorSlots": 4,
+    "evasionPenalty": -1,
+    "traits": ["heavy"],
+    "armorTier": 1,
+    "description": "重型：闪避值-1。"
+  },
+  {
+    "id": "full-plate",
+    "name": "全板甲",
+    "nameEn": "Full Plate",
+    "baseThreshold": 8,
+    "baseThresholdSevere": 17,
+    "armorSlots": 4,
+    "evasionPenalty": -2,
+    "traits": ["veryHeavy"],
+    "armorTier": 1,
+    "description": "极重：闪避值-2，敏捷-1。"
+  }
+]

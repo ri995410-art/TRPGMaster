@@ -1,0 +1,20 @@
+[
+  {
+    "id": "scar-1",
+    "name": "肉体伤痕",
+    "description": "你身上留下一道明显的伤疤，提醒着你与死亡的擦肩而过。自行决定伤痕的外观和位置。",
+    "lostHopeSlot": true
+  },
+  {
+    "id": "scar-2",
+    "name": "痛苦回忆",
+    "description": "一段难以磨灭的痛苦记忆萦绕在你心头，挥之不去。自行决定这段回忆的内容。",
+    "lostHopeSlot": true
+  },
+  {
+    "id": "scar-3",
+    "name": "深埋恐惧",
+    "description": "一种深埋心底的恐惧在你濒死时扎根。自行决定这种恐惧的对象。",
+    "lostHopeSlot": true
+  }
+]

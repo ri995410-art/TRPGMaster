@@ -1,0 +1,308 @@
+[
+  {
+    "id": "loot-fine-bedding",
+    "name": "高级床单",
+    "nameEn": "Fine Bedding",
+    "rarity": "common",
+    "type": "item",
+    "description": "在任何休息期间，你总是会自动清除1压力点。",
+    "roll": 1
+  },
+  {
+    "id": "loot-whistle",
+    "name": "风笛哨",
+    "nameEn": "Whistle",
+    "rarity": "common",
+    "type": "item",
+    "description": "手工制作的哨子。每只哨子都有独特的声音，刺耳的声音在半径一英里的地方都能听到。",
+    "roll": 2
+  },
+  {
+    "id": "loot-charged-quiver",
+    "name": "充能箭袋",
+    "nameEn": "Charged Quiver",
+    "rarity": "common",
+    "type": "item",
+    "description": "当你使用此箭袋中的箭矢攻击并成功命中时，伤害掷骰获得等同于你当前位阶的加值。",
+    "roll": 3
+  },
+  {
+    "id": "loot-alistair-torch",
+    "name": "阿利斯泰尔的火炬",
+    "nameEn": "Alistair's Torch",
+    "rarity": "common",
+    "type": "item",
+    "description": "一把可以随心所欲点亮的魔法火炬，它发出的光比看起来要远得多。它可以让洞穴充满光亮，让人感觉就像白天一样。",
+    "roll": 4
+  },
+  {
+    "id": "loot-communing-orbs",
+    "name": "通话法球",
+    "nameEn": "Communing Orbs",
+    "rarity": "common",
+    "type": "item",
+    "description": "一对球体，任何持有它们的生物都可以在任意距离内相互交流。",
+    "roll": 5
+  },
+  {
+    "id": "loot-mancles",
+    "name": "手铐",
+    "nameEn": "Manacles",
+    "rarity": "common",
+    "type": "item",
+    "description": "一副带有钥匙的可锁手铐。",
+    "roll": 6
+  },
+  {
+    "id": "loot-arcane-cloak",
+    "name": "奥术斗篷",
+    "nameEn": "Arcane Cloak",
+    "rarity": "common",
+    "type": "item",
+    "description": "任何拥有施法能力的使用者穿着它时都可以随意调整其颜色、纹理和尺寸的斗篷。",
+    "roll": 7
+  },
+  {
+    "id": "loot-woven-net",
+    "name": "编织网",
+    "nameEn": "Woven Net",
+    "rarity": "common",
+    "type": "item",
+    "description": "你可以用这张网进行灵巧检定来捕捉小型生物。被网住的目标可通过成功的攻击检定(DC16)挣脱。",
+    "roll": 8
+  },
+  {
+    "id": "loot-fire-pot",
+    "name": "生火罐",
+    "nameEn": "Fire Pot",
+    "rarity": "common",
+    "type": "item",
+    "description": "你可以倾倒此罐中奇异的液体来立即产生火焰。液体将在你完成长休后重新生成。",
+    "roll": 9
+  },
+  {
+    "id": "loot-hover-staff",
+    "name": "悬空之杖",
+    "nameEn": "Hover Staff",
+    "rarity": "common",
+    "type": "item",
+    "description": "一根刻有符文的扁短棒。被激活时会立即悬停在原地。在解除激活前，短棒将不受重力影响且无法移动，始终固定在原位。",
+    "roll": 10
+  },
+  {
+    "id": "loot-glamour-stone",
+    "name": "魅力石",
+    "nameEn": "Glamour Stone",
+    "rarity": "common",
+    "type": "item",
+    "description": "激活这颗卵石，可记录你所见之人的外貌。花费1希望点，便能以幻象形式将这副伪装神奇地复现在自己身上。",
+    "roll": 11
+  },
+  {
+    "id": "loot-empty-chest",
+    "name": "空箱子",
+    "nameEn": "Empty Chest",
+    "rarity": "common",
+    "type": "item",
+    "description": "一个魔法箱子，即使里面有些物品，看起来也是空的。主人可以在打开箱子时使用特定的单词、短语或其他触发条件来显示这些物品。",
+    "roll": 12
+  },
+  {
+    "id": "loot-companion-box",
+    "name": "伙伴箱",
+    "nameEn": "Companion Box",
+    "rarity": "uncommon",
+    "type": "item",
+    "description": "用于携带小型动物伙伴的箱子。当它们在里面时，箱子和里面的生物动物都不会受到任何伤害和负面魔法效果。",
+    "roll": 13
+  },
+  {
+    "id": "loot-piercing-arrow",
+    "name": "穿刺箭",
+    "nameEn": "Piercing Arrow",
+    "rarity": "uncommon",
+    "type": "item",
+    "description": "使用弓进行攻击时，你可以使用穿刺箭将你的熟练值添加到伤害掷骰中。每短休可使用3次。",
+    "roll": 14
+  },
+  {
+    "id": "loot-courage-stone",
+    "name": "勇气石",
+    "nameEn": "Courage Stone",
+    "rarity": "uncommon",
+    "type": "item",
+    "description": "附在盔甲上。为尚未具备以下功能的盔甲添加以下特性：坚韧：在标记最后一个护甲槽之前，掷一个d6。如果掷出6，则可以降低伤害的一个等级而无需标记槽位。",
+    "roll": 15
+  },
+  {
+    "id": "loot-skeleton-key",
+    "name": "万能钥匙",
+    "nameEn": "Skeleton Key",
+    "rarity": "uncommon",
+    "type": "item",
+    "description": "使尝试打开锁着的门时的灵巧掷骰具有优势。",
+    "roll": 16
+  },
+  {
+    "id": "loot-arcane-prism",
+    "name": "奥术棱镜",
+    "nameEn": "Arcane Prism",
+    "rarity": "uncommon",
+    "type": "item",
+    "description": "将此棱镜置于指定位置并激活。其近距离范围内的所有盟友在施法检定上获得+1加值。激活期间棱镜不可移动。解除激活后，需完成一次长休才能再次启用。",
+    "roll": 17
+  },
+  {
+    "id": "loot-gecko-gloves",
+    "name": "壁虎手套",
+    "nameEn": "Gecko Gloves",
+    "rarity": "uncommon",
+    "type": "item",
+    "description": "你可以爬上垂直表面并穿过天花板。",
+    "roll": 22
+  },
+  {
+    "id": "loot-scholar-keeper",
+    "name": "博学守护者",
+    "nameEn": "Scholar's Keeper",
+    "rarity": "uncommon",
+    "type": "item",
+    "description": "存储最多三个敌对生物的名字。下次面对它们时，在针对它们的任何动作掷骰上获得+1。",
+    "roll": 23
+  },
+  {
+    "id": "loot-silent-ring",
+    "name": "寂静戒指",
+    "nameEn": "Ring of Silence",
+    "rarity": "uncommon",
+    "type": "item",
+    "description": "花费1希望点激活此戒指，直到你的下一次短休，你的脚步声是无声的。",
+    "roll": 28
+  },
+  {
+    "id": "loot-calm-pendant",
+    "name": "镇静吊坠",
+    "nameEn": "Calm Pendant",
+    "rarity": "uncommon",
+    "type": "item",
+    "description": "如果你必须标记最后一个压力槽，请掷一个d6。如果掷出5+，则无需标记。",
+    "roll": 29
+  },
+  {
+    "id": "loot-resistance-ring",
+    "name": "抵抗戒指",
+    "nameEn": "Ring of Resistance",
+    "rarity": "uncommon",
+    "type": "item",
+    "description": "每长休一次，激活这枚戒指使将受到的伤害减少一半。",
+    "roll": 32
+  },
+  {
+    "id": "loot-phoenix-feather",
+    "name": "凤凰羽毛",
+    "nameEn": "Phoenix Feather",
+    "rarity": "uncommon",
+    "type": "item",
+    "description": "只要你拥有任意数量的凤凰羽毛，当你失去知觉并掷骰查看是否选择留下伤痕时，骰子结果总是+1。",
+    "roll": 33
+  },
+  {
+    "id": "loot-infinite-bag",
+    "name": "无限袋",
+    "nameEn": "Bag of Holding",
+    "rarity": "rare",
+    "type": "item",
+    "description": "放入此袋中的物品将存储在一个独立的次元中且可以随时取出。",
+    "roll": 40
+  },
+  {
+    "id": "loot-relic-agility",
+    "name": "神行遗宝",
+    "nameEn": "Relic of Agility",
+    "rarity": "rare",
+    "type": "item",
+    "description": "敏捷+1，你不能同时持有其他遗宝。",
+    "roll": 41
+  },
+  {
+    "id": "loot-relic-strength",
+    "name": "强力遗宝",
+    "nameEn": "Relic of Strength",
+    "rarity": "rare",
+    "type": "item",
+    "description": "力量+1，你不能同时持有其他遗宝。",
+    "roll": 42
+  },
+  {
+    "id": "loot-relic-finesse",
+    "name": "控制遗宝",
+    "nameEn": "Relic of Finesse",
+    "rarity": "rare",
+    "type": "item",
+    "description": "灵巧+1，你不能同时持有其他遗宝。",
+    "roll": 43
+  },
+  {
+    "id": "loot-relic-instinct",
+    "name": "调和遗宝",
+    "nameEn": "Relic of Instinct",
+    "rarity": "rare",
+    "type": "item",
+    "description": "本能+1，你不能同时持有其他遗宝。",
+    "roll": 44
+  },
+  {
+    "id": "loot-relic-presence",
+    "name": "魅力遗宝",
+    "nameEn": "Relic of Presence",
+    "rarity": "rare",
+    "type": "item",
+    "description": "风度+1，你不能同时持有其他遗宝。",
+    "roll": 45
+  },
+  {
+    "id": "loot-relic-knowledge",
+    "name": "启迪遗宝",
+    "nameEn": "Relic of Knowledge",
+    "rarity": "rare",
+    "type": "item",
+    "description": "知识+1，你不能同时持有其他遗宝。",
+    "roll": 46
+  },
+  {
+    "id": "loot-firefly-pendant",
+    "name": "闪烁飞虫吊坠",
+    "nameEn": "Firefly Pendant",
+    "rarity": "rare",
+    "type": "item",
+    "description": "佩戴时，你的物理近战武器会像薄纱一样延伸，使你可以攻击邻近范围内的生物。",
+    "roll": 48
+  },
+  {
+    "id": "loot-water-walkers",
+    "name": "湖行者长靴",
+    "nameEn": "Lake Walker Boots",
+    "rarity": "rare",
+    "type": "item",
+    "description": "你可以如同在柔软地面一般行走在水面上。",
+    "roll": 49
+  },
+  {
+    "id": "loot-firm-ring",
+    "name": "坚毅之戒",
+    "nameEn": "Ring of Resolve",
+    "rarity": "rare",
+    "type": "item",
+    "description": "每场游戏一次，当游戏主持人花费1恐惧点时，你可以花费4希望点以取消因为使用恐惧而产生的效果。",
+    "roll": 59
+  },
+  {
+    "id": "loot-unity-belt",
+    "name": "团结腰带",
+    "nameEn": "Belt of Unity",
+    "rarity": "rare",
+    "type": "item",
+    "description": "每场游戏一次，你可以花费5希望点进行一次三名角色的接力掷骰，而不是两名。",
+    "roll": 60
+  }
+]

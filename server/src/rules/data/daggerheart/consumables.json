@@ -1,0 +1,443 @@
+[
+  {
+    "id": "cons-agility-potion",
+    "name": "神行药水",
+    "nameEn": "Potion of Agility",
+    "rarity": "common",
+    "type": "consumable",
+    "description": "下一次敏捷掷骰+1。",
+    "roll": 1
+  },
+  {
+    "id": "cons-strength-potion",
+    "name": "强力药水",
+    "nameEn": "Potion of Strength",
+    "rarity": "common",
+    "type": "consumable",
+    "description": "下一次力量掷骰+1。",
+    "roll": 2
+  },
+  {
+    "id": "cons-finesse-potion",
+    "name": "控制药水",
+    "nameEn": "Potion of Finesse",
+    "rarity": "common",
+    "type": "consumable",
+    "description": "下一次灵巧掷骰+1。",
+    "roll": 3
+  },
+  {
+    "id": "cons-instinct-potion",
+    "name": "调和药水",
+    "nameEn": "Potion of Instinct",
+    "rarity": "common",
+    "type": "consumable",
+    "description": "下一次本能掷骰+1。",
+    "roll": 4
+  },
+  {
+    "id": "cons-presence-potion",
+    "name": "魅力药水",
+    "nameEn": "Potion of Presence",
+    "rarity": "common",
+    "type": "consumable",
+    "description": "下一次风度掷骰+1。",
+    "roll": 5
+  },
+  {
+    "id": "cons-knowledge-potion",
+    "name": "启迪药水",
+    "nameEn": "Potion of Knowledge",
+    "rarity": "common",
+    "type": "consumable",
+    "description": "下一次知识掷骰+1。",
+    "roll": 6
+  },
+  {
+    "id": "cons-minor-healing-potion",
+    "name": "小型生命药水",
+    "nameEn": "Minor Healing Potion",
+    "rarity": "common",
+    "type": "consumable",
+    "description": "立刻恢复1d4生命点。",
+    "roll": 7
+  },
+  {
+    "id": "cons-minor-endurance-potion",
+    "name": "小型耐力药水",
+    "nameEn": "Minor Endurance Potion",
+    "rarity": "common",
+    "type": "consumable",
+    "description": "立刻清除1d4压力点。",
+    "roll": 8
+  },
+  {
+    "id": "cons-grinding-venom",
+    "name": "磨牙毒液",
+    "nameEn": "Grinding Venom",
+    "rarity": "common",
+    "type": "consumable",
+    "description": "附在物理武器上，在其下一次的伤害掷骰中增加1d6。",
+    "roll": 9
+  },
+  {
+    "id": "cons-varik-leaf",
+    "name": "瓦里克叶",
+    "nameEn": "Varik Leaf",
+    "rarity": "common",
+    "type": "consumable",
+    "description": "立刻获得2希望点。",
+    "roll": 10
+  },
+  {
+    "id": "cons-moon-vial",
+    "name": "月滴瓶",
+    "nameEn": "Moon Vial",
+    "rarity": "common",
+    "type": "consumable",
+    "description": "直至你的下一次短休，你可以在完全黑暗的环境中看到东西。",
+    "roll": 11
+  },
+  {
+    "id": "cons-unstable-arcane-shard",
+    "name": "不稳定的奥术碎片",
+    "nameEn": "Unstable Arcane Shard",
+    "rarity": "common",
+    "type": "consumable",
+    "description": "使用灵巧掷骰将其投掷到远距离范围内的一群敌人，所有成功对抗的敌人受到1d20魔法伤害。",
+    "roll": 12
+  },
+  {
+    "id": "cons-stabilizing-potion",
+    "name": "稳定药水",
+    "nameEn": "Stabilizing Potion",
+    "rarity": "uncommon",
+    "type": "consumable",
+    "description": "使用后立刻执行一次额外的休息行动。",
+    "roll": 13
+  },
+  {
+    "id": "cons-improved-grinding-venom",
+    "name": "改良磨牙毒液",
+    "nameEn": "Improved Grinding Venom",
+    "rarity": "uncommon",
+    "type": "consumable",
+    "description": "附在物理武器上，在其下一次的伤害掷骰中增加1d8。",
+    "roll": 14
+  },
+  {
+    "id": "cons-shape-clay",
+    "name": "变形黏土",
+    "nameEn": "Shape Clay",
+    "rarity": "uncommon",
+    "type": "consumable",
+    "description": "花费1希望点，使用者将会改变他们的容貌使其他人认不出来，直到下次短休。",
+    "roll": 15
+  },
+  {
+    "id": "cons-smoke-bottle",
+    "name": "黑烟瓶",
+    "nameEn": "Smoke Bottle",
+    "rarity": "uncommon",
+    "type": "consumable",
+    "description": "面对即将到来的攻击时，骰等同于你敏捷数的d6，将其中最高的结果加入到你应对此次攻击的闪避值中。",
+    "roll": 16
+  },
+  {
+    "id": "cons-leaping-root",
+    "name": "跳跃树根",
+    "nameEn": "Leaping Root",
+    "rarity": "uncommon",
+    "type": "consumable",
+    "description": "仅一次，你可以无需掷骰地跳跃到远距离内的任何地方。",
+    "roll": 17
+  },
+  {
+    "id": "cons-rest-powder",
+    "name": "小憩粉",
+    "nameEn": "Rest Powder",
+    "rarity": "uncommon",
+    "type": "consumable",
+    "description": "标记1压力点然后恢复1生命点。",
+    "roll": 18
+  },
+  {
+    "id": "cons-healing-potion",
+    "name": "生命药水",
+    "nameEn": "Healing Potion",
+    "rarity": "uncommon",
+    "type": "consumable",
+    "description": "立刻恢复1d4+1生命点。",
+    "roll": 19
+  },
+  {
+    "id": "cons-endurance-potion",
+    "name": "耐力药水",
+    "nameEn": "Endurance Potion",
+    "rarity": "uncommon",
+    "type": "consumable",
+    "description": "立刻清除1d4+1压力点。",
+    "roll": 20
+  },
+  {
+    "id": "cons-armor-stitch",
+    "name": "护甲缝合剂",
+    "nameEn": "Armor Stitch",
+    "rarity": "uncommon",
+    "type": "consumable",
+    "description": "使用此物品并花费任意希望点，修复等量的护甲槽。",
+    "roll": 21
+  },
+  {
+    "id": "cons-gill-paste",
+    "name": "鳃膏",
+    "nameEn": "Gill Paste",
+    "rarity": "uncommon",
+    "type": "consumable",
+    "description": "你可以在水下呼吸，持续时间分钟数等同于你的等级数。",
+    "roll": 22
+  },
+  {
+    "id": "cons-improved-arcane-shard",
+    "name": "改良奥术碎片",
+    "nameEn": "Improved Arcane Shard",
+    "rarity": "uncommon",
+    "type": "consumable",
+    "description": "使用灵巧掷骰将其投掷到远距离范围内的一群敌人，所有成功对抗的敌人受到2d20魔法伤害。",
+    "roll": 24
+  },
+  {
+    "id": "cons-greater-agility-potion",
+    "name": "强效神行药水",
+    "nameEn": "Greater Potion of Agility",
+    "rarity": "uncommon",
+    "type": "consumable",
+    "description": "直到下一次长休或短休时，敏捷掷骰+1。",
+    "roll": 25
+  },
+  {
+    "id": "cons-greater-strength-potion",
+    "name": "强效强力药水",
+    "nameEn": "Greater Potion of Strength",
+    "rarity": "uncommon",
+    "type": "consumable",
+    "description": "直到下一次长休或短休时，力量掷骰+1。",
+    "roll": 26
+  },
+  {
+    "id": "cons-greater-finesse-potion",
+    "name": "强效控制药水",
+    "nameEn": "Greater Potion of Finesse",
+    "rarity": "uncommon",
+    "type": "consumable",
+    "description": "直到下一次长休或短休时，灵巧掷骰+1。",
+    "roll": 27
+  },
+  {
+    "id": "cons-greater-instinct-potion",
+    "name": "强效调和药水",
+    "nameEn": "Greater Potion of Instinct",
+    "rarity": "uncommon",
+    "type": "consumable",
+    "description": "直到下一次长休或短休时，本能掷骰+1。",
+    "roll": 28
+  },
+  {
+    "id": "cons-greater-presence-potion",
+    "name": "强效魅力药水",
+    "nameEn": "Greater Potion of Presence",
+    "rarity": "uncommon",
+    "type": "consumable",
+    "description": "直到下一次长休或短休时，风度掷骰+1。",
+    "roll": 29
+  },
+  {
+    "id": "cons-greater-knowledge-potion",
+    "name": "强效启迪药水",
+    "nameEn": "Greater Potion of Knowledge",
+    "rarity": "uncommon",
+    "type": "consumable",
+    "description": "直到下一次长休或短休时，知识掷骰+1。",
+    "roll": 30
+  },
+  {
+    "id": "cons-yorgi-blood",
+    "name": "约尔吉之血",
+    "nameEn": "Blood of Yorgi",
+    "rarity": "rare",
+    "type": "consumable",
+    "description": "瞬移至可目视的极远范围内任意地方。",
+    "roll": 31
+  },
+  {
+    "id": "cons-hommet-elixir",
+    "name": "霍莫特的秘药",
+    "nameEn": "Hommet's Elixir",
+    "rarity": "rare",
+    "type": "consumable",
+    "description": "饮用后，你的下一次攻击掷骰自动关键成功。",
+    "roll": 32
+  },
+  {
+    "id": "cons-red-thorn-saliva",
+    "name": "红棘唾液",
+    "nameEn": "Red Thorn Saliva",
+    "rarity": "rare",
+    "type": "consumable",
+    "description": "附在物理武器上，在其下一次的伤害掷骰中增加1d12。",
+    "roll": 33
+  },
+  {
+    "id": "cons-guiding-stone",
+    "name": "引导石",
+    "nameEn": "Guiding Stone",
+    "rarity": "rare",
+    "type": "consumable",
+    "description": "选择你宝库中的一个法术或术典，使用一次然后将其放回宝库。",
+    "roll": 34
+  },
+  {
+    "id": "cons-secret-dust",
+    "name": "秘尘",
+    "nameEn": "Secret Dust",
+    "rarity": "rare",
+    "type": "consumable",
+    "description": "附在魔法武器上，在其下一次的伤害掷骰中增加1d12。",
+    "roll": 35
+  },
+  {
+    "id": "cons-acid-paste",
+    "name": "酸膏",
+    "nameEn": "Acid Paste",
+    "rarity": "rare",
+    "type": "consumable",
+    "description": "在明亮的闪光中侵蚀墙壁和其他表面。",
+    "roll": 36
+  },
+  {
+    "id": "cons-hope-torch",
+    "name": "希望火炬",
+    "nameEn": "Torch of Hope",
+    "rarity": "rare",
+    "type": "consumable",
+    "description": "使用时，近距离内的盟友每花费1希望点时掷一个d6。掷出6时可无需花费1希望点。效果持续到一个场景。",
+    "roll": 37
+  },
+  {
+    "id": "cons-greater-arcane-shard",
+    "name": "强效奥术碎片",
+    "nameEn": "Greater Arcane Shard",
+    "rarity": "rare",
+    "type": "consumable",
+    "description": "使用灵巧将其投掷到远距离范围内的一群敌人，所有成功对抗的敌人受到4d20魔法伤害。",
+    "roll": 38
+  },
+  {
+    "id": "cons-feather-bone",
+    "name": "羽骨",
+    "nameEn": "Feather Bone",
+    "rarity": "rare",
+    "type": "consumable",
+    "description": "控制你的下坠速度，持续时间分钟数等同于你的等级数。",
+    "roll": 39
+  },
+  {
+    "id": "cons-void-ring",
+    "name": "虚空之环",
+    "nameEn": "Ring of the Void",
+    "rarity": "rare",
+    "type": "consumable",
+    "description": "标记1压力点，创造一个延伸至远距范围的虚空区域。虚空内无法施放任何法术，区域内生物对魔法伤害免疫。",
+    "roll": 40
+  },
+  {
+    "id": "cons-sun-sap",
+    "name": "太阳树液",
+    "nameEn": "Sun Sap",
+    "rarity": "legendary",
+    "type": "consumable",
+    "description": "掷1d6。若掷出5-6，恢复2生命点。若掷出2-4，清除3压力点。若掷出1，你短暂地面对死亡并获得一道伤痕。",
+    "roll": 41
+  },
+  {
+    "id": "cons-dragontea",
+    "name": "滴牙毒药",
+    "nameEn": "Dragon Tea",
+    "rarity": "legendary",
+    "type": "consumable",
+    "description": "对饮用此物品的生物造成8d10的直接伤害。",
+    "roll": 42
+  },
+  {
+    "id": "cons-greater-healing-potion",
+    "name": "强效生命药水",
+    "nameEn": "Greater Healing Potion",
+    "rarity": "legendary",
+    "type": "consumable",
+    "description": "立刻恢复1d4+2生命点。",
+    "roll": 43
+  },
+  {
+    "id": "cons-greater-endurance-potion",
+    "name": "强效耐力药水",
+    "nameEn": "Greater Endurance Potion",
+    "rarity": "legendary",
+    "type": "consumable",
+    "description": "立刻清除1d4+2压力点。",
+    "roll": 44
+  },
+  {
+    "id": "cons-ogre-musk",
+    "name": "食人魔麝香",
+    "nameEn": "Ogre Musk",
+    "rarity": "legendary",
+    "type": "consumable",
+    "description": "避免任何人使用物理或魔法手段追踪你，直至你的下一次休息。",
+    "roll": 45
+  },
+  {
+    "id": "cons-sprout-wings",
+    "name": "翼芽",
+    "nameEn": "Sprout Wings",
+    "rarity": "legendary",
+    "type": "consumable",
+    "description": "你获得一对魔法翅膀，允许你短暂地飞行，持续时间分钟数等同于你的等级数。",
+    "roll": 46
+  },
+  {
+    "id": "cons-shrink-potion",
+    "name": "缩小药水",
+    "nameEn": "Shrink Potion",
+    "rarity": "legendary",
+    "type": "consumable",
+    "description": "饮用者的体型会缩小至一半，敏捷+2，熟练-1，直到他选择放弃这种形态或进行下一次休息。",
+    "roll": 53
+  },
+  {
+    "id": "cons-growth-potion",
+    "name": "生长药水",
+    "nameEn": "Growth Potion",
+    "rarity": "legendary",
+    "type": "consumable",
+    "description": "饮用者的体型会放大至两倍，力量+2，熟练+1，直到他选择放弃这种形态或进行下一次休息。",
+    "roll": 54
+  },
+  {
+    "id": "cons-sweet-moss",
+    "name": "甜蜜苔藓",
+    "nameEn": "Sweet Moss",
+    "rarity": "legendary",
+    "type": "consumable",
+    "description": "在休息期间食用，可以恢复1d10生命点或清除1d10压力点。",
+    "roll": 56
+  },
+  {
+    "id": "cons-blindness-orb",
+    "name": "目盲法球",
+    "nameEn": "Blinding Orb",
+    "rarity": "legendary",
+    "type": "consumable",
+    "description": "创造一道明亮的闪光，使近距离范围内的所有生物处于脆弱状态，直至生物下一次失去生命点。",
+    "roll": 57
+  }
+]

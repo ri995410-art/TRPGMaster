@@ -1,0 +1,164 @@
+[
+  {
+    "id": "bard-troubadour",
+    "name": "游唱乐手",
+    "nameEn": "Troubadour",
+    "classId": "bard",
+    "level": 1,
+    "castingAttribute": "presence",
+    "description": "选择游唱乐手，演奏音乐来鼓舞你的盟友。"
+  },
+  {
+    "id": "bard-wordsmith",
+    "name": "言文巧匠",
+    "nameEn": "Wordsmith",
+    "classId": "bard",
+    "level": 1,
+    "castingAttribute": "presence",
+    "description": "选择言文巧匠，以机锋妙语折服广大听众。"
+  },
+  {
+    "id": "druid-renewal",
+    "name": "复兴结社",
+    "nameEn": "Circle of Renewal",
+    "classId": "druid",
+    "level": 1,
+    "castingAttribute": "instinct",
+    "description": "选择复兴结社，使用强大的魔法治疗盟友。"
+  },
+  {
+    "id": "druid-elemental",
+    "name": "元素结社",
+    "nameEn": "Circle of Elements",
+    "classId": "druid",
+    "level": 1,
+    "castingAttribute": "instinct",
+    "description": "选择元素结社，体现自然元素的不同面貌。"
+  },
+  {
+    "id": "guardian-ironclad",
+    "name": "坚毅铁卫",
+    "nameEn": "Ironclad",
+    "classId": "guardian",
+    "level": 1,
+    "castingAttribute": null,
+    "description": "选择坚毅铁卫，承受重击后依然奋战不休。"
+  },
+  {
+    "id": "guardian-vengeance",
+    "name": "复仇战卫",
+    "nameEn": "Vengeance",
+    "classId": "guardian",
+    "level": 1,
+    "castingAttribute": null,
+    "description": "选择复仇战卫，痛击伤害你与同伴的敌人。"
+  },
+  {
+    "id": "ranger-beastmaster",
+    "name": "驯兽大师",
+    "nameEn": "Beastmaster",
+    "classId": "ranger",
+    "level": 1,
+    "castingAttribute": "agility",
+    "description": "选择驯兽大师，与动物盟友建立深厚情谊。"
+  },
+  {
+    "id": "ranger-pathfinder",
+    "name": "寻路斥候",
+    "nameEn": "Pathfinder",
+    "classId": "ranger",
+    "level": 1,
+    "castingAttribute": "agility",
+    "description": "选择寻路斥候，用致命武力追踪猎杀目标。"
+  },
+  {
+    "id": "rogue-nightwalker",
+    "name": "黑夜行者",
+    "nameEn": "Nightwalker",
+    "classId": "rogue",
+    "level": 1,
+    "castingAttribute": "finesse",
+    "description": "选择黑夜行者，操纵阴影使你穿行于环境。"
+  },
+  {
+    "id": "rogue-gangster",
+    "name": "帮派豪杰",
+    "nameEn": "Gangster",
+    "classId": "rogue",
+    "level": 1,
+    "castingAttribute": "finesse",
+    "description": "选择帮派豪杰，你所到之处皆有人脉网络。"
+  },
+  {
+    "id": "seraph-divine",
+    "name": "神兵驭者",
+    "nameEn": "Divine Armament",
+    "classId": "seraph",
+    "level": 1,
+    "castingAttribute": "strength",
+    "description": "选择神兵驭者，凭借传奇武器来主宰战场。"
+  },
+  {
+    "id": "seraph-soaring",
+    "name": "翔翼哨兵",
+    "nameEn": "Soaring Sentinel",
+    "classId": "seraph",
+    "level": 1,
+    "castingAttribute": "strength",
+    "description": "选择翔翼哨兵，翱翔天际并施展毁灭打击。"
+  },
+  {
+    "id": "sorcerer-elemental",
+    "name": "元素起源",
+    "nameEn": "Elemental Origin",
+    "classId": "sorcerer",
+    "level": 1,
+    "castingAttribute": "instinct",
+    "description": "选择元素起源，引导某一元素的原始魔力。"
+  },
+  {
+    "id": "sorcerer-primal",
+    "name": "原初起源",
+    "nameEn": "Primal Origin",
+    "classId": "sorcerer",
+    "level": 1,
+    "castingAttribute": "instinct",
+    "description": "选择原初起源，强力地拓展法术的多变性。"
+  },
+  {
+    "id": "warrior-valor",
+    "name": "勇气呼唤",
+    "nameEn": "Call of Valor",
+    "classId": "warrior",
+    "level": 1,
+    "castingAttribute": null,
+    "description": "选择勇气呼唤，利用敌人的力量激励自己。"
+  },
+  {
+    "id": "warrior-slaughter",
+    "name": "屠戮呼唤",
+    "nameEn": "Call of Slaughter",
+    "classId": "warrior",
+    "level": 1,
+    "castingAttribute": null,
+    "description": "选择屠戮呼唤，以摧枯拉朽之力碾碎敌人。"
+  },
+  {
+    "id": "wizard-lore",
+    "name": "知识学派",
+    "nameEn": "School of Lore",
+    "classId": "wizard",
+    "level": 1,
+    "castingAttribute": "knowledge",
+    "description": "选择知识学派，敏锐地洞察世间参透万物。"
+  },
+  {
+    "id": "wizard-war",
+    "name": "战争学派",
+    "nameEn": "School of War",
+    "classId": "wizard",
+    "level": 1,
+    "castingAttribute": "knowledge",
+    "description": "选择战争学派，熟练地使用魔法大杀四方。"
+  }
+]

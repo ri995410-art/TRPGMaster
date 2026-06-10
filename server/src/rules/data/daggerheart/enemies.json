@@ -1,0 +1,308 @@
+[
+  {
+    "id": "goblin-raider",
+    "name": "哥布林劫掠者",
+    "nameEn": "Goblin Raider",
+    "type": "minion",
+    "difficulty": 12,
+    "evasion": 10,
+    "hp": 3,
+    "stress": 2,
+    "attackBonus": 0,
+    "attackDamage": "1d6",
+    "attackAttribute": "agility",
+    "attackDistance": "melee",
+    "features": [
+      {
+        "name": "群聚攻击",
+        "type": "passive",
+        "cost": 0,
+        "description": "当多个哥布林劫掠者攻击同一目标时，每个额外的哥布林使攻击难度降低2。"
+      }
+    ],
+    "fearCost": 0,
+    "description": "成群结队出没的弱小但狡猾的敌人。"
+  },
+  {
+    "id": "skeleton-warrior",
+    "name": "骷髅战士",
+    "nameEn": "Skeleton Warrior",
+    "type": "minion",
+    "difficulty": 13,
+    "evasion": 9,
+    "hp": 4,
+    "stress": 3,
+    "attackBonus": 1,
+    "attackDamage": "1d8",
+    "attackAttribute": "strength",
+    "attackDistance": "melee",
+    "features": [
+      {
+        "name": "亡灵坚韧",
+        "type": "passive",
+        "cost": 0,
+        "description": "免疫中毒和流血状态。"
+      }
+    ],
+    "fearCost": 0,
+    "description": "被黑暗力量驱动的无脑亡灵战士。"
+  },
+  {
+    "id": "wolf",
+    "name": "狼",
+    "nameEn": "Wolf",
+    "type": "minion",
+    "difficulty": 11,
+    "evasion": 12,
+    "hp": 3,
+    "stress": 2,
+    "attackBonus": 2,
+    "attackDamage": "1d6+2",
+    "attackAttribute": "instinct",
+    "attackDistance": "melee",
+    "features": [
+      {
+        "name": "群猎",
+        "type": "passive",
+        "cost": 0,
+        "description": "当两个或更多狼攻击同一目标时，获得优势。"
+      }
+    ],
+    "fearCost": 0,
+    "description": "荒野中的群猎掠食者。"
+  },
+  {
+    "id": "bandit",
+    "name": "强盗",
+    "nameEn": "Bandit",
+    "type": "elite",
+    "difficulty": 14,
+    "evasion": 11,
+    "hp": 6,
+    "stress": 4,
+    "attackBonus": 2,
+    "attackDamage": "1d10+2",
+    "attackAttribute": "agility",
+    "attackDistance": "melee",
+    "features": [
+      {
+        "name": "卑劣打击",
+        "type": "action",
+        "cost": 0,
+        "description": "当目标处于脆弱状态时，攻击造成额外1d6伤害。"
+      },
+      {
+        "name": "脱战",
+        "type": "fear",
+        "cost": 1,
+        "description": "花费1恐惧点，强盗脱离战斗并移动至远距离。"
+      }
+    ],
+    "fearCost": 1,
+    "description": "经验丰富的道路劫匪，擅长趁人之危。"
+  },
+  {
+    "id": "shadow-mage",
+    "name": "暗影法师",
+    "nameEn": "Shadow Mage",
+    "type": "elite",
+    "difficulty": 15,
+    "evasion": 10,
+    "hp": 5,
+    "stress": 5,
+    "attackBonus": 3,
+    "attackDamage": "1d8+3",
+    "attackAttribute": "knowledge",
+    "attackDistance": "far",
+    "features": [
+      {
+        "name": "暗影箭",
+        "type": "action",
+        "cost": 0,
+        "description": "造成1d8+3魔法伤害。目标若失败反应掷骰则暂时处于脆弱状态。"
+      },
+      {
+        "name": "暗影步",
+        "type": "fear",
+        "cost": 2,
+        "description": "花费2恐惧点，暗影法师消失在阴影中并出现在邻近范围内任意位置。"
+      }
+    ],
+    "fearCost": 2,
+    "description": "操纵暗影魔法的阴险施法者。"
+  },
+  {
+    "id": "zombie",
+    "name": "僵尸",
+    "nameEn": "Zombie",
+    "type": "minion",
+    "difficulty": 10,
+    "evasion": 7,
+    "hp": 5,
+    "stress": 6,
+    "attackBonus": 0,
+    "attackDamage": "1d8",
+    "attackAttribute": "strength",
+    "attackDistance": "melee",
+    "features": [
+      {
+        "name": "不死者",
+        "type": "passive",
+        "cost": 0,
+        "description": "免疫中毒、流血和恐惧效果。"
+      },
+      {
+        "name": "缓步",
+        "type": "passive",
+        "cost": 0,
+        "description": "无法进行远距离攻击，但近战范围内获得+1伤害。"
+      }
+    ],
+    "fearCost": 0,
+    "description": "缓慢但不知疲倦的亡灵，数量多时极其危险。"
+  },
+  {
+    "id": "cultist",
+    "name": "邪教徒",
+    "nameEn": "Cultist",
+    "type": "elite",
+    "difficulty": 14,
+    "evasion": 11,
+    "hp": 5,
+    "stress": 4,
+    "attackBonus": 2,
+    "attackDamage": "1d6+2",
+    "attackAttribute": "presence",
+    "attackDistance": "nearby",
+    "features": [
+      {
+        "name": "黑暗祈祷",
+        "type": "action",
+        "cost": 0,
+        "description": "对近距离内所有目标施加1点压力。"
+      },
+      {
+        "name": "邪教仪式",
+        "type": "fear",
+        "cost": 2,
+        "description": "花费2恐惧点，邪教徒召唤1d4只僵尸增援。"
+      }
+    ],
+    "fearCost": 2,
+    "description": "沉迷黑暗仪式的狂信者，擅长操控战场。"
+  },
+  {
+    "id": "knight-of-ashes",
+    "name": "灰烬骑士",
+    "nameEn": "Knight of Ashes",
+    "type": "elite",
+    "difficulty": 16,
+    "evasion": 10,
+    "hp": 8,
+    "stress": 4,
+    "attackBonus": 3,
+    "attackDamage": "1d12+3",
+    "attackAttribute": "strength",
+    "attackDistance": "melee",
+    "features": [
+      {
+        "name": "灰烬之盾",
+        "type": "passive",
+        "cost": 0,
+        "description": "每次受到伤害时，可标记1压力减少1点HP标记。"
+      },
+      {
+        "name": "焚灭斩",
+        "type": "action",
+        "cost": 0,
+        "description": "造成1d12+3火焰伤害。若目标HP降低，则目标标记1压力。"
+      },
+      {
+        "name": "灰烬爆发",
+        "type": "fear",
+        "cost": 2,
+        "description": "花费2恐惧点，灰烬骑士释放灰烬波，近战范围内所有角色标记2压力。"
+      }
+    ],
+    "fearCost": 2,
+    "description": "被德拉肯海姆污霭腐化的堕落骑士，浑身燃烧着不灭的灰烬之火。"
+  },
+  {
+    "id": "haze-horror",
+    "name": "污霭恐惧者",
+    "nameEn": "Haze Horror",
+    "type": "boss",
+    "difficulty": 18,
+    "evasion": 9,
+    "hp": 12,
+    "stress": 6,
+    "attackBonus": 4,
+    "attackDamage": "2d8+4",
+    "attackAttribute": "instinct",
+    "attackDistance": "nearby",
+    "features": [
+      {
+        "name": "污霭护甲",
+        "type": "passive",
+        "cost": 0,
+        "description": "对非魔法伤害具有抗性。"
+      },
+      {
+        "name": "恐惧凝视",
+        "type": "action",
+        "cost": 0,
+        "description": "对单一目标造成2d8+4精神伤害。目标必须进行反应掷骰(DC15)，失败则标记2压力。"
+      },
+      {
+        "name": "污霭爆发",
+        "type": "fear",
+        "cost": 3,
+        "description": "花费3恐惧点，污霭恐惧者释放浓雾，所有角色标记1压力并获得劣势直到下一轮。"
+      },
+      {
+        "name": "腐化之触",
+        "type": "fear",
+        "cost": 2,
+        "description": "花费2恐惧点，攻击命中目标额外增加1级污染等级。"
+      }
+    ],
+    "fearCost": 3,
+    "description": "从德拉肯海姆浓厚污霭中诞生的恐惧实体，它的存在本身就是污染的扩散。"
+  },
+  {
+    "id": "spore-drake",
+    "name": "孢子龙",
+    "nameEn": "Spore Drake",
+    "type": "boss",
+    "difficulty": 17,
+    "evasion": 11,
+    "hp": 10,
+    "stress": 5,
+    "attackBonus": 3,
+    "attackDamage": "2d10+3",
+    "attackAttribute": "agility",
+    "attackDistance": "far",
+    "features": [
+      {
+        "name": "孢子云",
+        "type": "passive",
+        "cost": 0,
+        "description": "近战范围内攻击孢子龙的角色标记1压力（反应掷骰DC13可避免）。"
+      },
+      {
+        "name": "酸性吐息",
+        "type": "action",
+        "cost": 0,
+        "description": "对近距离锥形范围内的所有目标造成2d10+3酸液伤害。"
+      },
+      {
+        "name": "孢子爆发",
+        "type": "fear",
+        "cost": 2,
+        "description": "花费2恐惧点，孢子龙释放孢子云团，近距离内所有角色标记2压力。"
+      }
+    ],
+    "fearCost": 2,
+    "description": "被真菌寄生的龙类变异体，腐朽的翅膀仍能短距离飞行，口喷酸液和致幻孢子。"
+  }
+]
