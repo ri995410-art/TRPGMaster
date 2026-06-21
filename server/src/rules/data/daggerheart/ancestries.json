@@ -3,162 +3,374 @@
     "id": "clockwork",
     "name": "械灵",
     "nameEn": "Clockwork",
+    "description": "由工匠创造的机械生命体，拥有精确的思维和高效的身体。",
     "features": [
-      "定制设计：决定你是由谁创造以及为何目的而创造的。在创建角色时，选择一个最符合此目的的经历，永久获得+1加值。",
-      "高效休整：当你进行短休时，你可以选择一个长休的休整行动代替短休的休整行动。"
+      {
+        "name": "定制设计",
+        "nameEn": "Custom Design",
+        "description": "决定你是由谁创造以及为何目的而创造的。在创建角色时，选择一个最符合此目的的经历，永久获得+1加值。",
+        "type": "passive"
+      },
+      {
+        "name": "高效休整",
+        "nameEn": "Efficient Rest",
+        "description": "当你进行短休时，你可以选择一个长休的休整行动代替短休的休整行动。",
+        "type": "passive"
+      }
     ]
   },
   {
     "id": "dragonborn",
     "name": "龙人",
     "nameEn": "Dragonborn",
+    "description": "拥有龙族血脉的类人生物，鳞片覆盖身体，能吐息元素力量。",
     "features": [
-      "鳞片保护：你的鳞片提供天然保护。当你受到严重伤害时，你可以标记1压力点以少标记1生命点。",
-      "元素吐息：选择一种元素作为你的吐息（例如电、火或冰）。你可以对邻近范围内的一个或一群目标使用此吐息，将其视为一种使用你的熟练值造成d8点魔法伤害的本能武器。"
+      {
+        "name": "鳞片保护",
+        "nameEn": "Scale Protection",
+        "description": "你的鳞片提供天然保护。当你受到严重伤害时，你可以标记1压力点以少标记1生命点。",
+        "type": "passive"
+      },
+      {
+        "name": "元素吐息",
+        "nameEn": "Elemental Breath",
+        "description": "选择一种元素作为你的吐息（例如电、火或冰）。你可以对邻近范围内的一个或一群目标使用此吐息，将其视为一种使用你的熟练值造成d8点魔法伤害的本能武器。",
+        "type": "action"
+      }
     ]
   },
   {
     "id": "dwarf",
     "name": "矮人",
     "nameEn": "Dwarf",
+    "description": "坚韧的山岭居民，以耐力和工艺闻名。",
     "features": [
-      "厚实皮肤：当你受到轻度伤害时，你可以标记2压力点代替标记1生命点。",
-      "增强坚韧：花费3希望点，将受到的物理伤害减半。"
+      {
+        "name": "厚实皮肤",
+        "nameEn": "Thick Skin",
+        "description": "当你受到轻度伤害时，你可以标记2压力点代替标记1生命点。",
+        "type": "passive"
+      },
+      {
+        "name": "增强坚韧",
+        "nameEn": "Enhanced Resilience",
+        "description": "花费3希望点，将受到的物理伤害减半。",
+        "type": "action",
+        "hopeCost": 3
+      }
     ]
   },
   {
     "id": "elf",
     "name": "精灵",
     "nameEn": "Elf",
+    "description": "古老而优雅的种族，拥有敏锐的感知和与生俱来的魔法亲和力。",
     "features": [
-      "快速反应：标记1压力点，在反应掷骰上获得优势。",
-      "天界冥想：在休息期间，你可以进入冥想状态，选择一个额外的休整行动。"
+      {
+        "name": "快速反应",
+        "nameEn": "Quick Reflexes",
+        "description": "标记1压力点，在反应掷骰上获得优势。",
+        "type": "action",
+        "stressCost": 1
+      },
+      {
+        "name": "天界冥想",
+        "nameEn": "Celestial Meditation",
+        "description": "在休息期间，你可以进入冥想状态，选择一个额外的休整行动。",
+        "type": "passive"
+      }
     ]
   },
   {
     "id": "fae",
     "name": "仙灵",
     "nameEn": "Fae",
+    "description": "来自仙界的神秘生物，拥有操控运气和飞行的能力。",
     "features": [
-      "运气操控者：每场游戏一次，在你或一个近距离范围内的自愿盟友进行动作掷骰后，你可以花费3希望点重新掷二元骰。",
-      "翅膀：你可以飞行。飞行时，在敌人对你进行攻击之后，你可以标记1压力点在该攻击中闪避获得+2加值。"
+      {
+        "name": "运气操控者",
+        "nameEn": "Luck Manipulator",
+        "description": "每场游戏一次，在你或一个近距离范围内的自愿盟友进行动作掷骰后，你可以花费3希望点重新掷二元骰。",
+        "type": "action",
+        "hopeCost": 3
+      },
+      {
+        "name": "翅膀",
+        "nameEn": "Wings",
+        "description": "你可以飞行。飞行时，在敌人对你进行攻击之后，你可以标记1压力点在该攻击中闪避获得+2加值。",
+        "type": "trait",
+        "stressCost": 1
+      }
     ]
   },
   {
     "id": "satyr",
     "name": "羊蹄人",
     "nameEn": "Satyr",
+    "description": "半人半羊的自然之子，以敏捷和跳跃能力闻名。",
     "features": [
-      "跳跃：你可以像使用正常移动一样跳跃到近距离范围内的任何地方，让你轻松跳过障碍物、跨越缝隙或攀爬障碍。",
-      "踢击：当你对近战范围内的一个目标攻击成功时，你可以标记1压力点借力将自己踢离目标，造成额外2d6点伤害，并将你自己或目标击退至邻近范围处。"
+      {
+        "name": "跳跃",
+        "nameEn": "Leap",
+        "description": "你可以像使用正常移动一样跳跃到近距离范围内的任何地方，让你轻松跳过障碍物、跨越缝隙或攀爬障碍。",
+        "type": "passive"
+      },
+      {
+        "name": "踢击",
+        "nameEn": "Kick",
+        "description": "当你对近战范围内的一个目标攻击成功时，你可以标记1压力点借力将自己踢离目标，造成额外2d6点伤害，并将你自己或目标击退至邻近范围处。",
+        "type": "action",
+        "stressCost": 1
+      }
     ]
   },
   {
     "id": "minotaur",
     "name": "费尔博格",
     "nameEn": "Minotaur",
+    "description": "强壮的牛头人族，以冲撞和坚韧闻名。",
     "features": [
-      "冲撞：当你成功进行一次敏捷掷骰，从远距离或极远距离移动到一个或多个目标的近战距离内时，你可以标记1压力点，对近战距离内的所有目标造成1d12点物理伤害。",
-      "百折不挠：当你本应标记1压力点时，掷一个d6。结果为6时，则无需标记。"
+      {
+        "name": "冲撞",
+        "nameEn": "Charge",
+        "description": "当你成功进行一次敏捷掷骰，从远距离或极远距离移动到一个或多个目标的近战距离内时，你可以标记1压力点，对近战距离内的所有目标造成1d12点物理伤害。",
+        "type": "action",
+        "stressCost": 1
+      },
+      {
+        "name": "百折不挠",
+        "nameEn": "Relentless",
+        "description": "当你本应标记1压力点时，掷一个d6。结果为6时，则无需标记。",
+        "type": "passive"
+      }
     ]
   },
   {
     "id": "sporeling",
     "name": "孢菌人",
     "nameEn": "Sporeling",
+    "description": "由真菌网络连接的奇异种族，能共享信息和感知死亡。",
     "features": [
-      "孢菌网络：进行一次本能掷骰(12)，使用你的菌丝与任何范围的同种族成员交换信息。",
-      "死亡连接：触摸一具最近死亡的尸体，你可以标记1压力点，从尸体中提取一个与你选择的特定情绪或感觉相关的记忆。"
+      {
+        "name": "孢菌网络",
+        "nameEn": "Spore Network",
+        "description": "进行一次本能掷骰(12)，使用你的菌丝与任何范围的同种族成员交换信息。",
+        "type": "action"
+      },
+      {
+        "name": "死亡连接",
+        "nameEn": "Death Connection",
+        "description": "触摸一具最近死亡的尸体，你可以标记1压力点，从尸体中提取一个与你选择的特定情绪或感觉相关的记忆。",
+        "type": "action",
+        "stressCost": 1
+      }
     ]
   },
   {
     "id": "tortle",
     "name": "龟人",
     "nameEn": "Tortle",
+    "description": "拥有天然龟甲的爬行族，以防御能力闻名。",
     "features": [
-      "龟甲：你的伤害阈值获得等同于你熟练值的加值。",
-      "缩壳：标记1压力点来缩入你的龟壳中。在龟壳中时，你获得物理伤害抗性，但动作掷骰有劣势，并且无法移动。"
+      {
+        "name": "龟甲",
+        "nameEn": "Shell",
+        "description": "你的伤害阈值获得等同于你熟练值的加值。",
+        "type": "passive"
+      },
+      {
+        "name": "缩壳",
+        "nameEn": "Shell Defense",
+        "description": "标记1压力点来缩入你的龟壳中。在龟壳中时，你获得物理伤害抗性，但动作掷骰有劣势，并且无法移动。",
+        "type": "action",
+        "stressCost": 1
+      }
     ]
   },
   {
     "id": "giant",
     "name": "巨人",
     "nameEn": "Giant",
+    "description": "体型巨大的种族，拥有惊人的力量和臂展。",
     "features": [
-      "坚韧：在创建角色时，获得一个额外的生命槽。",
-      "长臂：将任何近战范围的武器、能力、法术或其他特性视为具有邻近范围。"
+      {
+        "name": "坚韧",
+        "nameEn": "Tough",
+        "description": "在创建角色时，获得一个额外的生命槽。",
+        "type": "passive"
+      },
+      {
+        "name": "长臂",
+        "nameEn": "Long Arms",
+        "description": "将任何近战范围的武器、能力、法术或其他特性视为具有邻近范围。",
+        "type": "passive"
+      }
     ]
   },
   {
     "id": "goblin",
     "name": "哥布林",
     "nameEn": "Goblin",
+    "description": "小巧而机警的种族，以危险直觉和稳健脚步闻名。",
     "features": [
-      "稳健脚步：你在敏捷掷骰中忽略劣势。",
-      "危险感应：每次休息一次，标记1压力点，强制一个敌人重掷对你或你邻近范围内的盟友的攻击。"
+      {
+        "name": "稳健脚步",
+        "nameEn": "Steady Feet",
+        "description": "你在敏捷掷骰中忽略劣势。",
+        "type": "passive"
+      },
+      {
+        "name": "危险感应",
+        "nameEn": "Danger Sense",
+        "description": "每次休息一次，标记1压力点，强制一个敌人重掷对你或你邻近范围内的盟友的攻击。",
+        "type": "action",
+        "stressCost": 1
+      }
     ]
   },
   {
     "id": "halfling",
     "name": "半身人",
     "nameEn": "Halfling",
+    "description": "矮小而幸运的种族，以好运和内在罗盘闻名。",
     "features": [
-      "幸运使者：每场游戏开始时，你队伍中的所有人皆获得1希望点。",
-      "内在罗盘：当你掷出的希望骰结果为1时，你可以重掷此次掷骰。"
+      {
+        "name": "幸运使者",
+        "nameEn": "Lucky",
+        "description": "每场游戏开始时，你队伍中的所有人皆获得1希望点。",
+        "type": "passive"
+      },
+      {
+        "name": "内在罗盘",
+        "nameEn": "Inner Compass",
+        "description": "当你掷出的希望骰结果为1时，你可以重掷此次掷骰。",
+        "type": "passive"
+      }
     ]
   },
   {
     "id": "human",
     "name": "人类",
     "nameEn": "Human",
+    "description": "适应力最强的种族，以精力和应变能力闻名。",
     "features": [
-      "精力充沛：角色创建时获得一个额外的压力槽。",
-      "随机应变：当你在运用某个经历进行的掷骰失败时，你可以标记1压力点进行重掷。"
+      {
+        "name": "精力充沛",
+        "nameEn": "Energetic",
+        "description": "角色创建时获得一个额外的压力槽。",
+        "type": "passive"
+      },
+      {
+        "name": "随机应变",
+        "nameEn": "Adaptable",
+        "description": "当你在运用某个经历进行的掷骰失败时，你可以标记1压力点进行重掷。",
+        "type": "action",
+        "stressCost": 1
+      }
     ]
   },
   {
     "id": "infernal",
     "name": "魔裔",
     "nameEn": "Infernal",
+    "description": "拥有魔族血脉的种族，以无畏和恐怖面容闻名。",
     "features": [
-      "无畏：当你掷出恐惧结果时，你可以标记2压力点将其改为掷出希望结果。",
-      "恐怖面容：你在恐吓敌意生物的掷骰中具有优势。"
+      {
+        "name": "无畏",
+        "nameEn": "Fearless",
+        "description": "当你掷出恐惧结果时，你可以标记2压力点将其改为掷出希望结果。",
+        "type": "action",
+        "stressCost": 2
+      },
+      {
+        "name": "恐怖面容",
+        "nameEn": "Fearsome Visage",
+        "description": "你在恐吓敌意生物的掷骰中具有优势。",
+        "type": "passive"
+      }
     ]
   },
   {
     "id": "catfolk",
     "name": "猫族",
     "nameEn": "Catfolk",
+    "description": "灵活的猫科种族，以猫科本能和伸缩猫爪闻名。",
     "features": [
-      "猫科本能：当你进行敏捷掷骰时，你可以花费2希望点来重掷你的希望骰。",
-      "伸缩猫爪：进行一次敏捷掷骰来抓挠近战范围内的一个目标。成功时，目标暂时处于脆弱状态。"
+      {
+        "name": "猫科本能",
+        "nameEn": "Feline Instinct",
+        "description": "当你进行敏捷掷骰时，你可以花费2希望点来重掷你的希望骰。",
+        "type": "action",
+        "hopeCost": 2
+      },
+      {
+        "name": "伸缩猫爪",
+        "nameEn": "Retractable Claws",
+        "description": "进行一次敏捷掷骰来抓挠近战范围内的一个目标。成功时，目标暂时处于脆弱状态。",
+        "type": "action"
+      }
     ]
   },
   {
     "id": "orc",
     "name": "兽人",
     "nameEn": "Orc",
+    "description": "强壮而凶猛的种族，以强壮和獠牙闻名。",
     "features": [
-      "强壮：当你剩余1点生命点时，以你为目标的攻击掷骰具有劣势。",
-      "獠牙：当你对近战范围内的一个目标攻击成功时，你可以花费1希望点用獠牙刺击目标，额外造成1d6点伤害。"
+      {
+        "name": "强壮",
+        "nameEn": "Mighty",
+        "description": "当你剩余1点生命点时，以你为目标的攻击掷骰具有劣势。",
+        "type": "passive"
+      },
+      {
+        "name": "獠牙",
+        "nameEn": "Fangs",
+        "description": "当你对近战范围内的一个目标攻击成功时，你可以花费1希望点用獠牙刺击目标，额外造成1d6点伤害。",
+        "type": "action",
+        "hopeCost": 1
+      }
     ]
   },
   {
     "id": "frogfolk",
     "name": "蛙裔",
     "nameEn": "Frogfolk",
+    "description": "两栖种族，以水中生活和长舌闻名。",
     "features": [
-      "两栖：你天生能够在水下呼吸和移动。",
-      "长舌：你可以使用你的长舌抓住近距离范围内的物体。标记1压力点，将你的舌头用作一把使用你的熟练值造成d12物理伤害的灵巧近战武器。"
+      {
+        "name": "两栖",
+        "nameEn": "Amphibious",
+        "description": "你天生能够在水下呼吸和移动。",
+        "type": "passive"
+      },
+      {
+        "name": "长舌",
+        "nameEn": "Long Tongue",
+        "description": "你可以使用你的长舌抓住近距离范围内的物体。标记1压力点，将你的舌头用作一把使用你的熟练值造成d12物理伤害的灵巧近战武器。",
+        "type": "action",
+        "stressCost": 1
+      }
     ]
   },
   {
     "id": "apefolk",
     "name": "猿族",
     "nameEn": "Apefolk",
+    "description": "擅长攀爬的种族，以天生攀爬者和灵活闻名。",
     "features": [
-      "天生攀爬者：你在涉及平衡和攀爬的敏捷掷骰中具有优势。",
-      "灵活：在创建角色时，闪避值获得永久+1加值。"
+      {
+        "name": "天生攀爬者",
+        "nameEn": "Natural Climber",
+        "description": "你在涉及平衡和攀爬的敏捷掷骰中具有优势。",
+        "type": "passive"
+      },
+      {
+        "name": "灵活",
+        "nameEn": "Nimble",
+        "description": "在创建角色时，闪避值获得永久+1加值。",
+        "type": "passive"
+      }
     ]
   }
 ]

@@ -301,14 +301,14 @@ export class CharacterLevelUp {
           }
           // Handle swap or direct add
           if (request.domainCardSwap?.remove) {
-            const removeIdx = updated.domainCards.findIndex(c => c.id === request.domainCardSwap!.remove);
+            const removeIdx = updated.domainCardConfig.loadout.findIndex((c: DomainCard) => c.id === request.domainCardSwap!.remove);
             if (removeIdx >= 0) {
-              updated.domainCards.splice(removeIdx, 1);
+              updated.domainCardConfig.loadout.splice(removeIdx, 1);
             } else {
               errors.push(`未找到要替换的领域卡: ${request.domainCardSwap.remove}`);
             }
           }
-          updated.domainCards.push(card);
+          updated.domainCardConfig.loadout.push(card);
           break;
         }
 
@@ -337,16 +337,16 @@ export class CharacterLevelUp {
     }
 
     // Update damage thresholds (threshold = base + level)
-    const armorData = daggerheartData.armor.find(a => a.id === updated.armorId);
+    const armorData = updated.armor;
     if (armorData) {
       const thresholds = calculateThresholds(
         armorData.baseThreshold,
         armorData.baseThresholdSevere,
         updated.level,
       );
+      updated.minorThreshold = thresholds.minor;
       updated.majorThreshold = thresholds.major;
       updated.severeThreshold = thresholds.severe;
-      updated.massiveThreshold = thresholds.massive;
     }
 
     if (errors.length > 0) {

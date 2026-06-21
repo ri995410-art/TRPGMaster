@@ -1,0 +1,87 @@
+[
+  {
+    "id": "hoodedLanterns",
+    "name": "提灯团",
+    "nameEn": "Hooded Lanterns",
+    "leader": "指挥官奥利弗·斯通",
+    "lieutenant": "副官玛雅·布莱克伍德",
+    "baseLocation": "灯塔据点",
+    "agenda": "收复德拉肯海姆，重建城市秩序",
+    "ideology": "秩序与重建：相信通过军事力量和组织纪律可以收复德拉肯海姆，恢复其往日荣光。",
+    "relationRange": [1, 10],
+    "boons": [
+      { "name": "补给支援", "description": "从提灯团获得基本补给和装备修理服务", "minRelation": 3 },
+      { "name": "巡逻护送", "description": "在外城区域获得提灯团巡逻队的护送", "minRelation": 5 },
+      { "name": "灯塔庇护", "description": "在灯塔据点获得安全休息和治疗", "minRelation": 7 },
+      { "name": "军事支援", "description": "在战斗中召唤提灯团士兵协助", "minRelation": 9, "cost": "3希望点" }
+    ]
+  },
+  {
+    "id": "queensMen",
+    "name": "女王之仆",
+    "nameEn": "Queen's Men",
+    "leader": "银手弗朗西斯",
+    "lieutenant": "暗影塞拉斯",
+    "baseLocation": "暗巷据点",
+    "agenda": "控制德拉肯海姆的黑市和地下经济",
+    "ideology": "权力与利益：相信在混乱中建立地下秩序，通过控制资源和信息来获取权力。",
+    "relationRange": [1, 10],
+    "boons": [
+      { "name": "黑市通道", "description": "获得进入黑市和购买稀有物品的权限", "minRelation": 3 },
+      { "name": "情报网络", "description": "获得关于其他派系和危险区域的情报", "minRelation": 5 },
+      { "name": "暗巷庇护", "description": "在紧急情况下获得安全屋的庇护", "minRelation": 7 },
+      { "name": "暗杀协助", "description": "获得女王之仆的暗杀和破坏支持", "minRelation": 9, "cost": "3希望点" }
+    ]
+  },
+  {
+    "id": "silverOrder",
+    "name": "白银骑士团",
+    "nameEn": "Knights of the Silver Order",
+    "leader": "大骑士赛拉斯·沃恩",
+    "lieutenant": "圣骑士艾琳·索恩",
+    "baseLocation": "圣殿堡垒",
+    "agenda": "清除德拉肯海姆的邪恶和异变，保护无辜者",
+    "ideology": "信仰与净化：相信只有通过神圣力量和坚定不移的信仰才能对抗德拉肯海姆的邪恶。",
+    "relationRange": [1, 10],
+    "boons": [
+      { "name": "神圣祝福", "description": "获得白银骑士团的祝福，希望点+1", "minRelation": 3 },
+      { "name": "驱魔仪式", "description": "获得驱魔和净化的仪式服务", "minRelation": 5 },
+      { "name": "圣殿庇护", "description": "在圣殿堡垒获得安全休息和治愈", "minRelation": 7 },
+      { "name": "圣战之力", "description": "获得白银骑士团的战斗支援和神圣武器", "minRelation": 9, "cost": "3希望点" }
+    ]
+  },
+  {
+    "id": "fallingFire",
+    "name": "陨火信徒",
+    "nameEn": "Followers of the Falling Fire",
+    "leader": "先知卡桑德拉·灰烬",
+    "lieutenant": "祭司维克多·烈焰",
+    "baseLocation": "陨火神殿",
+    "agenda": "崇拜翠晶的力量，拥抱变异和蜕变",
+    "ideology": "蜕变与超越：相信翠晶的力量可以带来超越凡人的蜕变，视变异为进化的标志。",
+    "relationRange": [1, 10],
+    "boons": [
+      { "name": "翠晶知识", "description": "获得关于翠晶的深入知识和辨识能力", "minRelation": 3 },
+      { "name": "变异抗性", "description": "获得临时降低污染风险的能力", "minRelation": 5 },
+      { "name": "蜕变祝福", "description": "获得陨火信徒的祝福，可选择有益的变异效果", "minRelation": 7 },
+      { "name": "翠晶之力", "description": "获得翠晶武器的使用权限和强大的翠晶法术", "minRelation": 9, "cost": "2希望点+2压力点" }
+    ]
+  },
+  {
+    "id": "amethystAcademy",
+    "name": "紫晶学院",
+    "nameEn": "Amethyst Academy",
+    "leader": "院长伊莎贝拉·紫晶",
+    "lieutenant": "教授马库斯·符文",
+    "baseLocation": "紫晶塔",
+    "agenda": "研究翠晶的魔法本质，利用其力量推进奥术知识",
+    "ideology": "知识与魔法：相信通过科学研究和奥术实验可以理解和利用翠晶的力量。",
+    "relationRange": [1, 10],
+    "boons": [
+      { "name": "奥术研究", "description": "获得紫晶学院的奥术知识和法术研究权限", "minRelation": 3 },
+      { "name": "法术物品", "description": "获得购买和修理法术物品的服务", "minRelation": 5 },
+      { "name": "紫晶庇护", "description": "在紫晶塔获得安全休息和魔法研究空间", "minRelation": 7 },
+      { "name": "翠晶法术", "description": "学习强大的翠晶法术和使用翠晶法器", "minRelation": 9, "cost": "3希望点" }
+    ]
+  }
+]

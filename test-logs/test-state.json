@@ -1,0 +1,666 @@
+{
+  "roundNumber": 51,
+  "totalActions": 51,
+  "gmResponses": [
+    {
+      "round": 1,
+      "action": "我是一名刚到达余烬村的冒险者。我环顾四周，了解这个村庄的情况。",
+      "responseLength": 442,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 19759,
+      "timestamp": 1781987886834
+    },
+    {
+      "round": 2,
+      "action": "我走向村中央的井，仔细查看那些抓痕和井里的情况。",
+      "responseLength": 496,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 39760,
+      "timestamp": 1781987928602
+    },
+    {
+      "round": 3,
+      "action": "我去东侧的谷仓看看，那些拖拽痕迹通向哪里？",
+      "responseLength": 449,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 134103,
+      "timestamp": 1781988064710
+    },
+    {
+      "round": 4,
+      "action": "我沿着车辙路走一小段，看看路上那些翠晶碎片。",
+      "responseLength": 437,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 8679,
+      "timestamp": 1781988075391
+    },
+    {
+      "round": 5,
+      "action": "我回到村里，找一个人问问这里发生了什么事。",
+      "responseLength": 627,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 170046,
+      "timestamp": 1781988247441
+    },
+    {
+      "round": 6,
+      "action": "我寻找提灯团的成员，想了解他们的立场。",
+      "responseLength": 665,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 109671,
+      "timestamp": 1781988369129
+    },
+    {
+      "round": 7,
+      "action": "我向提灯团的成员打听关于迷雾和井里爬出来的东西的情报。",
+      "responseLength": 908,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 112924,
+      "timestamp": 1781988484061
+    },
+    {
+      "round": 8,
+      "action": "我询问关于德拉肯海姆城内的情况，那里有什么危险？",
+      "responseLength": 1093,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 42532,
+      "timestamp": 1781988528599
+    },
+    {
+      "round": 9,
+      "action": "我想了解其他派系的态度，白银骑士团和紫晶学院在做什么？",
+      "responseLength": 0,
+      "hasChoices": false,
+      "choiceCount": 0,
+      "responseTime": 102822,
+      "timestamp": 1781988633422
+    },
+    {
+      "round": 10,
+      "action": "我尝试与提灯团建立友好关系，提供我的帮助。",
+      "responseLength": 767,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 70008,
+      "timestamp": 1781988705433
+    },
+    {
+      "round": 11,
+      "action": "我听到谷仓里传来异响，我拔出武器小心翼翼地进去查看。",
+      "responseLength": 338,
+      "hasChoices": false,
+      "choiceCount": 0,
+      "responseTime": 96516,
+      "timestamp": 1781988813965
+    },
+    {
+      "round": 12,
+      "action": "如果有敌人在里面，我准备战斗！我先观察它的弱点。",
+      "responseLength": 585,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 113192,
+      "timestamp": 1781988929162
+    },
+    {
+      "round": 13,
+      "action": "我发动攻击，瞄准它的要害！",
+      "responseLength": 0,
+      "hasChoices": false,
+      "choiceCount": 0,
+      "responseTime": 67988,
+      "timestamp": 1781988999156
+    },
+    {
+      "round": 14,
+      "action": "敌人反击了！我尝试闪避并进行反击。",
+      "responseLength": 589,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 68286,
+      "timestamp": 1781989069446
+    },
+    {
+      "round": 15,
+      "action": "战斗结束后，我检查战利品和周围环境。",
+      "responseLength": 806,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 26166,
+      "timestamp": 1781989097618
+    },
+    {
+      "round": 16,
+      "action": "我在谷仓深处发现了一个隐藏的地下室入口，我下去探索。",
+      "responseLength": 639,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 24294,
+      "timestamp": 1781989133951
+    },
+    {
+      "round": 17,
+      "action": "地下室里有奇怪的符文和机关，我仔细研究它们。",
+      "responseLength": 804,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 13613,
+      "timestamp": 1781989149582
+    },
+    {
+      "round": 18,
+      "action": "我尝试解读这些符文的含义，它们似乎和翠晶有关。",
+      "responseLength": 823,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 10449,
+      "timestamp": 1781989162045
+    },
+    {
+      "round": 19,
+      "action": "我发现了一个需要特定顺序触碰的符文阵，我根据线索尝试解开它。",
+      "responseLength": 0,
+      "hasChoices": false,
+      "choiceCount": 0,
+      "responseTime": 41252,
+      "timestamp": 1781989205302
+    },
+    {
+      "round": 20,
+      "action": "符文阵打开了，里面有一个古老的箱子和一封褪色的信。",
+      "responseLength": 719,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 38698,
+      "timestamp": 1781989246013
+    },
+    {
+      "round": 21,
+      "action": "我打开箱子，但有一股绿色的雾气涌出，我可能被污染了！",
+      "responseLength": 884,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 17348,
+      "timestamp": 1781989275402
+    },
+    {
+      "round": 22,
+      "action": "我感觉身体有些异样，检查自己的污染等级。",
+      "responseLength": 487,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 16836,
+      "timestamp": 1781989294253
+    },
+    {
+      "round": 23,
+      "action": "迷雾开始变浓了，我需要尽快找到一个安全的地方。",
+      "responseLength": 0,
+      "hasChoices": false,
+      "choiceCount": 0,
+      "responseTime": 54863,
+      "timestamp": 1781989351122
+    },
+    {
+      "round": 24,
+      "action": "我在迷雾中前进，试图找到回到余烬村的路上。",
+      "responseLength": 0,
+      "hasChoices": false,
+      "choiceCount": 0,
+      "responseTime": 72945,
+      "timestamp": 1781989426079
+    },
+    {
+      "round": 25,
+      "action": "我遇到了一个受伤的冒险者，我尝试帮助他。",
+      "responseLength": 999,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 54370,
+      "timestamp": 1781989482452
+    },
+    {
+      "round": 26,
+      "action": "我找到一个相对安全的地方，决定进行一次短休。",
+      "responseLength": 160,
+      "hasChoices": false,
+      "choiceCount": 0,
+      "responseTime": 66326,
+      "timestamp": 1781989560818
+    },
+    {
+      "round": 27,
+      "action": "短休时我选择：清理伤口和恢复希望点。",
+      "responseLength": 597,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 109441,
+      "timestamp": 1781989672278
+    },
+    {
+      "round": 28,
+      "action": "我和受伤的冒险者交谈，了解他为什么会在这里。",
+      "responseLength": 1500,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 41915,
+      "timestamp": 1781989716200
+    },
+    {
+      "round": 29,
+      "action": "休息后我检查自己的状态，准备继续前进。",
+      "responseLength": 0,
+      "hasChoices": false,
+      "choiceCount": 0,
+      "responseTime": 83398,
+      "timestamp": 1781989801601
+    },
+    {
+      "round": 30,
+      "action": "我决定前往德拉肯海姆城内探索。",
+      "responseLength": 806,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 15135,
+      "timestamp": 1781989818740
+    },
+    {
+      "round": 31,
+      "action": "我进入德拉肯海姆城内，描述我看到的景象。",
+      "responseLength": 859,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 36325,
+      "timestamp": 1781989867090
+    },
+    {
+      "round": 32,
+      "action": "我发现了一座部分坍塌的教堂，进去探索。",
+      "responseLength": 666,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 20800,
+      "timestamp": 1781989889909
+    },
+    {
+      "round": 33,
+      "action": "教堂内有派系的标志，似乎是某个派系的前哨站。",
+      "responseLength": 0,
+      "hasChoices": false,
+      "choiceCount": 0,
+      "responseTime": 63104,
+      "timestamp": 1781989955027
+    },
+    {
+      "round": 34,
+      "action": "我在教堂内发现了关于德拉肯海姆封印的线索。",
+      "responseLength": 670,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 15019,
+      "timestamp": 1781989972057
+    },
+    {
+      "round": 35,
+      "action": "我继续深入城市，朝城堡的方向前进。",
+      "responseLength": 714,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 14515,
+      "timestamp": 1781989988577
+    },
+    {
+      "round": 36,
+      "action": "回忆一下我到目前为止遇到的所有NPC，他们分别说了什么？",
+      "responseLength": 2909,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 98817,
+      "timestamp": 1781990099427
+    },
+    {
+      "round": 37,
+      "action": "我之前在井里发现了什么？那个铜牌上写了什么？",
+      "responseLength": 608,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 164182,
+      "timestamp": 1781990265610
+    },
+    {
+      "round": 38,
+      "action": "我在谷仓地下室找到了什么信件？信上说了什么？",
+      "responseLength": 640,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 44667,
+      "timestamp": 1781990312284
+    },
+    {
+      "round": 39,
+      "action": "我的污染等级现在是多少？我有什么异常症状？",
+      "responseLength": 374,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 9913,
+      "timestamp": 1781990324206
+    },
+    {
+      "round": 40,
+      "action": "我和哪个派系的关系最好？为什么？",
+      "responseLength": 744,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 47291,
+      "timestamp": 1781990373506
+    },
+    {
+      "round": 41,
+      "action": "城堡入口有一个巨大的被污染的生物挡住了去路，我准备战斗！",
+      "responseLength": 537,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 30715,
+      "timestamp": 1781990416239
+    },
+    {
+      "round": 42,
+      "action": "我观察这个生物的弱点，寻找攻击的最佳时机。",
+      "responseLength": 781,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 19130,
+      "timestamp": 1781990437373
+    },
+    {
+      "round": 43,
+      "action": "我发动全力一击！希望骰和恐惧骰，我需要好结果！",
+      "responseLength": 622,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 49055,
+      "timestamp": 1781990488435
+    },
+    {
+      "round": 44,
+      "action": "Boss反击了，我被击中，检查我的伤害和状态。",
+      "responseLength": 366,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 12206,
+      "timestamp": 1781990502655
+    },
+    {
+      "round": 45,
+      "action": "我坚持不懈，继续攻击，利用之前获得的线索和道具。",
+      "responseLength": 841,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 27341,
+      "timestamp": 1781990532005
+    },
+    {
+      "round": 46,
+      "action": "战斗结束了！我检查战利品和周围环境。",
+      "responseLength": 837,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 53681,
+      "timestamp": 1781990587696
+    },
+    {
+      "round": 47,
+      "action": "我在城堡深处发现了德拉肯海姆封印，我尝试理解它的含义。",
+      "responseLength": 1258,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 60902,
+      "timestamp": 1781990660624
+    },
+    {
+      "round": 48,
+      "action": "我决定如何处理这个封印，是摧毁它还是利用它？",
+      "responseLength": 599,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 59240,
+      "timestamp": 1781990721866
+    },
+    {
+      "round": 49,
+      "action": "无论结果如何，我回到余烬村，向那里的人报告我的发现。",
+      "responseLength": 1876,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 82457,
+      "timestamp": 1781990806340
+    },
+    {
+      "round": 50,
+      "action": "我总结一下这次冒险的收获和损失。",
+      "responseLength": 1957,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 104559,
+      "timestamp": 1781990912903
+    },
+    {
+      "round": 51,
+      "action": "我对未来的冒险有什么计划？",
+      "responseLength": 803,
+      "hasChoices": true,
+      "choiceCount": 4,
+      "responseTime": 93173,
+      "timestamp": 1781991008082
+    }
+  ],
+  "errors": [],
+  "stateSnapshots": [
+    {
+      "round": 0,
+      "time": 1781987867073,
+      "hp": 7,
+      "maxHp": 7,
+      "stress": 0,
+      "hope": 6,
+      "fearPoints": 0,
+      "contaminationLevel": 0,
+      "factionRelations": {}
+    },
+    {
+      "round": 5,
+      "time": 1781988249455,
+      "phase": "Phase 1: 初始探索 (Exploration)",
+      "hp": 7,
+      "maxHp": 7,
+      "stress": 0,
+      "hope": 6,
+      "fearPoints": 0,
+      "contaminationLevel": 0,
+      "factionRelations": {},
+      "currentLocation": "emberVillage"
+    },
+    {
+      "round": 10,
+      "time": 1781988707446,
+      "phase": "Phase 2: NPC互动与派系 (Social/Faction)",
+      "hp": 7,
+      "maxHp": 7,
+      "stress": 0,
+      "hope": 6,
+      "fearPoints": 0,
+      "contaminationLevel": 0,
+      "factionRelations": {},
+      "currentLocation": "emberVillage"
+    },
+    {
+      "round": 15,
+      "time": 1781989099642,
+      "phase": "Phase 3: 战斗 (Combat)",
+      "hp": 7,
+      "maxHp": 7,
+      "stress": 0,
+      "hope": 6,
+      "fearPoints": 0,
+      "contaminationLevel": 0,
+      "factionRelations": {},
+      "currentLocation": "emberVillage"
+    },
+    {
+      "round": 20,
+      "time": 1781989248044,
+      "phase": "Phase 4: 探索与解密 (Exploration/Puzzle)",
+      "hp": 7,
+      "maxHp": 7,
+      "stress": 0,
+      "hope": 6,
+      "fearPoints": 0,
+      "contaminationLevel": 0,
+      "factionRelations": {},
+      "currentLocation": "emberVillage"
+    },
+    {
+      "round": 25,
+      "time": 1781989484481,
+      "phase": "Phase 5: 污染与危机 (Contamination/Crisis)",
+      "hp": 7,
+      "maxHp": 7,
+      "stress": 0,
+      "hope": 6,
+      "fearPoints": 0,
+      "contaminationLevel": 0,
+      "factionRelations": {},
+      "currentLocation": "emberVillage"
+    },
+    {
+      "round": 30,
+      "time": 1781989820755,
+      "phase": "Phase 6: 休息与恢复 (Rest/Recovery)",
+      "hp": 7,
+      "maxHp": 7,
+      "stress": 0,
+      "hope": 6,
+      "fearPoints": 0,
+      "contaminationLevel": 0,
+      "factionRelations": {},
+      "currentLocation": "emberVillage"
+    },
+    {
+      "round": 35,
+      "time": 1781989990597,
+      "phase": "Phase 7: 深入探索 (Deep Exploration)",
+      "hp": 7,
+      "maxHp": 7,
+      "stress": 0,
+      "hope": 6,
+      "fearPoints": 0,
+      "contaminationLevel": 0,
+      "factionRelations": {},
+      "currentLocation": "emberVillage"
+    },
+    {
+      "round": 40,
+      "time": 1781990375519,
+      "phase": "Phase 8: 记忆测试 (Memory Consistency Test)",
+      "hp": 7,
+      "maxHp": 7,
+      "stress": 0,
+      "hope": 6,
+      "fearPoints": 0,
+      "contaminationLevel": 0,
+      "factionRelations": {},
+      "currentLocation": "emberVillage"
+    },
+    {
+      "round": 46,
+      "time": 1781990589708,
+      "phase": "Phase 9: Boss战 (Boss Combat)",
+      "hp": 7,
+      "maxHp": 7,
+      "stress": 0,
+      "hope": 6,
+      "fearPoints": 0,
+      "contaminationLevel": 0,
+      "factionRelations": {},
+      "currentLocation": "emberVillage"
+    },
+    {
+      "round": 51,
+      "time": 1781991010104,
+      "phase": "Phase 10: 结局与总结 (Ending)",
+      "hp": 7,
+      "maxHp": 7,
+      "stress": 0,
+      "hope": 6,
+      "fearPoints": 0,
+      "contaminationLevel": 0,
+      "factionRelations": {},
+      "currentLocation": "emberVillage"
+    }
+  ],
+  "startTime": 1781987867027,
+  "responseTimes": [
+    19759,
+    39760,
+    134103,
+    8679,
+    170046,
+    109671,
+    112924,
+    42532,
+    102822,
+    70008,
+    96516,
+    113192,
+    67988,
+    68286,
+    26166,
+    24294,
+    13613,
+    10449,
+    41252,
+    38698,
+    17348,
+    16836,
+    54863,
+    72945,
+    54370,
+    66326,
+    109441,
+    41915,
+    83398,
+    15135,
+    36325,
+    20800,
+    63104,
+    15019,
+    14515,
+    98817,
+    164182,
+    44667,
+    9913,
+    47291,
+    30715,
+    19130,
+    49055,
+    12206,
+    27341,
+    53681,
+    60902,
+    59240,
+    82457,
+    104559,
+    93173
+  ],
+  "choicesReceived": 42,
+  "choicesMissing": 9,
+  "consistencyIssues": []
+}

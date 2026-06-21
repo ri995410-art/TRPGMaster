@@ -1,74 +1,52 @@
 import { Server as IOServer, Socket } from 'socket.io';
 import { Server as HttpServer } from 'http';
-import type { SessionOrchestrator } from '../core/SessionOrchestrator';
+import type { StateManager } from '../core/StateManager';
+import type { SessionRegistry } from '../core/SessionRegistry';
+import type { AIGameMaster } from '../ai/AIGameMaster';
 import type {
-  SocketMessage,
-  SocketMessageType,
   GameEvent,
+  GameEventType,
   SessionState,
-  PlayerState,
-  InputTextPayload,
-  InputVoicePayload,
-  InputVisionPayload,
-  Suggestion,
-  SuggestionOption,
-  RiskLevel,
-  AgentType,
+  Player,
+  Character,
 } from '@trpgmaster/shared';
-import { classifyRisk, getTypeLabel, L2_AUTO_SEND_TIMEOUT, L1_UNDO_WINDOW } from '../agents/RiskClassifier';
+import type { PersistedAdventureMessage } from '../core/SessionPersistence';
 
 interface ConnectedClient {
   socketId: string;
   playerId: string;
   role: 'gm' | 'player';
   name: string;
+  sessionId: string;       // Which session this client belongs to
+  characterId?: string;    // Character ID for this client
 }
 
-interface PendingAutoSend {
-  suggestionId: string;
-  timeout: NodeJS.Timeout;
-  optionIndex: number;
-  agentType: AgentType;
-  typeLabel: string;
-  content: string;
-}
-
-interface AutoSentMessage {
-  messageId: string;
-  suggestionId: string;
+// Socket message format for communication
+interface SocketMessage<T = unknown> {
+  type: string;
+  sessionId: string;
+  senderId: string;
+  payload: T;
   timestamp: number;
-  undoTimeout: NodeJS.Timeout;
 }
 
 export class SocketServer {
   private io: IOServer;
-  private orchestrator: SessionOrchestrator;
+  private sessionRegistry: SessionRegistry;
+  private aiGM: AIGameMaster | undefined;
   private clients: Map<string, ConnectedClient>;
-  private sessionId: string;
 
-  // L2 auto-send timers
-  private pendingAutoSends: Map<string, PendingAutoSend> = new Map();
-
-  // L1 auto-sent messages (for undo tracking)
-  private autoSentMessages: AutoSentMessage[] = [];
-
-  // Track which suggestions have already been published to avoid double-send
-  private publishedSuggestions: Set<string> = new Set();
-
-  // Store all suggestions so GM adoption can retrieve content
-  private suggestionStore: Map<string, Suggestion> = new Map();
-
-  constructor(httpServer: HttpServer, orchestrator: SessionOrchestrator) {
-    this.orchestrator = orchestrator;
-    this.sessionId = orchestrator.getSessionId();
+  constructor(httpServer: HttpServer, sessionRegistry: SessionRegistry, aiGM?: AIGameMaster) {
+    this.sessionRegistry = sessionRegistry;
+    this.aiGM = aiGM;
     this.clients = new Map();
 
     this.io = new IOServer(httpServer, {
       cors: { origin: '*' },
       transports: ['websocket', 'polling'],
       pingInterval: 10000,
-      pingTimeout: 5000,
-      maxHttpBufferSize: 5e6, // 5MB for voice/image payloads
+      pingTimeout: 25000,
+      maxHttpBufferSize: 5e6,
     });
 
     this.setupHandlers();
@@ -78,8 +56,26 @@ export class SocketServer {
     this.io.on('connection', (socket: Socket) => {
       console.log(`Client connected: ${socket.id}`);
 
-      socket.on('session:join', (msg: SocketMessage<{ role: 'gm' | 'player'; name: string; characterId?: string }>) => {
+      // ===== Session Management =====
+
+      socket.on('session:join', (msg: SocketMessage<{ role: 'gm' | 'player'; name: string; character?: Character }>) => {
         this.handleJoin(socket, msg);
+      });
+
+      socket.on('session:create', (msg: SocketMessage<{ name: string; character?: Character }>) => {
+        this.handleCreateSession(socket, msg);
+      });
+
+      socket.on('session:joinByCode', (msg: SocketMessage<{ code: string; name: string; character?: Character }>) => {
+        this.handleJoinByCode(socket, msg);
+      });
+
+      socket.on('session:rejoin', (msg: SocketMessage<{ playerId: string; name: string; character?: Character }>) => {
+        this.handleRejoin(socket, msg);
+      });
+
+      socket.on('session:info', () => {
+        this.handleSessionInfo(socket);
       });
 
       socket.on('session:start', () => {
@@ -94,408 +90,498 @@ export class SocketServer {
         this.handleLeave(socket);
       });
 
+      // ===== Game Events =====
+
       socket.on('game:event', (msg: SocketMessage<GameEvent>) => {
         this.handleGameEvent(socket, msg);
       });
 
       socket.on('chat:message', (msg: SocketMessage<{ text: string; sender: string }>) => {
-        // Simply relay chat messages to all clients in the room
-        this.io.to(this.sessionId).emit('chat:message', msg);
+        const client = this.clients.get(socket.id);
+        if (!client) return;
+        const sessionId = client.sessionId;
+        this.io.to(sessionId).emit('chat:message', msg);
       });
 
       socket.on('dice:roll', (msg: SocketMessage<{ hopeDie: number; fearDie: number; modifier: number; difficulty: number }>) => {
-        this.io.to(this.sessionId).emit('dice:roll', msg);
+        const client = this.clients.get(socket.id);
+        if (!client) return;
+        const sessionId = client.sessionId;
+        this.io.to(sessionId).emit('dice:roll', msg);
       });
 
-      socket.on('input:text', (msg: SocketMessage<InputTextPayload>) => {
+      socket.on('input:text', (msg: SocketMessage<{ text: string }>) => {
         this.handleInputText(socket, msg);
       });
 
-      socket.on('input:voice', (msg: SocketMessage<InputVoicePayload>) => {
-        this.handleInputVoice(socket, msg);
+      // ===== Player Actions (AI GM) =====
+
+      socket.on('player:action', (msg: SocketMessage<{ action: string }>) => {
+        this.handlePlayerAction(socket, msg);
       });
 
-      socket.on('input:vision', (msg: SocketMessage<InputVisionPayload>) => {
-        this.handleInputVision(socket, msg);
+      socket.on('player:choice', (msg: SocketMessage<{ choiceId: string; choiceText: string }>) => {
+        this.handlePlayerChoice(socket, msg);
       });
 
-      // GM publishes a suggestion (adopts an option) - sends to players
-      socket.on('gm:publishSuggestion', (msg: SocketMessage<{ suggestionId: string; optionIndex: number; editContent?: string }>) => {
-        this.handlePublishSuggestion(socket, msg);
+      socket.on('player:rest', (msg: SocketMessage<{ restType: string; actions: string[] }>) => {
+        this.handlePlayerAction(socket, {
+          type: 'player:action',
+          sessionId: msg.sessionId,
+          senderId: msg.senderId,
+          payload: { action: `请求${msg.payload.restType === 'long' ? '长' : '短'}休，活动：${msg.payload.actions.join('、')}` },
+          timestamp: msg.timestamp,
+        });
       });
 
-      // GM dismisses a suggestion
-      socket.on('agent:dismiss', (msg: SocketMessage<{ suggestionId: string }>) => {
-        this.handleDismissSuggestion(socket, msg);
+      socket.on('combat:action', (msg: SocketMessage<{ actionId: string; targetId?: string }>) => {
+        this.handlePlayerAction(socket, {
+          type: 'player:action',
+          sessionId: msg.sessionId,
+          senderId: msg.senderId,
+          payload: { action: `战斗行动：${msg.payload.actionId}${msg.payload.targetId ? `，目标：${msg.payload.targetId}` : ''}` },
+          timestamp: msg.timestamp,
+        });
       });
 
-      // GM requests undo of last auto-sent message
-      socket.on('chat:undo', (msg: SocketMessage) => {
-        this.handleUndoLastAuto(socket);
+      // ===== GM Narration =====
+
+      socket.on('gm:narrate', () => {
+        this.handleNarrationRequest(socket);
       });
 
-      // Agent mode switch
-      socket.on('agent:mode', (msg: SocketMessage<{ mode: 'multi' | 'unified' }>) => {
-        this.handleAgentMode(socket, msg);
-      });
+      // ===== Character Update =====
 
-      // Character update (GM edits character sheet)
       socket.on('character:update', (msg: SocketMessage<{ characterId: string; updates: Record<string, unknown> }>) => {
         this.handleCharacterUpdate(socket, msg);
       });
+
+      socket.on('character:switch', (msg: SocketMessage<{ character: Character }>) => {
+        this.handleCharacterSwitch(socket, msg);
+      });
+
+      // ===== Disconnect =====
 
       socket.on('disconnect', () => {
         this.handleLeave(socket);
         console.log(`Client disconnected: ${socket.id}`);
       });
-
-      // Send current state to newly connected client
-      const snapshot = this.orchestrator.getSnapshot();
-      socket.emit('game:state', {
-        type: 'game:state',
-        sessionId: this.sessionId,
-        senderId: 'system',
-        payload: snapshot,
-        timestamp: Date.now(),
-      });
     });
   }
 
-  private handleJoin(socket: Socket, msg: SocketMessage<{ role: 'gm' | 'player'; name: string; characterId?: string }>): void {
-    const { role, name, characterId } = msg.payload as { role: 'gm' | 'player'; name: string; characterId?: string };
+  // ===== Session Management Handlers =====
+
+  private handleJoin(socket: Socket, msg: SocketMessage<{ role: 'gm' | 'player'; name: string; character?: Character; playerId?: string }>): void {
+    const { role, name, character, playerId } = msg.payload;
+
+    // Use stable playerId if provided, otherwise fall back to senderId
+    const effectivePlayerId = playerId || msg.senderId;
+
+    // Determine which session to join — default to first available (single-player compat)
+    const allSessions = this.sessionRegistry.getAllSessions();
+    let sessionId: string;
+    let stateManager: StateManager;
+
+    if (allSessions.length > 0) {
+      // Join the first (default) session for backward compat
+      sessionId = allSessions[0].sessionId;
+      stateManager = this.sessionRegistry.findById(sessionId)!;
+    } else {
+      // Create a default session if none exists
+      const result = this.sessionRegistry.createSession();
+      sessionId = result.sessionId;
+      stateManager = result.stateManager;
+    }
 
     const client: ConnectedClient = {
       socketId: socket.id,
-      playerId: msg.senderId,
+      playerId: effectivePlayerId,
       role,
       name,
+      sessionId,
+      characterId: character?.id,
     };
 
     this.clients.set(socket.id, client);
-    socket.join(this.sessionId);
+    socket.join(sessionId);
 
-    // Add player to state manager so they're tracked in session state
-    if (role === 'player') {
-      const playerState: PlayerState = {
-        playerId: msg.senderId,
+    // Check if this player already exists in the session (rejoin)
+    const existingPlayer = stateManager.getPlayers().find(p => p.id === effectivePlayerId);
+
+    if (existingPlayer) {
+      // Silent rejoin: just update connection status, don't broadcast playerJoined
+      existingPlayer.isConnected = true;
+      if (character) {
+        existingPlayer.character = character;
+      }
+      console.log(`${name} rejoined session ${sessionId} (playerId: ${effectivePlayerId})`);
+    } else if (character && role === 'player') {
+      // New player joining
+      const player: Player = {
+        id: effectivePlayerId,
         name,
-        connected: true,
-        characterId: characterId || '',
-        isActing: false,
+        character,
+        isConnected: true,
+        joinedAt: Date.now(),
       };
+      stateManager.addPlayer(player);
 
-      // If characterId is provided, add both player and character
-      if (characterId) {
-        const character = this.orchestrator.getStateManager().getCharacter(characterId);
-        if (character) {
-          this.orchestrator.addPlayer(playerState, character);
-        } else {
-          this.orchestrator.getStateManager().addPlayer(playerState);
-        }
+      // Notify others about the new player
+      this.io.to(sessionId).emit('session:playerJoined', {
+        type: 'session:playerJoined',
+        sessionId,
+        senderId: effectivePlayerId,
+        payload: { name, characterName: character?.name },
+        timestamp: Date.now(),
+      });
+
+      console.log(`${name} joined session ${sessionId} (playerId:${effectivePlayerId})`);
+    }
+
+    // Send full state to the client (including adventure messages)
+    const state = stateManager.getState();
+    const adventureMessages = stateManager.getAdventureMessages();
+    socket.emit('game:state', {
+      type: 'game:state',
+      sessionId,
+      senderId: 'system',
+      payload: { state, adventureMessages },
+      timestamp: Date.now(),
+    });
+
+    // Send player list to all clients in the session
+    this.broadcastPlayerList(sessionId, stateManager);
+  }
+
+  private handleCreateSession(socket: Socket, msg: SocketMessage<{ name: string; character?: Character }>): void {
+    const { name, character } = msg.payload;
+
+    const { sessionId, code, stateManager } = this.sessionRegistry.createSession(msg.senderId);
+
+    // Register client
+    const client: ConnectedClient = {
+      socketId: socket.id,
+      playerId: msg.senderId,
+      role: 'player',
+      name,
+      sessionId,
+      characterId: character?.id,
+    };
+    this.clients.set(socket.id, client);
+    socket.join(sessionId);
+
+    // Add player as host
+    if (character) {
+      const player: Player = {
+        id: msg.senderId,
+        name,
+        character,
+        isConnected: true,
+        joinedAt: Date.now(),
+      };
+      stateManager.addPlayer(player);
+      this.sessionRegistry.setHostId(sessionId, msg.senderId);
+    }
+
+    // Send session info back
+    socket.emit('session:created', {
+      type: 'session:created',
+      sessionId,
+      senderId: 'system',
+      payload: { sessionId, code, isHost: true },
+      timestamp: Date.now(),
+    });
+
+    // Send state
+    const state = stateManager.getState();
+    const adventureMessages = stateManager.getAdventureMessages();
+    socket.emit('game:state', {
+      type: 'game:state',
+      sessionId,
+      senderId: 'system',
+      payload: { state, adventureMessages },
+      timestamp: Date.now(),
+    });
+
+    this.broadcastPlayerList(sessionId, stateManager);
+
+    console.log(`${name} created session ${sessionId} with code ${code}`);
+  }
+
+  private handleJoinByCode(socket: Socket, msg: SocketMessage<{ code: string; name: string; character?: Character }>): void {
+    const { code, name, character } = msg.payload;
+
+    const stateManager = this.sessionRegistry.findByCode(code);
+    if (!stateManager) {
+      socket.emit('session:error', {
+        type: 'session:error',
+        sessionId: '',
+        senderId: 'system',
+        payload: { error: '房间码无效，请检查后重试', code },
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
+    const sessionId = stateManager.getState().sessionId;
+
+    // Check if session is already started (can still join, but warn)
+    const state = stateManager.getState();
+
+    // Register client
+    const client: ConnectedClient = {
+      socketId: socket.id,
+      playerId: msg.senderId,
+      role: 'player',
+      name,
+      sessionId,
+      characterId: character?.id,
+    };
+    this.clients.set(socket.id, client);
+    socket.join(sessionId);
+
+    // Add player to session
+    if (character) {
+      const player: Player = {
+        id: msg.senderId,
+        name,
+        character,
+        isConnected: true,
+        joinedAt: Date.now(),
+      };
+      stateManager.addPlayer(player);
+    }
+
+    // Send join confirmation
+    const isHost = this.sessionRegistry.getHostId(sessionId) === msg.senderId;
+    socket.emit('session:joined', {
+      type: 'session:joined',
+      sessionId,
+      senderId: 'system',
+      payload: { sessionId, code, isHost, status: state.status },
+      timestamp: Date.now(),
+    });
+
+    // Notify others in the session
+    socket.to(sessionId).emit('session:playerJoined', {
+      type: 'session:playerJoined',
+      sessionId,
+      senderId: msg.senderId,
+      payload: { name, characterName: character?.name },
+      timestamp: Date.now(),
+    });
+
+    // Send full state
+    const updatedState = stateManager.getState();
+    const adventureMessages = stateManager.getAdventureMessages();
+    socket.emit('game:state', {
+      type: 'game:state',
+      sessionId,
+      senderId: 'system',
+      payload: { state: updatedState, adventureMessages },
+      timestamp: Date.now(),
+    });
+
+    this.broadcastPlayerList(sessionId, stateManager);
+
+    console.log(`${name} joined session ${sessionId} via code ${code}`);
+  }
+
+  private handleRejoin(socket: Socket, msg: SocketMessage<{ playerId: string; name: string; character?: Character }>): void {
+    const { playerId, name, character } = msg.payload;
+
+    // Find the session this player was in
+    let stateManager = this.sessionRegistry.findByPlayerId(playerId);
+    let sessionId: string;
+
+    if (stateManager) {
+      sessionId = stateManager.getState().sessionId;
+    } else {
+      // No session with this player found — fall back to first available or create new
+      const allSessions = this.sessionRegistry.getAllSessions();
+      if (allSessions.length > 0) {
+        sessionId = allSessions[0].sessionId;
+        stateManager = this.sessionRegistry.findById(sessionId)!;
       } else {
-        this.orchestrator.getStateManager().addPlayer(playerState);
+        const result = this.sessionRegistry.createSession();
+        sessionId = result.sessionId;
+        stateManager = result.stateManager;
       }
     }
 
-    // Notify others
-    this.io.to(this.sessionId).emit('session:join', {
-      type: 'session:join',
-      sessionId: this.sessionId,
-      senderId: msg.senderId,
-      payload: { name, role },
+    // Register client
+    const client: ConnectedClient = {
+      socketId: socket.id,
+      playerId,
+      role: 'player',
+      name,
+      sessionId,
+      characterId: character?.id,
+    };
+    this.clients.set(socket.id, client);
+    socket.join(sessionId);
+
+    // Restore player connection status (silent — no playerJoined broadcast)
+    const existingPlayer = stateManager.getPlayers().find(p => p.id === playerId);
+    if (existingPlayer) {
+      existingPlayer.isConnected = true;
+      if (character) {
+        existingPlayer.character = character;
+      }
+    } else if (character) {
+      // Player not found in session — add as new player (but silently)
+      const player: Player = {
+        id: playerId,
+        name,
+        character,
+        isConnected: true,
+        joinedAt: Date.now(),
+      };
+      stateManager.addPlayer(player);
+    }
+
+    // Send rejoin confirmation (no playerJoined broadcast)
+    socket.emit('session:rejoined', {
+      type: 'session:rejoined',
+      sessionId,
+      senderId: 'system',
+      payload: { sessionId, code: stateManager.getState().sessionCode },
       timestamp: Date.now(),
     });
 
-    // Send full state to the new client
-    const snapshot = this.orchestrator.getSnapshot();
+    // Send full state
+    const state = stateManager.getState();
+    const adventureMessages = stateManager.getAdventureMessages();
     socket.emit('game:state', {
       type: 'game:state',
-      sessionId: this.sessionId,
+      sessionId,
       senderId: 'system',
-      payload: snapshot,
+      payload: { state, adventureMessages },
       timestamp: Date.now(),
     });
 
-    console.log(`${name} (${role}) joined session ${this.sessionId}`);
+    // Update player list for all clients
+    this.broadcastPlayerList(sessionId, stateManager);
+
+    console.log(`${name} rejoined session ${sessionId} (rejoin, playerId: ${playerId})`);
+  }
+
+  private handleSessionInfo(socket: Socket): void {
+    const client = this.clients.get(socket.id);
+    if (!client) return;
+
+    const stateManager = this.sessionRegistry.findById(client.sessionId);
+    if (!stateManager) return;
+
+    const state = stateManager.getState();
+    socket.emit('session:info', {
+      type: 'session:info',
+      sessionId: client.sessionId,
+      senderId: 'system',
+      payload: {
+        sessionId: client.sessionId,
+        code: state.sessionCode,
+        status: state.status,
+        playerCount: state.players.length,
+        players: state.players.map(p => ({
+          id: p.id,
+          name: p.name,
+          characterName: p.character?.name,
+          isConnected: p.isConnected,
+        })),
+        isHost: this.sessionRegistry.getHostId(client.sessionId) === client.playerId,
+      },
+      timestamp: Date.now(),
+    });
   }
 
   private handleSessionStart(socket: Socket): void {
     const client = this.clients.get(socket.id);
-    if (!client || client.role !== 'gm') return;
+    if (!client) return;
 
-    this.orchestrator.startSession();
+    const stateManager = this.sessionRegistry.findById(client.sessionId);
+    if (!stateManager) return;
 
-    const state = this.orchestrator.getState();
-    this.io.to(this.sessionId).emit('session:started', {
+    stateManager.startSession();
+
+    const state = stateManager.getState();
+    const sessionId = client.sessionId;
+
+    this.io.to(sessionId).emit('session:started', {
       type: 'session:started',
-      sessionId: this.sessionId,
+      sessionId,
       senderId: 'system',
       payload: { status: state.status },
       timestamp: Date.now(),
     });
 
     this.broadcastState(state);
-    console.log(`Session started by ${client.name}`);
+    console.log(`Session ${sessionId} started by ${client.name}`);
   }
 
   private handleSessionEnd(socket: Socket): void {
     const client = this.clients.get(socket.id);
-    if (!client || client.role !== 'gm') return;
+    if (!client) return;
 
-    this.orchestrator.endSession();
+    const stateManager = this.sessionRegistry.findById(client.sessionId);
+    if (!stateManager) return;
 
-    const state = this.orchestrator.getState();
-    this.io.to(this.sessionId).emit('session:ended', {
+    stateManager.endSession();
+
+    const state = stateManager.getState();
+    const sessionId = client.sessionId;
+
+    this.io.to(sessionId).emit('session:ended', {
       type: 'session:ended',
-      sessionId: this.sessionId,
+      sessionId,
       senderId: 'system',
       payload: { status: state.status },
       timestamp: Date.now(),
     });
 
     this.broadcastState(state);
-    console.log(`Session ended by ${client.name}`);
+    console.log(`Session ${sessionId} ended by ${client.name}`);
   }
 
   private handleLeave(socket: Socket): void {
     const client = this.clients.get(socket.id);
     if (!client) return;
 
+    const sessionId = client.sessionId;
+    const stateManager = this.sessionRegistry.findById(sessionId);
+
     this.clients.delete(socket.id);
-    socket.leave(this.sessionId);
+    socket.leave(sessionId);
 
-    if (client.role === 'player') {
-      this.orchestrator.getStateManager().setPlayerConnected(client.playerId, false);
+    // Mark player as disconnected (but keep their data)
+    if (stateManager) {
+      stateManager.removePlayer(client.playerId);
+      // Update player list silently — don't broadcast playerLeft
+      // (player may just be reconnecting, we don't want the "left" spam)
+      this.broadcastPlayerList(sessionId, stateManager);
     }
-
-    this.io.to(this.sessionId).emit('session:leave', {
-      type: 'session:leave',
-      sessionId: this.sessionId,
-      senderId: client.playerId,
-      payload: { name: client.name },
-      timestamp: Date.now(),
-    });
   }
 
   private handleGameEvent(socket: Socket, msg: SocketMessage<GameEvent>): void {
     const client = this.clients.get(socket.id);
     if (!client) return;
 
-    const event = msg.payload as GameEvent;
-
-    // Publish to event bus (triggers agents)
-    this.orchestrator.publishEvent(event.type, event.source, event as unknown as Record<string, unknown>);
-
-    // Broadcast to all clients in session
-    this.io.to(this.sessionId).emit('game:event', msg);
+    const sessionId = client.sessionId;
+    this.io.to(sessionId).emit('game:event', msg);
   }
 
-  private async handleInputText(socket: Socket, msg: SocketMessage<InputTextPayload>): Promise<void> {
+  private handleInputText(socket: Socket, msg: SocketMessage<{ text: string }>): void {
     const client = this.clients.get(socket.id);
     if (!client) return;
 
-    const payload = msg.payload as InputTextPayload;
-
-    try {
-      const result = await this.orchestrator.processTextInput(payload);
-
-      this.io.to(this.sessionId).emit('input:parsed', {
-        type: 'input:parsed',
-        sessionId: this.sessionId,
-        senderId: msg.senderId,
-        payload: {
-          originalType: 'input:text',
-          parsedIntent: result.parsedIntent,
-          generatedEventTypes: result.generatedEventTypes,
-        },
-        timestamp: Date.now(),
-      });
-    } catch (error) {
-      console.error('Error processing text input:', error);
-    }
-  }
-
-  private async handleInputVoice(socket: Socket, msg: SocketMessage<InputVoicePayload>): Promise<void> {
-    const client = this.clients.get(socket.id);
-    if (!client) return;
-
-    const payload = msg.payload as InputVoicePayload;
-    console.log(`Voice input from ${client.name}: format=${payload.format}, dataLength=${payload.audioData?.length || 0}, duration=${payload.duration}`);
-
-    try {
-      const result = await this.orchestrator.processVoiceInput(payload);
-
-      console.log(`Voice transcription result: intentType=${result.parsedIntent?.intentType}, rawInput="${result.parsedIntent?.rawInput?.substring(0, 50)}"`, result.generatedEventTypes);
-
-      // Send parsed intent to all
-      this.io.to(this.sessionId).emit('input:parsed', {
-        type: 'input:parsed',
-        sessionId: this.sessionId,
-        senderId: msg.senderId,
-        payload: {
-          originalType: 'input:voice',
-          parsedIntent: result.parsedIntent,
-          generatedEventTypes: result.generatedEventTypes,
-        },
-        timestamp: Date.now(),
-      });
-
-      // Show transcribed text in chat so GM and players can see it
-      const transcribedText = result.parsedIntent?.rawInput || '';
-      if (transcribedText) {
-        const senderName = client.name;
-        this.io.to(this.sessionId).emit('chat:message', {
-          type: 'chat:message',
-          sessionId: this.sessionId,
-          senderId: msg.senderId,
-          payload: { text: `[语音] ${transcribedText}`, sender: senderName },
-          timestamp: Date.now(),
-        });
-      } else {
-        // No transcription - notify the sender
-        socket.emit('chat:message', {
-          type: 'chat:message',
-          sessionId: this.sessionId,
-          senderId: 'system',
-          payload: { text: '语音识别未返回文字，请重试或使用文字输入', sender: '系统' },
-          timestamp: Date.now(),
-        });
-      }
-    } catch (error) {
-      console.error('Error processing voice input:', error);
-      // Notify the sender that voice processing failed
-      socket.emit('chat:message', {
-        type: 'chat:message',
-        sessionId: this.sessionId,
-        senderId: 'system',
-        payload: { text: '语音识别失败，请重试或使用文字输入', sender: '系统' },
-        timestamp: Date.now(),
-      });
-    }
-  }
-
-  private async handleInputVision(socket: Socket, msg: SocketMessage<InputVisionPayload>): Promise<void> {
-    const client = this.clients.get(socket.id);
-    if (!client) return;
-
-    const payload = msg.payload as InputVisionPayload;
-
-    try {
-      const result = await this.orchestrator.processVisionInput(payload);
-
-      this.io.to(this.sessionId).emit('input:parsed', {
-        type: 'input:parsed',
-        sessionId: this.sessionId,
-        senderId: msg.senderId,
-        payload: {
-          originalType: 'input:vision',
-          parsedIntent: result.parsedIntent,
-          generatedEventTypes: result.generatedEventTypes,
-        },
-        timestamp: Date.now(),
-      });
-
-      // Show vision capture notification in chat
-      const senderName = client.name;
-      this.io.to(this.sessionId).emit('chat:message', {
-        type: 'chat:message',
-        sessionId: this.sessionId,
-        senderId: msg.senderId,
-        payload: { text: '[拍摄了场景图片]', sender: senderName },
-        timestamp: Date.now(),
-      });
-    } catch (error) {
-      console.error('Error processing vision input:', error);
-    }
-  }
-
-  // ===== Suggestion Management =====
-
-  private handlePublishSuggestion(socket: Socket, msg: SocketMessage<{ suggestionId: string; optionIndex: number; editContent?: string }>): void {
-    const client = this.clients.get(socket.id);
-    if (!client || client.role !== 'gm') return;
-
-    const { suggestionId, optionIndex, editContent } = msg.payload;
-
-    // Cancel any pending auto-send for this suggestion
-    const pending = this.pendingAutoSends.get(suggestionId);
-    if (pending) {
-      clearTimeout(pending.timeout);
-      this.pendingAutoSends.delete(suggestionId);
-    }
-
-    // Avoid double-publish
-    if (this.publishedSuggestions.has(suggestionId)) return;
-    this.publishedSuggestions.add(suggestionId);
-
-    // Clean up tracking after 60 seconds
-    setTimeout(() => this.publishedSuggestions.delete(suggestionId), 60000);
-
-    // Publish the selected content to all clients as a chat message
-    const storedSuggestion = this.suggestionStore.get(suggestionId);
-    const selectedOption = storedSuggestion?.options?.[optionIndex];
-    const content = editContent || selectedOption?.content || '';
-    const typeLabel = storedSuggestion?.typeLabel || '';
-
-    // Clean up stored suggestion
-    this.suggestionStore.delete(suggestionId);
-
-    if (content) {
-      this.io.to(this.sessionId).emit('chat:message', {
-        type: 'chat:message',
-        sessionId: this.sessionId,
-        senderId: client.playerId,
-        payload: {
-          text: content,
-          sender: client.name,
-          typeLabel,
-        },
-        timestamp: Date.now(),
-      });
-    }
-  }
-
-  private handleDismissSuggestion(socket: Socket, msg: SocketMessage<{ suggestionId: string }>): void {
-    const client = this.clients.get(socket.id);
-    if (!client || client.role !== 'gm') return;
-
-    const { suggestionId } = msg.payload;
-
-    // Cancel any pending auto-send for this suggestion
-    const pending = this.pendingAutoSends.get(suggestionId);
-    if (pending) {
-      clearTimeout(pending.timeout);
-      this.pendingAutoSends.delete(suggestionId);
-    }
-
-    // Mark as published (dismissed) so auto-send won't fire
-    this.publishedSuggestions.add(suggestionId);
-  }
-
-  private handleUndoLastAuto(socket: Socket): void {
-    const client = this.clients.get(socket.id);
-    if (!client || client.role !== 'gm') return;
-
-    // Find the most recent auto-sent message within the undo window
-    const now = Date.now();
-    const undoable = [...this.autoSentMessages].reverse().find(m =>
-      now - m.timestamp < L1_UNDO_WINDOW
-    );
-
-    if (undoable) {
-      // Remove from tracking
-      this.autoSentMessages = this.autoSentMessages.filter(m => m.messageId !== undoable.messageId);
-      if (undoable.undoTimeout) clearTimeout(undoable.undoTimeout);
-
-      // Notify all clients to remove the message
-      this.io.to(this.sessionId).emit('chat:undo', {
-        type: 'chat:undo',
-        sessionId: this.sessionId,
-        senderId: 'system',
-        payload: { messageId: undoable.messageId },
-        timestamp: Date.now(),
-      });
-    }
+    const sessionId = client.sessionId;
+    this.io.to(sessionId).emit('chat:message', {
+      type: 'chat:message',
+      sessionId,
+      senderId: msg.senderId,
+      payload: { text: (msg.payload as { text: string }).text, sender: client.name },
+      timestamp: Date.now(),
+    });
   }
 
   // ===== Character Update =====
@@ -504,385 +590,394 @@ export class SocketServer {
     const client = this.clients.get(socket.id);
     if (!client) return;
 
-    // Only GM can update characters directly
-    if (client.role !== 'gm') return;
+    const stateManager = this.sessionRegistry.findById(client.sessionId);
+    if (!stateManager) return;
 
-    const { characterId, updates } = msg.payload;
-    if (!characterId || !updates) return;
+    const { updates } = msg.payload;
+    if (!updates) return;
 
-    const success = this.orchestrator.getStateManager().updateCharacter(characterId, updates as any);
-    if (!success) return;
-
-    // Broadcast updated character to all clients
-    const updatedChar = this.orchestrator.getStateManager().getAllCharacters().find(c => c.id === characterId);
-    if (updatedChar) {
-      this.io.to(this.sessionId).emit('character:update', {
-        type: 'character:update',
-        sessionId: this.sessionId,
-        senderId: 'system',
-        payload: { character: updatedChar },
-        timestamp: Date.now(),
-      });
-    }
-  }
-
-  // ===== Agent Mode Switch =====
-
-  private handleAgentMode(socket: Socket, msg: SocketMessage<{ mode: 'multi' | 'unified' }>): void {
-    const client = this.clients.get(socket.id);
-    if (!client || client.role !== 'gm') return;
-
-    const { mode } = msg.payload;
-    if (mode !== 'multi' && mode !== 'unified') return;
-
-    this.switchAgentMode(mode);
-  }
-
-  switchAgentMode(mode: 'multi' | 'unified'): void {
-    const coordinator = this.orchestrator.getAgentCoordinator();
-
-    if (mode === 'unified') {
-      coordinator.enableAgent('unified');
-      coordinator.enableAgent('rules');
-      coordinator.enableAgent('sceneDirector');
-      coordinator.enableAgent('imageDirector');
-      coordinator.disableAgent('narrative');
-      coordinator.disableAgent('npc');
-      coordinator.disableAgent('combat');
-      coordinator.disableAgent('faction');
-      console.log('Switched to unified agent mode');
+    // In multi-player mode, update the specific player's character
+    if (client.playerId && stateManager.getPlayers().length > 0) {
+      stateManager.updatePlayerCharacter(client.playerId, updates as Partial<Character>);
     } else {
-      for (const agentType of ['narrative', 'rules', 'sceneDirector', 'npc', 'combat', 'faction', 'imageDirector', 'novel', 'memoryCompressor'] as const) {
-        coordinator.enableAgent(agentType);
+      // Single-player fallback
+      stateManager.updateCharacter(updates as Partial<Character>);
+    }
+
+    // Broadcast updated character to all clients in the session
+    const state = stateManager.getState();
+    const sessionId = client.sessionId;
+
+    this.io.to(sessionId).emit('character:update', {
+      type: 'character:update',
+      sessionId,
+      senderId: 'system',
+      payload: {
+        characterId: msg.payload.characterId,
+        character: stateManager.getCharacter(),
+      },
+      timestamp: Date.now(),
+    });
+
+    this.broadcastState(state);
+  }
+
+  // ===== Character Switch =====
+
+  private handleCharacterSwitch(socket: Socket, msg: SocketMessage<{ character: Character }>): void {
+    const client = this.clients.get(socket.id);
+    if (!client) return;
+
+    const stateManager = this.sessionRegistry.findById(client.sessionId);
+    if (!stateManager) return;
+
+    const { character } = msg.payload;
+
+    // Update the client's characterId
+    client.characterId = character.id;
+
+    // Update the player's character in the session state
+    const player = stateManager.getPlayers().find(p => p.id === client.playerId);
+    if (player) {
+      player.character = character;
+      // Also update in characters array
+      const charIndex = stateManager.getState().characters.findIndex(c => c.id === character.id);
+      if (charIndex >= 0) {
+        stateManager.getState().characters[charIndex] = { ...character };
+      } else {
+        stateManager.getState().characters.push({ ...character });
       }
-      coordinator.disableAgent('unified');
-      console.log('Switched to multi-agent mode');
+      // Sync backward compat
+      if (stateManager.getPlayers()[0]?.id === client.playerId) {
+        stateManager.getState().character = { ...character };
+      }
     }
 
-    // Broadcast the mode change to all clients
-    this.io.to(this.sessionId).emit('agent:mode', {
-      type: 'agent:mode',
-      sessionId: this.sessionId,
+    // Broadcast updated state to all clients
+    const state = stateManager.getState();
+    const sessionId = client.sessionId;
+
+    // Send updated character to the switching client
+    socket.emit('character:update', {
+      type: 'character:update',
+      sessionId,
       senderId: 'system',
-      payload: { mode },
+      payload: {
+        characterId: character.id,
+        character,
+      },
       timestamp: Date.now(),
     });
+
+    this.broadcastPlayerList(sessionId, stateManager);
+    this.broadcastState(state);
+
+    console.log(`${client.name} switched to character ${character.name}`);
   }
 
-  // ===== State Sync =====
+  // ===== Player Action (AI GM) =====
 
-  broadcastState(state: SessionState): void {
-    const snapshot = this.orchestrator.getSnapshot();
-    this.io.to(this.sessionId).emit('game:state', {
-      type: 'game:state',
-      sessionId: this.sessionId,
-      senderId: 'system',
-      payload: snapshot,
-      timestamp: Date.now(),
+  private async handlePlayerAction(socket: Socket, msg: SocketMessage<{ action: string }>): Promise<void> {
+    const client = this.clients.get(socket.id);
+    if (!client) return;
+
+    const sessionId = client.sessionId;
+    const stateManager = this.sessionRegistry.findById(sessionId);
+    if (!stateManager) return;
+
+    const playerAction = (msg.payload as { action: string }).action;
+    console.log(`Player action from ${client.name}: ${playerAction.substring(0, 80)}...`);
+
+    // Store player action message on server
+    stateManager.addAdventureMessage({
+      id: `msg_${msg.timestamp}_player`,
+      role: 'player',
+      content: playerAction,
+      timestamp: msg.timestamp,
     });
-  }
 
-  broadcastAgentOutput(agentType: AgentType, output: string): void {
-    const riskLevel = classifyRisk(agentType);
-    const typeLabel = getTypeLabel(agentType);
+    if (this.aiGM) {
+      try {
+        const state = stateManager.getState();
+        const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
 
-    // Parse agent output to extract suggestion data
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(output);
-    } catch {
-      parsed = { content: output };
-    }
+        if (!character) {
+          socket.emit('gm:narrate', {
+            type: 'gm:narrate',
+            sessionId,
+            senderId: 'system',
+            payload: {
+              content: '请先创建角色，然后开始冒险。在首页点击"新建战役"来创建你的角色。',
+            },
+            timestamp: Date.now(),
+          });
+          return;
+        }
 
-    // Special handling for imageDirector: if imageUrl exists, send image:complete directly
-    if (agentType === 'imageDirector') {
-      if (parsed.imageUrl) {
-        const imageUrl = String(parsed.imageUrl);
-        const imageId = String(parsed.imageId || '');
-        const category = String(parsed.category || 'scene');
+        // Build AI GM context with party awareness
+        const context = {
+          sessionId,
+          character,
+          characters: state.characters.length > 0 ? state.characters : [character],
+          activePlayerId: client.playerId,
+          activePlayerName: client.name,
+          sessionState: state,
+          recentHistory: [],
+          worldLore: null as any,
+        };
 
-        // Send image:complete to all clients
-        this.io.to(this.sessionId).emit('image:complete', {
-          type: 'image:complete',
-          sessionId: this.sessionId,
-          senderId: 'system',
-          payload: { imageId, url: imageUrl, category },
-          timestamp: Date.now(),
-        });
+        const response = await this.aiGM.processPlayerAction(context, playerAction);
+        const choices = this.extractChoices(response.message.content);
 
-        // Also send a chat notification
-        this.io.to(this.sessionId).emit('chat:message', {
-          type: 'chat:message',
-          sessionId: this.sessionId,
+        // Emit GM narration to all clients in the session
+        this.io.to(sessionId).emit('gm:narrate', {
+          type: 'gm:narrate',
+          sessionId,
           senderId: 'system',
           payload: {
-            text: '[图片] AI已生成场景图像',
-            sender: 'GM',
-            typeLabel: '[图片]',
+            content: response.message.content,
+            choices,
+            npcName: response.message.npcName,
+            npcId: response.message.npcId,
+            playerName: client.name,
+            characterName: character.name,
           },
           timestamp: Date.now(),
         });
 
-        return; // Don't send as suggestion
-      } else {
-        // Image generation failed - notify GM only
-        const gmClients = Array.from(this.clients.values()).filter(c => c.role === 'gm');
-        for (const gm of gmClients) {
-          this.io.to(gm.socketId).emit('chat:message', {
-            type: 'chat:message',
-            sessionId: this.sessionId,
-            senderId: 'system',
-            payload: {
-              text: '[图片] 图像生成失败，请重试',
-              sender: '系统',
-              typeLabel: '[图片]',
-            },
-            timestamp: Date.now(),
-          });
+        // Store GM narration on server for persistence
+        const gmMsg: PersistedAdventureMessage = {
+          id: `msg_${Date.now()}_gm`,
+          role: response.message.npcName ? 'npc' : 'narrator',
+          content: response.message.content,
+          timestamp: Date.now(),
+          npcName: response.message.npcName,
+          npcId: response.message.npcId,
+          choices: choices?.map(c => ({ id: c.id, text: c.label, action: c.action })),
+        };
+        stateManager.addAdventureMessage(gmMsg);
+
+        // Process generated events
+        if (response.events && response.events.length > 0) {
+          for (const event of response.events) {
+            this.io.to(sessionId).emit('game:event', {
+              type: 'game:event',
+              sessionId,
+              senderId: 'system',
+              payload: event,
+              timestamp: Date.now(),
+            });
+          }
         }
-        return;
+
+        console.log(`AI GM responded to ${client.name} (${response.tokenUsage} tokens)`);
+      } catch (err) {
+        console.error('AI GM error:', err);
+        socket.emit('gm:narrate', {
+          type: 'gm:narrate',
+          sessionId,
+          senderId: 'system',
+          payload: {
+            content: `（AI管家暂时无法响应，请稍后重试。错误：${(err as Error).message}）`,
+          },
+          timestamp: Date.now(),
+        });
       }
-    }
-
-    // Build Suggestion object
-    const suggestionId = `${agentType}_${Date.now()}`;
-    const suggestion: Suggestion = {
-      id: suggestionId,
-      agentType,
-      riskLevel,
-      timestamp: Date.now(),
-      options: this.extractOptions(parsed, agentType),
-      typeLabel,
-      gmOnly: this.extractGmOnly(parsed, agentType),
-    };
-
-    // For L2, set auto-send timeout
-    if (riskLevel === 'L2') {
-      suggestion.autoSendAt = Date.now() + L2_AUTO_SEND_TIMEOUT;
-    }
-
-    // Store suggestion so GM adoption can retrieve content later
-    this.suggestionStore.set(suggestionId, suggestion);
-    // Clean up after 5 minutes
-    setTimeout(() => this.suggestionStore.delete(suggestionId), 300000);
-
-    // Send Suggestion to GM only via agent:stream
-    const gmClients = Array.from(this.clients.values()).filter(c => c.role === 'gm');
-    for (const gm of gmClients) {
-      this.io.to(gm.socketId).emit('agent:stream', {
-        type: 'agent:stream',
-        sessionId: this.sessionId,
+    } else {
+      // No AI GM configured — fallback response
+      socket.emit('gm:narrate', {
+        type: 'gm:narrate',
+        sessionId,
         senderId: 'system',
-        payload: suggestion,
+        payload: {
+          content: this.getFallbackResponse(playerAction),
+          choices: [
+            { id: 'continue', label: '继续探索', action: 'explore' },
+            { id: 'talk', label: '与NPC交谈', action: 'talk' },
+            { id: 'rest', label: '休息', action: 'rest' },
+          ],
+          playerName: client.name,
+        },
         timestamp: Date.now(),
       });
     }
-
-    // Handle auto-send for L0 (fully automatic) and L1 (auto + undo)
-    if (riskLevel === 'L0' || riskLevel === 'L1') {
-      this.autoSendToPlayers(suggestion, riskLevel);
-    }
-
-    // Handle L2: schedule auto-send (but only sends to players, not as suggestion)
-    if (riskLevel === 'L2') {
-      const content = suggestion.options[0]?.content || '';
-      const pendingAuto: PendingAutoSend = {
-        suggestionId,
-        optionIndex: 0,
-        agentType,
-        typeLabel,
-        content,
-        timeout: setTimeout(() => {
-          // Only auto-send if GM hasn't already published or dismissed
-          if (!this.publishedSuggestions.has(suggestionId)) {
-            this.publishedSuggestions.add(suggestionId);
-            this.sendL2AutoToPlayers(suggestionId, typeLabel, content);
-          }
-          this.pendingAutoSends.delete(suggestionId);
-        }, L2_AUTO_SEND_TIMEOUT),
-      };
-      this.pendingAutoSends.set(suggestionId, pendingAuto);
-    }
-
-    // L3 and L4: only sent to GM, no auto-send
   }
 
-  // Auto-send for L0/L1: immediate broadcast to all clients
-  private autoSendToPlayers(suggestion: Suggestion, riskLevel: RiskLevel): void {
-    const content = suggestion.options[0]?.content || '';
-    const typeLabel = suggestion.typeLabel;
-    const messageId = `auto_${suggestion.id}`;
-
-    // Mark as published to avoid double-send
-    this.publishedSuggestions.add(suggestion.id);
-
-    // Send as a chat message to ALL clients (GM + players)
-    this.io.to(this.sessionId).emit('chat:message', {
-      type: 'chat:message',
-      sessionId: this.sessionId,
-      senderId: 'system',
-      payload: {
-        text: content,
-        sender: 'GM',
-        typeLabel,
-        autoSent: true,
-        suggestionId: suggestion.id,
-      },
-      timestamp: Date.now(),
+  private async handlePlayerChoice(socket: Socket, msg: SocketMessage<{ choiceId: string; choiceText: string }>): Promise<void> {
+    const { choiceText } = msg.payload as { choiceId: string; choiceText: string };
+    this.handlePlayerAction(socket, {
+      type: 'player:action',
+      sessionId: msg.sessionId,
+      senderId: msg.senderId,
+      payload: { action: choiceText },
+      timestamp: msg.timestamp,
     });
+  }
 
-    // Track auto-sent message for undo (L1 only)
-    if (riskLevel === 'L1') {
-      const autoMsg: AutoSentMessage = {
-        messageId,
-        suggestionId: suggestion.id,
+  private async handleNarrationRequest(socket: Socket): Promise<void> {
+    const client = this.clients.get(socket.id);
+    if (!client) return;
+
+    const sessionId = client.sessionId;
+    const stateManager = this.sessionRegistry.findById(sessionId);
+    if (!stateManager) return;
+
+    if (this.aiGM) {
+      try {
+        const state = stateManager.getState();
+        const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
+
+        if (!character) {
+          socket.emit('gm:narrate', {
+            type: 'gm:narrate',
+            sessionId,
+            senderId: 'system',
+            payload: { content: '请先创建角色以开始冒险。' },
+            timestamp: Date.now(),
+          });
+          return;
+        }
+
+        const context = {
+          sessionId,
+          character,
+          characters: state.characters.length > 0 ? state.characters : [character],
+          activePlayerId: client.playerId,
+          activePlayerName: client.name,
+          sessionState: state,
+          recentHistory: [],
+          worldLore: null as any,
+        };
+
+        const response = await this.aiGM.narrateScene(context);
+        const choices = this.extractChoices(response.message.content);
+
+        this.io.to(sessionId).emit('gm:narrate', {
+          type: 'gm:narrate',
+          sessionId,
+          senderId: 'system',
+          payload: {
+            content: response.message.content,
+            choices,
+          },
+          timestamp: Date.now(),
+        });
+      } catch (err) {
+        console.error('AI narration error:', err);
+        socket.emit('gm:narrate', {
+          type: 'gm:narrate',
+          sessionId,
+          senderId: 'system',
+          payload: { content: '（AI管家暂时无法响应，请稍后重试。）' },
+          timestamp: Date.now(),
+        });
+      }
+    } else {
+      socket.emit('gm:narrate', {
+        type: 'gm:narrate',
+        sessionId,
+        senderId: 'system',
+        payload: {
+          content: '你站在余烬村的入口，迷雾在远处翻涌。空气中弥漫着硫磺和翠晶的气息。几名提灯团的守卫警惕地注视着你。',
+          choices: [
+            { id: 'enter', label: '进入余烬村', action: 'enter_village' },
+            { id: 'explore', label: '探索周围', action: 'explore' },
+            { id: 'talk_guard', label: '与守卫交谈', action: 'talk_guard' },
+          ],
+        },
         timestamp: Date.now(),
-        undoTimeout: setTimeout(() => {
-          this.autoSentMessages = this.autoSentMessages.filter(m => m.messageId !== messageId);
-        }, L1_UNDO_WINDOW),
-      };
-      this.autoSentMessages.push(autoMsg);
+      });
     }
   }
 
-  // L2 auto-send: sends the default option to players when timer expires
-  private sendL2AutoToPlayers(suggestionId: string, typeLabel: string, content: string): void {
-    this.io.to(this.sessionId).emit('chat:message', {
-      type: 'chat:message',
-      sessionId: this.sessionId,
+  /**
+   * Extract choice options from AI response text
+   */
+  private extractChoices(content: string): Array<{ id: string; label: string; action?: string }> | undefined {
+    const choices: Array<{ id: string; label: string; action?: string }> = [];
+
+    // Match numbered options: 1) xxx, 1. xxx, ① xxx
+    const numberedMatch = content.match(/(?:\d+[.)]|[①②③④⑤⑥⑦⑧⑨])\s*.+/g);
+    if (numberedMatch && numberedMatch.length >= 2) {
+      for (let i = 0; i < Math.min(numberedMatch.length, 4); i++) {
+        const label = numberedMatch[i].replace(/^(?:\d+[.)]|[①②③④⑤⑥⑦⑧⑨])\s*/, '').trim();
+        choices.push({ id: `choice_${i + 1}`, label, action: label });
+      }
+      return choices;
+    }
+
+    // Match bracketed options: 【xxx】 or [xxx]
+    const bracketMatch = content.match(/[【\[][^】\]]+[】\]]/g);
+    if (bracketMatch && bracketMatch.length >= 2) {
+      for (let i = 0; i < Math.min(bracketMatch.length, 4); i++) {
+        const label = bracketMatch[i].replace(/[【\[】\]]/g, '').trim();
+        choices.push({ id: `choice_${i + 1}`, label, action: label });
+      }
+      return choices;
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Fallback response when AI GM is not configured
+   */
+  private getFallbackResponse(action: string): string {
+    const actionLower = action.toLowerCase();
+
+    if (actionLower.includes('探索') || actionLower.includes('查看') || actionLower.includes('观察')) {
+      return '你仔细观察周围的环境。破败的建筑在迷雾中若隐若现，地面上散落着翠晶碎片。远处传来奇怪的声响。';
+    }
+    if (actionLower.includes('交谈') || actionLower.includes('说话') || actionLower.includes('问')) {
+      return '对方沉默了片刻，然后用警惕的目光打量着你。"你是新来的冒险者？这片地方可不像看起来那么安全。"';
+    }
+    if (actionLower.includes('战斗') || actionLower.includes('攻击') || actionLower.includes('挥')) {
+      return '你的武器划破空气，但周围似乎没有明显的威胁。不过，你注意到阴影中有东西在移动……';
+    }
+    if (actionLower.includes('休息') || actionLower.includes('等待')) {
+      return '你找了一个相对安全的角落稍作休息。迷雾似乎暂时没有逼近的迹象。';
+    }
+    if (actionLower.includes('移动') || actionLower.includes('走') || actionLower.includes('前往')) {
+      return '你小心翼翼地向前移动。脚下的碎石发出轻微的声响，空气中翠晶的光芒忽明忽暗。';
+    }
+
+    return `你${action}。环境依然阴沉而神秘，迷雾在不远处缓缓流动。你需要决定下一步行动。`;
+  }
+
+  // ===== Broadcast Helpers =====
+
+  broadcastState(state: SessionState): void {
+    const stateManager = this.sessionRegistry.findById(state.sessionId);
+    if (!stateManager) return;
+
+    const snapshot = stateManager.getSnapshot();
+    // Include adventure messages for client sync
+    const adventureMessages = stateManager.getAdventureMessages();
+    this.io.to(state.sessionId).emit('game:state', {
+      type: 'game:state',
+      sessionId: state.sessionId,
       senderId: 'system',
-      payload: {
-        text: content,
-        sender: 'GM',
-        typeLabel,
-        autoSent: true,
-        suggestionId,
-      },
+      payload: { ...snapshot, adventureMessages },
       timestamp: Date.now(),
     });
   }
 
-  // Find pending auto-send info for a suggestion (used by handlePublishSuggestion)
-  private findPendingInfo(suggestionId: string): { typeLabel: string; content: string } | null {
-    const pending = this.pendingAutoSends.get(suggestionId);
-    if (pending) {
-      return { typeLabel: pending.typeLabel, content: pending.content };
-    }
-    // Try to find from recent suggestions - fallback
-    return null;
-  }
+  private broadcastPlayerList(sessionId: string, stateManager: StateManager): void {
+    const state = stateManager.getState();
+    const players = state.players.map(p => ({
+      id: p.id,
+      name: p.name,
+      characterName: p.character?.name,
+      isConnected: p.isConnected,
+    }));
 
-  private extractOptions(parsed: Record<string, unknown>, agentType: AgentType): SuggestionOption[] {
-    const options: SuggestionOption[] = [];
-
-    // NarrativeAgent format: { options: [{label, content}], ... }
-    if (Array.isArray(parsed.options)) {
-      for (const opt of parsed.options as Record<string, string>[]) {
-        if (opt.label && opt.content) {
-          options.push({ label: String(opt.label), content: String(opt.content) });
-        }
-      }
-    }
-
-    // NPCAgent format: { dialogueOptions: [{label, content}], ... }
-    if (Array.isArray(parsed.dialogueOptions)) {
-      for (const opt of parsed.dialogueOptions as Record<string, string>[]) {
-        if (opt.label && opt.content) {
-          options.push({ label: String(opt.label), content: String(opt.content) });
-        }
-      }
-    }
-
-    // CombatAgent format: { enemyOptions: [{label, content, effect, fearCost}], ... }
-    if (Array.isArray(parsed.enemyOptions)) {
-      for (const opt of parsed.enemyOptions as Record<string, unknown>[]) {
-        const label = String(opt.label || '');
-        const content = String(opt.content || '');
-        const effect = opt.effect ? ` [${String(opt.effect)}]` : '';
-        const fearCost = opt.fearCost ? ` (恐惧点:${opt.fearCost})` : '';
-        if (label && content) {
-          options.push({ label, content: content + effect + fearCost });
-        }
-      }
-    }
-
-    // SceneDirectorAgent format: { pacingSuggestions: [{label, content}], ... }
-    if (Array.isArray(parsed.pacingSuggestions)) {
-      for (const opt of parsed.pacingSuggestions as Record<string, string>[]) {
-        if (opt.label && opt.content) {
-          options.push({ label: String(opt.label), content: String(opt.content) });
-        }
-      }
-    }
-
-    // FactionAgent format: { factionOptions: [{label, content}], ... } or fallback
-    if (Array.isArray(parsed.factionOptions)) {
-      for (const opt of parsed.factionOptions as Record<string, string>[]) {
-        if (opt.label && opt.content) {
-          options.push({ label: String(opt.label), content: String(opt.content) });
-        }
-      }
-    }
-
-    // Fallback: if no structured options found, try common fields
-    if (options.length === 0) {
-      // Try to extract from various agent output formats
-      const contentFields = ['content', 'enemyAction', 'environmentEffect',
-        'narrativeDescription', 'sceneDescription', 'analysis'];
-      for (const field of contentFields) {
-        const val = parsed[field];
-        if (typeof val === 'string' && val) {
-          options.push({ label: '内容', content: val });
-          break;
-        }
-      }
-
-      // Last resort: stringify the whole thing but avoid [object Object]
-      if (options.length === 0) {
-        const flatContent = this.flattenToText(parsed);
-        if (flatContent) {
-          options.push({ label: '内容', content: flatContent });
-        }
-      }
-    }
-
-    return options;
-  }
-
-  // Flatten a JSON object to readable text (avoid [object Object])
-  private flattenToText(obj: Record<string, unknown>, depth = 0): string {
-    if (depth > 3) return '';
-    const parts: string[] = [];
-    for (const [key, val] of Object.entries(obj)) {
-      if (typeof val === 'string' && val) {
-        parts.push(val);
-      } else if (typeof val === 'number' || typeof val === 'boolean') {
-        parts.push(`${key}: ${val}`);
-      } else if (Array.isArray(val)) {
-        for (const item of val) {
-          if (typeof item === 'string' && item) {
-            parts.push(item);
-          } else if (typeof item === 'object' && item !== null) {
-            const sub = this.flattenToText(item as Record<string, unknown>, depth + 1);
-            if (sub) parts.push(sub);
-          }
-        }
-      } else if (typeof val === 'object' && val !== null) {
-        const sub = this.flattenToText(val as Record<string, unknown>, depth + 1);
-        if (sub) parts.push(sub);
-      }
-    }
-    return parts.join('\n');
-  }
-
-  private extractGmOnly(parsed: Record<string, unknown>, agentType: AgentType): string | undefined {
-    if (parsed.internalThought) return String(parsed.internalThought);
-    if (parsed.nextIntentPreview || parsed.nextEnemyIntent) {
-      return String(parsed.nextIntentPreview || parsed.nextEnemyIntent);
-    }
-    if (parsed.tensionNote) return String(parsed.tensionNote);
-    if (parsed.pressureNote) return String(parsed.pressureNote);
-    return undefined;
+    this.io.to(sessionId).emit('session:playerList', {
+      type: 'session:playerList',
+      sessionId,
+      senderId: 'system',
+      payload: { players, code: state.sessionCode },
+      timestamp: Date.now(),
+    });
   }
 
   // ===== Lifecycle =====
@@ -895,13 +990,15 @@ export class SocketServer {
     return this.clients.size;
   }
 
+  /**
+   * Update the AI GM instance (for hot-reload after config change)
+   */
+  setAIGM(aiGM: AIGameMaster | undefined): void {
+    this.aiGM = aiGM;
+    console.log('[SocketServer] AI GM instance updated');
+  }
+
   close(): void {
-    for (const pending of this.pendingAutoSends.values()) {
-      clearTimeout(pending.timeout);
-    }
-    for (const msg of this.autoSentMessages) {
-      if (msg.undoTimeout) clearTimeout(msg.undoTimeout);
-    }
     this.io.close();
   }
 }

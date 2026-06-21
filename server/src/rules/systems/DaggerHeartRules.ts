@@ -1,13 +1,29 @@
 /**
  * DaggerHeart 完整规则引擎
- * 实现匕首之心核心机制：二元骰、伤害、希望/恐惧、等级、污染、派系
+ * 实现匕首之心核心机制：二元骰、伤害阈值、希望/恐惧、压力、休整、死亡行动、升级、污染
+ *
+ * 对齐 shared/types 中的类型定义，移除已废弃的 massive/critical 伤害等级，
+ * 更新阈值为 minor/major/severe，移除多人机制，新增单人战役相关规则。
  */
 import type {
   RollResultType,
+  RollResult,
   DamageSeverity,
   Attribute,
-  CorruptionLevel,
+  Tier,
+  DeathMoveType,
+  DeathMoveResult,
+  RestType,
+  ShortRestAction,
+  LongRestAction,
+  RestResult,
+  ConditionInstance,
+  DamageType,
+  DamageDie,
+  Resistance,
+  ContaminationLevel,
 } from '@trpgmaster/shared';
+import { DAMAGE_SEVERITY_HP, getTier } from '@trpgmaster/shared';
 import type { Character } from '@trpgmaster/shared';
 
 // ===== 二元骰系统 =====
@@ -16,15 +32,6 @@ export interface DualD12Result {
   hopeDie: number;
   fearDie: number;
   total: number;
-}
-
-export interface RollResultDetail {
-  type: RollResultType;
-  success: boolean;
-  hopeGained: number;  // 玩家获得的希望点
-  fearGained: number;  // GM获得的恐惧点
-  stressCleared: number; // 清除的压力点
-  extraDamage: boolean;  // 关键成功额外伤害
 }
 
 /**
@@ -41,256 +48,80 @@ export function rollDualD12(): DualD12Result {
 }
 
 /**
- * 判定掷骰结果
+ * 判定掷骰结果（完整版，返回 RollResult）
+ * 关键成功：双骰相同 → 自动成功
+ * 希望成功：希望骰 > 恐惧骰 且 总和 ≥ 难度
+ * 恐惧成功：恐惧骰 > 希望骰 且 总和 ≥ 难度
+ * 希望失败：希望骰 > 恐惧骰 且 总和 < 难度
+ * 恐惧失败：恐惧骰 > 希望骰 且 总和 < 难度
  */
-export function determineRollResult(
+export function resolveRoll(
   hopeDie: number,
   fearDie: number,
   modifier: number,
   difficulty: number,
-): RollResultDetail {
-  const total = hopeDie + fearDie + modifier;
+  advantageCount: number = 0,
+  disadvantageCount: number = 0,
+): RollResult {
   const isCritical = hopeDie === fearDie;
-  const isSuccess = total >= difficulty;
+  const baseTotal = hopeDie + fearDie + modifier;
   const hopeHigher = hopeDie > fearDie;
 
-  // 关键成功：自动成功，无论难度
+  // 处理优势/劣势 d6
+  const { d6Result, finalTotal } = rollAdvantageDisadvantage(
+    baseTotal,
+    advantageCount,
+    disadvantageCount,
+  );
+
+  const isSuccess = isCritical || finalTotal >= difficulty;
+
+  let type: RollResultType;
+  let hopeGained = 0;
+  let fearGained = 0;
+
   if (isCritical) {
-    return {
-      type: 'criticalSuccess',
-      success: true,
-      hopeGained: 1,
-      fearGained: 0,
-      stressCleared: 1,
-      extraDamage: true,
-    };
+    // 关键成功：自动成功，无论难度
+    type = 'criticalSuccess';
+    hopeGained = 1;
+    // 关键成功不产生恐惧
+  } else if (isSuccess && hopeHigher) {
+    type = 'hopeSuccess';
+    hopeGained = 1;
+  } else if (isSuccess && !hopeHigher) {
+    type = 'fearSuccess';
+    fearGained = 1;
+  } else if (!isSuccess && hopeHigher) {
+    type = 'hopeFailure';
+    hopeGained = 1;
+  } else {
+    type = 'fearFailure';
+    fearGained = 1;
   }
 
-  if (isSuccess && hopeHigher) {
-    return {
-      type: 'hopeSuccess',
-      success: true,
-      hopeGained: 1,
-      fearGained: 0,
-      stressCleared: 0,
-      extraDamage: false,
-    };
-  }
-
-  if (isSuccess && !hopeHigher) {
-    return {
-      type: 'fearSuccess',
-      success: true,
-      hopeGained: 0,
-      fearGained: 1,
-      stressCleared: 0,
-      extraDamage: false,
-    };
-  }
-
-  if (!isSuccess && hopeHigher) {
-    return {
-      type: 'hopeFailure',
-      success: false,
-      hopeGained: 1,
-      fearGained: 0,
-      stressCleared: 0,
-      extraDamage: false,
-    };
-  }
-
-  // fearFailure
   return {
-    type: 'fearFailure',
-    success: false,
-    hopeGained: 0,
-    fearGained: 1,
-    stressCleared: 0,
-    extraDamage: false,
+    type,
+    hopeDie,
+    fearDie,
+    modifier,
+    total: finalTotal,
+    difficulty,
+    success: isSuccess,
+    hopeGained,
+    fearGained,
+    isCritical,
+    advantageDice: advantageCount,
+    disadvantageDice: disadvantageCount,
   };
 }
 
-// ===== 伤害系统 =====
-
 /**
- * 计算伤害等级
+ * 优势/劣势 d6 骰处理
+ * 净优势 > 0：投1d6加到总数
+ * 净优势 < 0：投1d6从总数减去
+ * 净优势 = 0：无d6
  */
-export function calculateDamageSeverity(
-  damage: number,
-  majorThreshold: number,
-  severeThreshold: number,
-): DamageSeverity {
-  if (damage >= severeThreshold * 2) return 'massive';
-  if (damage >= severeThreshold) return 'severe';
-  if (damage >= majorThreshold) return 'major';
-  return 'minor';
-}
-
-/**
- * 伤害等级对应的HP标记数
- */
-export function calculateHpChange(severity: DamageSeverity): number {
-  switch (severity) {
-    case 'minor': return 1;
-    case 'major': return 2;
-    case 'severe': return 3;
-    case 'critical': return 3; // deprecated alias for severe
-    case 'massive': return 4;
-  }
-}
-
-/**
- * 使用护甲槽降低伤害等级
- */
-export function applyArmorSlot(severity: DamageSeverity): DamageSeverity | 'none' {
-  switch (severity) {
-    case 'massive': return 'severe';
-    case 'severe': return 'major';
-    case 'critical': return 'major'; // deprecated alias
-    case 'major': return 'minor';
-    case 'minor': return 'none';
-  }
-}
-
-/**
- * 计算伤害阈值
- * 重度阈值 = 护甲基础重度 + 角色等级 + 调整值
- * 严重阈值 = 护甲基础严重 + 角色等级 + 调整值
- * 巨额阈值 = 严重阈值 × 2
- */
-export function calculateThresholds(
-  armorBase: number,
-  armorBaseSevere: number,
-  level: number,
-  modifier: number = 0,
-): { major: number; severe: number; massive?: number } {
-  const major = armorBase + level + modifier;
-  const severe = armorBaseSevere + level + modifier;
-  const massive = severe * 2;
-  return { major, severe, massive };
-}
-
-// ===== 关键成功伤害 =====
-
-/**
- * 计算关键成功的额外伤害
- * 最高伤害骰值 + 正常伤害掷骰 + 调整值
- */
-export function calculateCriticalDamage(
-  proficiency: number,
-  damageDie: number,
-  modifier: number = 0,
-): { maxDieValue: number; normalDamage: number; totalDamage: number } {
-  // 掷正常伤害骰
-  const rolls = Array.from({ length: proficiency }, () =>
-    Math.floor(Math.random() * damageDie) + 1
-  );
-  const maxDieValue = damageDie; // 最高面值
-  const normalDamage = rolls.reduce((sum, r) => sum + r, 0) + modifier;
-  const totalDamage = maxDieValue + normalDamage;
-  return { maxDieValue, normalDamage, totalDamage };
-}
-
-// ===== 希望点/恐惧点系统 =====
-
-interface HopeState {
-  hope: number;
-  maxHope: number;
-}
-
-/**
- * 消耗或获得希望点
- * Returns null if operation is invalid
- */
-export function spendHope(state: HopeState, amount: number): HopeState | null {
-  const newHope = state.hope - amount;
-
-  // Cannot go below 0 or above max
-  if (newHope < 0) return null;
-  if (newHope > state.maxHope) return null;
-
-  return { ...state, hope: newHope };
-}
-
-/**
- * 休整时GM获得恐惧点
- * 短休：1d4
- * 长休：玩家数 + 1d4
- */
-export function gainFearOnRest(restType: 'short' | 'long', playerCount: number): number {
-  const d4 = Math.floor(Math.random() * 4) + 1;
-  if (restType === 'short') {
-    return d4;
-  }
-  return playerCount + d4;
-}
-
-// ===== 等级/位阶系统 =====
-
-/**
- * 根据等级获取位阶
- * 1级=位阶1, 2-4级=位阶2, 5-7级=位阶3, 8-10级=位阶4
- */
-export function getTierFromLevel(level: number): number {
-  if (level <= 1) return 1;
-  if (level <= 4) return 2;
-  if (level <= 7) return 3;
-  return 4;
-}
-
-// ===== 升级系统 =====
-
-export interface LevelUpBenefit {
-  type: 'domainCard' | 'attributeBoost' | 'hpSlot' | 'stressSlot' | 'armorSlot' | 'experience' | 'proficiency' | 'subclassFeature';
-  description: string;
-}
-
-/**
- * 升级时可选择的收益（每次升级选3项）
- */
-export function getLevelUpOptions(level: number): LevelUpBenefit[] {
-  const base: LevelUpBenefit[] = [
-    { type: 'domainCard', description: '新领域卡（最多5张配置）' },
-    { type: 'attributeBoost', description: '属性提升（+1）' },
-    { type: 'hpSlot', description: '额外生命槽' },
-    { type: 'stressSlot', description: '额外压力槽' },
-    { type: 'armorSlot', description: '额外护甲槽' },
-    { type: 'experience', description: '新经历' },
-  ];
-
-  // 特定等级额外收益
-  if (level >= 2 && level <= 9) {
-    base.push({ type: 'proficiency', description: '熟练值+1' });
-  }
-
-  return base;
-}
-
-/**
- * 升阶成就（2/5/8级）
- */
-export function getTierUpBenefits(level: number): LevelUpBenefit[] {
-  const benefits: LevelUpBenefit[] = [];
-
-  if (level === 2 || level === 5 || level === 8) {
-    benefits.push({ type: 'experience', description: '+1经历' });
-    benefits.push({ type: 'proficiency', description: '熟练值+1' });
-  }
-  if (level === 5 || level === 8) {
-    benefits.push({ type: 'attributeBoost', description: '清除属性标记' });
-  }
-
-  return benefits;
-}
-
-// ===== 优势/劣势d6骰系统 =====
-
-/**
- * 计算净优势/劣势d6骰
- * 净优势 = advantageCount - disadvantageCount
- * 净>0：投1d6加到总数；净<0：投1d6从总数减去；净=0：无d6
- */
-export function rollWithAdvantage(
+export function rollAdvantageDisadvantage(
   baseTotal: number,
   advantageCount: number,
   disadvantageCount: number,
@@ -318,15 +149,15 @@ export interface ReactionRollResult {
   total: number;
   isCritical: boolean;
   success: boolean;
-  hopeGained: number;  // 反应掷骰不产生Hope（除非关键成功）
-  fearGained: number;  // 反应掷骰不产生Fear
+  hopeGained: number; // 反应掷骰不产生Hope（除非关键成功时清除1压力）
+  fearGained: number; // 反应掷骰不产生Fear
 }
 
 /**
  * 反应掷骰：使用二元d12但不产生Hope/Fear
- * Critical Success：自动成功但不清除压力/不获Hope
+ * 关键成功：自动成功，清除1压力点
  */
-export function determineReactionRollResult(
+export function resolveReactionRoll(
   hopeDie: number,
   fearDie: number,
   modifier: number,
@@ -342,23 +173,159 @@ export function determineReactionRollResult(
     total,
     isCritical,
     success,
-    hopeGained: 0, // 反应掷骰不产生Hope
-    fearGained: 0, // 反应掷骰不产生Fear
+    hopeGained: 0,
+    fearGained: 0,
   };
 }
 
-// ===== 压力→HP溢出级联 =====
+// ===== 伤害系统 =====
+
+/**
+ * 计算伤害阈值
+ * 轻度阈值 = 护甲基础轻度 + 角色等级 + 调整值
+ * 重度阈值 = 护甲基础重度 + 角色等级 + 调整值
+ * 严重阈值 = 重度阈值 × 2
+ */
+export function calculateThresholds(
+  armorBaseMinor: number,
+  armorBaseMajor: number,
+  level: number,
+  modifiers: number = 0,
+): { minor: number; major: number; severe: number } {
+  const minor = armorBaseMinor + level + modifiers;
+  const major = armorBaseMajor + level + modifiers;
+  const severe = major * 2;
+  return { minor, major, severe };
+}
+
+/**
+ * 判定伤害等级
+ * 使用新的 none/minor/major/severe 四级系统
+ */
+export function calculateDamageSeverity(
+  damage: number,
+  minorThreshold: number,
+  majorThreshold: number,
+  severeThreshold: number,
+): DamageSeverity {
+  if (damage >= severeThreshold) return 'severe';
+  if (damage >= majorThreshold) return 'major';
+  if (damage >= minorThreshold) return 'minor';
+  if (damage > 0) return 'minor'; // 任何伤害至少为轻度
+  return 'none';
+}
+
+/**
+ * 伤害等级对应的HP标记数
+ * 使用共享类型中的常量映射
+ */
+export function getHpLossFromSeverity(severity: DamageSeverity): number {
+  return DAMAGE_SEVERITY_HP[severity];
+}
+
+/**
+ * 使用护甲槽降低伤害等级
+ * 每消耗1护甲槽降低1级伤害
+ * 可多次使用，每级降低需要1护甲槽
+ */
+export function applyArmorSlot(
+  severity: DamageSeverity,
+  armorSlotsToSpend: number = 1,
+): { newSeverity: DamageSeverity; slotsSpent: number } {
+  const severityOrder: DamageSeverity[] = ['none', 'minor', 'major', 'severe'];
+  const currentIndex = severityOrder.indexOf(severity);
+  const newIndex = Math.max(0, currentIndex - armorSlotsToSpend);
+  const actualSpent = currentIndex - newIndex;
+  return {
+    newSeverity: severityOrder[newIndex],
+    slotsSpent: Math.max(0, actualSpent),
+  };
+}
+
+/**
+ * 计算关键成功的额外伤害
+ * 最高伤害骰值 + 正常伤害掷骰 + 调整值
+ */
+export function calculateCriticalDamage(
+  proficiency: number,
+  damageDie: DamageDie,
+  modifier: number = 0,
+): { maxDieValue: number; normalDamage: number; totalDamage: number } {
+  const dieSides = parseInt(damageDie.slice(1));
+  const rolls = Array.from({ length: proficiency }, () =>
+    Math.floor(Math.random() * dieSides) + 1,
+  );
+  const maxDieValue = dieSides;
+  const normalDamage = rolls.reduce((sum, r) => sum + r, 0) + modifier;
+  const totalDamage = maxDieValue + normalDamage;
+  return { maxDieValue, normalDamage, totalDamage };
+}
+
+/**
+ * 计算武器伤害掷骰
+ */
+export function rollWeaponDamage(
+  proficiency: number,
+  damageDie: DamageDie,
+  modifier: number = 0,
+): { rolls: number[]; total: number } {
+  const dieSides = parseInt(damageDie.slice(1));
+  const rolls = Array.from({ length: proficiency }, () =>
+    Math.floor(Math.random() * dieSides) + 1,
+  );
+  const total = rolls.reduce((sum, r) => sum + r, 0) + modifier;
+  return { rolls, total };
+}
+
+// ===== 希望点/恐惧点系统 =====
+
+/**
+ * 消耗希望点
+ * 返回 null 如果希望点不足
+ */
+export function spendHope(
+  currentHope: number,
+  amount: number,
+): number | null {
+  const newHope = currentHope - amount;
+  if (newHope < 0) return null;
+  return newHope;
+}
+
+/**
+ * 获得希望点（不超过上限）
+ */
+export function gainHope(
+  currentHope: number,
+  maxHope: number,
+  amount: number,
+): number {
+  return Math.min(currentHope + amount, maxHope);
+}
+
+/**
+ * GM获得恐惧点（休整时）
+ * 短休：1d4
+ * 长休：1d4（单人游戏，不再乘以玩家数）
+ */
+export function gainFearOnRest(restType: RestType): number {
+  const d4 = Math.floor(Math.random() * 4) + 1;
+  if (restType === 'short') return d4;
+  return d4 + 2; // 长休：1d4 + 2（单人平衡）
+}
+
+// ===== 压力系统 =====
 
 export interface StressOverflowResult {
   stressApplied: number;
-  hpOverflow: number;  // HP点数需要标记
+  hpOverflow: number; // HP点数需要标记
   newStress: number;
-  shouldApplyVulnerable: boolean;  // 标记最后压力槽时自动脆弱
+  shouldApplyVulnerable: boolean; // 标记最后压力槽时自动脆弱
 }
 
 /**
  * 应用压力，压力满时溢出标记HP
- * 每溢出1点压力→1点HP
+ * 每溢出1点压力 → 1点HP
  */
 export function applyStressOverflow(
   currentStress: number,
@@ -369,7 +336,6 @@ export function applyStressOverflow(
   const shouldApplyVulnerable = newStress >= maxStress && currentStress < maxStress;
 
   if (newStress <= maxStress) {
-    // 压力未溢出
     return {
       stressApplied: stressAmount,
       hpOverflow: 0,
@@ -381,14 +347,12 @@ export function applyStressOverflow(
   // 压力溢出：超出的部分标记HP
   const overflow = newStress - maxStress;
   return {
-    stressApplied: maxStress - currentStress, // 实际标记的压力
-    hpOverflow: overflow, // 溢出标记的HP
-    newStress: maxStress, // 压力封顶
+    stressApplied: maxStress - currentStress,
+    hpOverflow: overflow,
+    newStress: maxStress,
     shouldApplyVulnerable: true,
   };
 }
-
-// ===== 压力满自动脆弱 =====
 
 /**
  * 检查是否应施加脆弱状态
@@ -403,9 +367,284 @@ export function shouldApplyVulnerableOnStress(
   return newStress >= maxStress && currentStress < maxStress;
 }
 
-// ===== 抗性/免疫系统 =====
+/**
+ * 清除压力点
+ */
+export function clearStress(
+  currentStress: number,
+  amount: number,
+): number {
+  return Math.max(0, currentStress - amount);
+}
 
-import type { DamageType as DmgType, Resistance } from '@trpgmaster/shared';
+// ===== 休整系统 =====
+
+/**
+ * 短休可选行动（选2项）
+ * 每项的具体效果依赖于位阶
+ */
+export function getShortRestActions(): { id: ShortRestAction; name: string; description: string }[] {
+  return [
+    { id: 'treatWounds', name: '处理伤口', description: '恢复1d4+位阶生命点' },
+    { id: 'relieveStress', name: '缓解压力', description: '清除1d4+位阶压力点' },
+    { id: 'repairArmor', name: '修理护甲', description: '清除1d4+位阶护甲槽' },
+    { id: 'prepare', name: '做好准备', description: '获得1希望点' },
+  ];
+}
+
+/**
+ * 长休可选行动（选2项）
+ */
+export function getLongRestActions(): { id: LongRestAction; name: string; description: string }[] {
+  return [
+    { id: 'treatAllWounds', name: '处理所有伤口', description: '恢复所有生命点' },
+    { id: 'relieveAllStress', name: '缓解所有压力', description: '清除所有压力点' },
+    { id: 'repairAllArmor', name: '修理所有护甲', description: '清除所有护甲槽' },
+    { id: 'prepareFully', name: '做好充分准备', description: '获得2希望点' },
+    { id: 'advanceProject', name: '推进长期项目', description: '推进一个长期项目或研究' },
+  ];
+}
+
+/**
+ * 执行短休行动
+ */
+export function executeShortRestAction(
+  action: ShortRestAction,
+  character: Character,
+): Partial<RestResult> {
+  const tier = getTier(character.level);
+  const d4 = Math.floor(Math.random() * 4) + 1;
+  const tierBonus = tier;
+
+  switch (action) {
+    case 'treatWounds':
+      return { hpRestored: d4 + tierBonus };
+    case 'relieveStress':
+      return { stressCleared: d4 + tierBonus };
+    case 'repairArmor':
+      return { armorSlotsCleared: d4 + tierBonus };
+    case 'prepare':
+      return { hopeGained: 1 };
+  }
+}
+
+/**
+ * 执行长休行动
+ */
+export function executeLongRestAction(
+  action: LongRestAction,
+  character: Character,
+): Partial<RestResult> {
+  switch (action) {
+    case 'treatAllWounds':
+      return { hpRestored: character.maxHp - character.hp };
+    case 'relieveAllStress':
+      return { stressCleared: character.stress };
+    case 'repairAllArmor':
+      return { armorSlotsCleared: character.armorSlots };
+    case 'prepareFully':
+      return { hopeGained: 2 };
+    case 'advanceProject':
+      return {}; // 叙事效果，无机械数值变化
+  }
+}
+
+/**
+ * 执行完整休整
+ * 短休：选2项行动，两次短休间最多3次短休
+ * 长休：选2项行动，重置短休计数
+ */
+export function executeRest(
+  type: RestType,
+  actions: (ShortRestAction | LongRestAction)[],
+  character: Character,
+  shortRestsSinceLong: number,
+): RestResult & { newShortRestCount: number } {
+  let hpRestored = 0;
+  let stressCleared = 0;
+  let armorSlotsCleared = 0;
+  let hopeGained = 0;
+
+  for (const action of actions) {
+    if (type === 'short') {
+      const result = executeShortRestAction(action as ShortRestAction, character);
+      hpRestored += result.hpRestored ?? 0;
+      stressCleared += result.stressCleared ?? 0;
+      armorSlotsCleared += result.armorSlotsCleared ?? 0;
+      hopeGained += result.hopeGained ?? 0;
+    } else {
+      const result = executeLongRestAction(action as LongRestAction, character);
+      hpRestored += result.hpRestored ?? 0;
+      stressCleared += result.stressCleared ?? 0;
+      armorSlotsCleared += result.armorSlotsCleared ?? 0;
+      hopeGained += result.hopeGained ?? 0;
+    }
+  }
+
+  const fearGainedByGM = gainFearOnRest(type);
+  const newShortRestCount = type === 'long' ? 0 : shortRestsSinceLong + 1;
+
+  return {
+    type,
+    actions,
+    hpRestored,
+    stressCleared,
+    armorSlotsCleared,
+    hopeGained,
+    fearGainedByGM,
+    domainCardsSwapped: type === 'long', // 长休时可交换领域卡
+    newShortRestCount,
+  };
+}
+
+/**
+ * 检查是否可以进行短休
+ * 两次长休间最多3次短休
+ */
+export function canShortRest(shortRestsSinceLong: number): boolean {
+  return shortRestsSinceLong < 3;
+}
+
+// ===== 死亡行动 =====
+
+/**
+ * 光荣就义
+ * 角色英勇谢幕，执行一次关键成功的最后行动
+ */
+export function gloriousSacrifice(): DeathMoveResult {
+  return {
+    type: 'gloriousSacrifice',
+    characterDied: true,
+    hpRestored: 0,
+    stressCleared: 0,
+    scarGained: false,
+    narrative: '角色接受命运，执行一次关键成功的最后行动后英勇谢幕。',
+  };
+}
+
+/**
+ * 回避死亡
+ * 掷希望骰：≤等级 → 获得伤痕（永久失去1希望槽），恢复1生命点
+ *           >等级 → 恢复1生命点或长休后苏醒，但局势恶化
+ */
+export function avoidDeath(level: number, hopeDie: number): DeathMoveResult {
+  if (hopeDie <= level) {
+    return {
+      type: 'avoidDeath',
+      characterDied: false,
+      hpRestored: 1,
+      stressCleared: 0,
+      scarGained: true,
+      narrative: `希望骰${hopeDie} ≤ 等级${level}，获得一道伤痕（永久失去1希望槽），恢复1生命点。`,
+    };
+  }
+  return {
+    type: 'avoidDeath',
+    characterDied: false,
+    hpRestored: 1,
+    stressCleared: 0,
+    scarGained: false,
+    narrative: `希望骰${hopeDie} > 等级${level}，恢复1生命点，但局势恶化。`,
+  };
+}
+
+/**
+ * 孤注一掷
+ * 掷二元骰：
+ * 关键成功（双骰相同）→ 恢复所有生命点和压力点
+ * 希望骰 > 恐惧骰 → 恢复希望骰值的生命点/压力点
+ * 恐惧骰 > 希望骰 → 角色死亡
+ */
+export function desperateGamble(hopeDie: number, fearDie: number): DeathMoveResult {
+  if (hopeDie === fearDie) {
+    return {
+      type: 'desperateGamble',
+      characterDied: false,
+      hpRestored: 999, // 恢复全部
+      stressCleared: 999, // 恢复全部
+      scarGained: false,
+      narrative: '关键成功！恢复所有生命点和压力点。',
+    };
+  }
+  if (hopeDie > fearDie) {
+    return {
+      type: 'desperateGamble',
+      characterDied: false,
+      hpRestored: hopeDie,
+      stressCleared: hopeDie,
+      scarGained: false,
+      narrative: `希望骰(${hopeDie}) > 恐惧骰(${fearDie})，恢复${hopeDie}生命点和压力点。`,
+    };
+  }
+  return {
+    type: 'desperateGamble',
+    characterDied: true,
+    hpRestored: 0,
+    stressCleared: 0,
+    scarGained: false,
+    narrative: `恐惧骰(${fearDie}) > 希望骰(${hopeDie})，角色死亡。`,
+  };
+}
+
+// ===== 升级系统 =====
+
+export interface LevelUpBenefit {
+  type: 'domainCard' | 'attributeBoost' | 'hpSlot' | 'stressSlot' | 'armorSlot' | 'experience' | 'proficiency' | 'subclassFeature';
+  description: string;
+  mandatory?: boolean; // 升阶时自动获得的收益
+}
+
+/**
+ * 升级时可选择的收益
+ * 每次升级选择若干项（取决于等级）
+ */
+export function getLevelUpOptions(level: number): LevelUpBenefit[] {
+  const base: LevelUpBenefit[] = [
+    { type: 'domainCard', description: '新领域卡' },
+    { type: 'attributeBoost', description: '属性提升（+1）' },
+    { type: 'hpSlot', description: '额外生命槽' },
+    { type: 'stressSlot', description: '额外压力槽' },
+    { type: 'armorSlot', description: '额外护甲槽' },
+    { type: 'experience', description: '新经历' },
+  ];
+
+  // 位阶2+ 可获得熟练值提升
+  if (level >= 2 && level <= 9) {
+    base.push({ type: 'proficiency', description: '熟练值+1' });
+  }
+
+  return base;
+}
+
+/**
+ * 升阶成就（2/5/8级时触发）
+ * 2级：+1经历，+1熟练值
+ * 5级：+1经历，+1熟练值，清除属性标记
+ * 8级：+1经历，+1熟练值，清除属性标记
+ */
+export function getTierUpBenefits(level: number): LevelUpBenefit[] {
+  const benefits: LevelUpBenefit[] = [];
+
+  if (level === 2 || level === 5 || level === 8) {
+    benefits.push({ type: 'experience', description: '+1经历', mandatory: true });
+    benefits.push({ type: 'proficiency', description: '熟练值+1', mandatory: true });
+  }
+  if (level === 5 || level === 8) {
+    benefits.push({ type: 'attributeBoost', description: '清除所有属性标记（允许再次提升）', mandatory: true });
+  }
+
+  return benefits;
+}
+
+/**
+ * 获取升级后的熟练值
+ * 位阶1: 1, 位阶2: 2, 位阶3: 3, 位阶4: 4
+ */
+export function getProficiencyForTier(tier: Tier): number {
+  return tier;
+}
+
+// ===== 抗性/免疫系统 =====
 
 /**
  * 应用抗性/免疫到伤害
@@ -414,7 +653,7 @@ import type { DamageType as DmgType, Resistance } from '@trpgmaster/shared';
  */
 export function applyResistance(
   damage: number,
-  damageType: DmgType,
+  damageType: DamageType,
   resistances: Resistance[],
 ): { finalDamage: number; resisted: boolean; immune: boolean } {
   const matching = resistances.find(r => r.damageType === damageType);
@@ -430,106 +669,161 @@ export function applyResistance(
   return { finalDamage: Math.floor(damage / 2), resisted: true, immune: false };
 }
 
-// ===== 休整行动（更新为官方规则） =====
+// ===== 状态管理 =====
 
-export interface RestAction {
-  name: string;
-  description: string;
+/**
+ * 添加状态到角色
+ */
+export function addCondition(
+  conditions: ConditionInstance[],
+  condition: ConditionInstance,
+): ConditionInstance[] {
+  // 检查是否已有相同状态
+  const existing = conditions.find(c => c.condition === condition.condition);
+  if (existing) {
+    // 如果已有，更新持续时间（取较长者）
+    if (condition.roundsRemaining !== undefined && existing.roundsRemaining !== undefined) {
+      if (condition.roundsRemaining > existing.roundsRemaining) {
+        return conditions.map(c =>
+          c.condition === condition.condition ? condition : c,
+        );
+      }
+    }
+    return conditions;
+  }
+  return [...conditions, condition];
 }
 
 /**
- * 短休可选行动（选2项，GM获1d4恐惧）
+ * 移除状态
  */
-export function getShortRestActions(): RestAction[] {
-  return [
-    { name: '恢复生命', description: '恢复1d4+位阶生命点' },
-    { name: '清除压力', description: '清除1d4+位阶压力点' },
-    { name: '修复护甲', description: '清除所有护甲槽' },
-    { name: '准备', description: '获得1希望点' },
-    { name: '修理装备', description: '修理装备' },
-    { name: '制作简单物品', description: '制作简单物品' },
-  ];
+export function removeCondition(
+  conditions: ConditionInstance[],
+  conditionName: string,
+): ConditionInstance[] {
+  return conditions.filter(c => c.condition !== conditionName);
 }
 
 /**
- * 长休可选行动（选2项，GM获1d4+玩家数恐惧）
+ * 回合结束时更新临时状态
+ * 返回过期的状态名列表
  */
-export function getLongRestActions(): RestAction[] {
-  return [
-    { name: '恢复所有生命', description: '恢复所有生命点' },
-    { name: '清除所有压力', description: '清除所有压力点' },
-    { name: '修复护甲', description: '修复护甲' },
-    { name: '准备', description: '获得1希望点' },
-    { name: '研究训练', description: '研究/训练/调查' },
-    { name: '推进项目', description: '推进长期项目' },
-    { name: '加强关系', description: '加强社交关系' },
-    { name: '制作复杂物品', description: '制作复杂物品' },
-    { name: '回想领域卡', description: '回想领域卡' },
-  ];
-}
+export function tickConditions(
+  conditions: ConditionInstance[],
+): { updated: ConditionInstance[]; expired: string[] } {
+  const expired: string[] = [];
+  const updated: ConditionInstance[] = [];
 
-// ===== 死亡行动 =====
+  for (const cond of conditions) {
+    if (cond.duration === 'temporary' && cond.roundsRemaining !== undefined) {
+      const remaining = cond.roundsRemaining - 1;
+      if (remaining <= 0) {
+        expired.push(cond.condition);
+      } else {
+        updated.push({ ...cond, roundsRemaining: remaining });
+      }
+    } else {
+      updated.push(cond);
+    }
+  }
 
-export type DeathMoveType = 'gloriousSacrifice' | 'cheatDeath' | 'desperateGamble';
-
-export interface DeathMoveResult {
-  move: DeathMoveType;
-  description: string;
-  outcome: string;
+  return { updated, expired };
 }
 
 /**
- * 光荣就义
+ * 检查角色是否有指定状态
  */
-export function gloriousSacrifice(): DeathMoveResult {
+export function hasCondition(conditions: ConditionInstance[], conditionName: string): boolean {
+  return conditions.some(c => c.condition === conditionName);
+}
+
+// ===== 领域卡系统 =====
+
+/**
+ * 回想领域卡：从宝库交换到配置
+ * 花费闪电标记数 = 回想费用
+ */
+export function recallDomainCard(
+  cardId: string,
+  loadout: DomainCard[],
+  vault: DomainCard[],
+  availableRecallCost: number,
+): { newLoadout: DomainCard[]; newVault: DomainCard[]; costPaid: number } | null {
+  const cardInVault = vault.find(c => c.id === cardId);
+  if (!cardInVault) return null;
+  if (cardInVault.recallCost > availableRecallCost) return null;
+  if (loadout.length >= 5) return null; // 配置已满
+
+  const newVault = vault.filter(c => c.id !== cardId);
+  const newLoadout = [...loadout, cardInVault];
+
   return {
-    move: 'gloriousSacrifice',
-    description: '接受死亡，执行一次关键成功的最后行动',
-    outcome: '角色英勇谢幕，最后行动自动成功',
+    newLoadout,
+    newVault,
+    costPaid: cardInVault.recallCost,
   };
 }
 
 /**
- * 回避死亡
+ * 交换领域卡：配置中的一张与宝库中的一张互换
  */
-export function cheatDeath(level: number, hopeDie: number): DeathMoveResult {
-  if (hopeDie <= level) {
-    return {
-      move: 'cheatDeath',
-      description: '陷入昏迷，掷希望骰检验',
-      outcome: `获得一道伤痕（永久失去1希望槽），恢复1生命点。希望骰${hopeDie} ≤ 等级${level}`,
-    };
-  }
+export function swapDomainCard(
+  loadoutCardId: string,
+  vaultCardId: string,
+  loadout: DomainCard[],
+  vault: DomainCard[],
+): { newLoadout: DomainCard[]; newVault: DomainCard[] } | null {
+  const loadoutCard = loadout.find(c => c.id === loadoutCardId);
+  const vaultCard = vault.find(c => c.id === vaultCardId);
+  if (!loadoutCard || !vaultCard) return null;
+
+  // 检查新卡的等级是否可用
+  // （通常角色只能使用 ≤ 自身等级的领域卡）
+
+  const newLoadout = loadout.map(c => c.id === loadoutCardId ? vaultCard : c);
+  const newVault = vault.map(c => c.id === vaultCardId ? loadoutCard : c);
+
+  return { newLoadout, newVault };
+}
+
+// 领域卡类型引用（从 character.ts 导入）
+import type { DomainCard } from '@trpgmaster/shared';
+
+// ===== 倒计时系统 =====
+
+import type { Countdown } from '@trpgmaster/shared';
+
+/**
+ * 推进倒计时
+ */
+export function tickCountdown(countdown: Countdown): Countdown {
+  if (countdown.triggered) return countdown;
+
+  const newValue = countdown.currentValue - 1;
+  const triggered = newValue <= countdown.triggerAt;
+
   return {
-    move: 'cheatDeath',
-    description: '陷入昏迷，局势恶化',
-    outcome: `恢复1生命点或长休后苏醒，局势恶化。希望骰${hopeDie} > 等级${level}，未获得伤痕`,
+    ...countdown,
+    currentValue: newValue,
+    triggered,
   };
 }
 
 /**
- * 孤注一掷
+ * 根据事件类型推进所有匹配的倒计时
  */
-export function desperateGamble(hopeDie: number, fearDie: number): DeathMoveResult {
-  if (hopeDie === fearDie) {
-    return {
-      move: 'desperateGamble',
-      description: '关键成功！',
-      outcome: '恢复所有生命点和压力点',
-    };
-  }
-  if (hopeDie > fearDie) {
-    return {
-      move: 'desperateGamble',
-      description: '希望骰较高',
-      outcome: `恢复${hopeDie}生命点/压力点`,
-    };
-  }
-  return {
-    move: 'desperateGamble',
-    description: '恐惧骰较高',
-    outcome: '角色死亡',
-  };
+export function tickCountdowns(
+  countdowns: Countdown[],
+  triggerOn: Countdown['decrementOn'],
+): { updated: Countdown[]; triggered: Countdown[] } {
+  const triggered: Countdown[] = [];
+  const updated = countdowns.map(cd => {
+    if (cd.triggered || cd.decrementOn !== triggerOn) return cd;
+    const newCd = tickCountdown(cd);
+    if (newCd.triggered) triggered.push(newCd);
+    return newCd;
+  });
+  return { updated, triggered };
 }
 
 // ===== 角色卡验证 =====
@@ -540,7 +834,7 @@ export function desperateGamble(hopeDie: number, fearDie: number): DeathMoveResu
 export function validateCharacterSheet(character: Partial<Character>): string[] {
   const errors: string[] = [];
 
-  // HP validation
+  // HP 验证
   if (character.hp !== undefined && character.maxHp !== undefined) {
     if (character.hp > character.maxHp) {
       errors.push('HP不能超过maxHp');
@@ -550,7 +844,7 @@ export function validateCharacterSheet(character: Partial<Character>): string[] 
     }
   }
 
-  // Hope validation
+  // 希望点验证
   if (character.hope !== undefined && character.maxHope !== undefined) {
     if (character.hope > character.maxHope) {
       errors.push('希望点不能超过maxHope');
@@ -560,7 +854,7 @@ export function validateCharacterSheet(character: Partial<Character>): string[] 
     }
   }
 
-  // Attribute validation
+  // 属性验证
   if (character.attributes) {
     const attrValues = Object.values(character.attributes) as number[];
     const sum = attrValues.reduce((a: number, b: number) => a + b, 0);
@@ -568,7 +862,7 @@ export function validateCharacterSheet(character: Partial<Character>): string[] 
       errors.push('属性调整值之和应为+3（+2,+1,+1,0,0,-1）');
     }
 
-    // Check distribution
+    // 检查分布
     const sorted = [...attrValues].sort((a: number, b: number) => b - a);
     const expectedDistribution = [2, 1, 1, 0, 0, -1];
     const matchesDistribution = sorted.every((v, i) => v === expectedDistribution[i]);
@@ -577,140 +871,196 @@ export function validateCharacterSheet(character: Partial<Character>): string[] 
     }
   }
 
-  // Experience validation
+  // 经历验证
   if (character.experiences) {
     if (character.experiences.length < 2) {
       errors.push('至少需要2个经历');
     }
     character.experiences.forEach(exp => {
-      if (exp.modifier !== 2 && exp.modifier !== 1) {
-        errors.push(`经历"${exp.name}"的调整值应为+2或+1`);
+      if (exp.modifier < 1 || exp.modifier > 5) {
+        errors.push(`经历"${exp.name}"的调整值应在+1到+5之间`);
       }
     });
   }
 
-  // Corruption validation
-  if (character.corruption !== undefined) {
-    if (character.corruption < 0 || character.corruption > 6) {
-      errors.push('污染等级必须在0-6之间');
+  // 领域卡配置验证
+  if (character.domainCardConfig) {
+    if (character.domainCardConfig.loadout.length > 5) {
+      errors.push('配置中的领域卡不能超过5张');
     }
+    character.domainCardConfig.loadout.forEach(card => {
+      if (card.level > (character.level ?? 1)) {
+        errors.push(`领域卡"${card.name}"的等级(${card.level})超过角色等级`);
+      }
+    });
   }
 
   return errors;
 }
 
-// ===== 群体行动/回音掷骰 =====
-
-export interface GroupActionResult {
-  totalParticipants: number;
-  successes: number;
-  failures: number;
-  groupSuccess: boolean;  // 多数成功→群体成功
-}
-
-/**
- * 群体行动：多人掷骰，多数成功→群体成功
- */
-export function resolveGroupAction(
-  individualResults: boolean[],
-): GroupActionResult {
-  const successes = individualResults.filter(r => r).length;
-  const failures = individualResults.filter(r => !r).length;
-  const groupSuccess = successes > failures;
-
-  return {
-    totalParticipants: individualResults.length,
-    successes,
-    failures,
-    groupSuccess,
-  };
-}
-
-/**
- * 回音掷骰：花费3Hope，两角色各掷，选一个结果应用
- * 返回两个结果，由调用者选择使用哪个
- */
-export function echoRoll(
-  hopeDie1: number,
-  fearDie1: number,
-  modifier1: number,
-  hopeDie2: number,
-  fearDie2: number,
-  modifier2: number,
-  difficulty: number,
-): { result1: RollResultDetail; result2: RollResultDetail; hopeCost: number } {
-  const result1 = determineRollResult(hopeDie1, fearDie1, modifier1, difficulty);
-  const result2 = determineRollResult(hopeDie2, fearDie2, modifier2, difficulty);
-  return { result1, result2, hopeCost: 3 };
-}
-
 // ===== 德拉肯海姆特有机制 =====
 
-type DrakkenheimZone = 'outer' | 'inner' | 'heavy';
+type DrakkenheimZone = 'village' | 'outer' | 'inner' | 'heavy';
 
-export class DaggerHeartRules {
-  /**
-   * 验证污染等级合法性
-   */
-  validateCorruptionLevel(level: number): boolean {
-    return Number.isInteger(level) && level >= 0 && level <= 6;
-  }
+/**
+ * 污染等级验证
+ */
+export function validateContaminationLevel(level: number): boolean {
+  return Number.isInteger(level) && level >= 0 && level <= 6;
+}
 
-  /**
-   * 是否应抽取变异卡
-   * 3级和5级时各抽一次
-   */
-  shouldDrawMutationCard(newLevel: number, previousLevel: number): boolean {
-    // Crossed the 3 threshold
-    if (previousLevel < 3 && newLevel >= 3) return true;
-    // Crossed the 5 threshold
-    if (previousLevel < 5 && newLevel >= 5) return true;
-    return false;
-  }
+/**
+ * 污染是否达到终末（6级=异变）
+ */
+export function isContaminationTerminal(level: number): boolean {
+  return level >= 6;
+}
 
-  /**
-   * 污染是否达到终末（6级=异变）
-   */
-  isCorruptionTerminal(level: number): boolean {
-    return level >= 6;
-  }
+/**
+ * 是否应抽取变异卡
+ * 3级和5级时各抽一次
+ */
+export function shouldDrawMutationCard(
+  newLevel: number,
+  previousLevel: number,
+): boolean {
+  if (previousLevel < 3 && newLevel >= 3) return true;
+  if (previousLevel < 5 && newLevel >= 5) return true;
+  return false;
+}
 
-  /**
-   * 获取探险倒计时（根据区域类型）
-   */
-  getExplorationTimer(zone: DrakkenheimZone): number {
-    switch (zone) {
-      case 'outer': return 4;
-      case 'inner': return 3;
-      case 'heavy': return 2;
-    }
+/**
+ * 获取探险倒计时（根据区域类型）
+ * 余烬村：无限制（安全区）
+ * 外城：4回合
+ * 内城：3回合
+ * 重度迷雾区：2回合
+ */
+export function getExplorationTimer(zone: DrakkenheimZone): number {
+  switch (zone) {
+    case 'village': return Infinity;
+    case 'outer': return 4;
+    case 'inner': return 3;
+    case 'heavy': return 2;
   }
+}
 
-  /**
-   * 验证派系关系等级
-   */
-  validateFactionRelation(level: number): boolean {
-    return Number.isInteger(level) && level >= 1 && level <= 8;
+/**
+ * 污霭暴露反应难度
+ */
+export function getHazeReactionDifficulty(zone: DrakkenheimZone): number {
+  switch (zone) {
+    case 'village': return 0; // 无迷雾
+    case 'outer': return 12;
+    case 'inner': return 14;
+    case 'heavy': return 16;
   }
+}
 
-  /**
-   * 获取派系关系标签
-   */
-  getFactionRelationLabel(level: number): string {
-    if (level <= 2) return '敌对';
-    if (level <= 4) return '不信任';
-    if (level <= 6) return '友好';
-    return '盟友';
+/**
+ * 污染暴露风险
+ * 每次在迷雾区域失败掷骰时，根据区域增加污染
+ */
+export function getContaminationRisk(zone: DrakkenheimZone): number {
+  switch (zone) {
+    case 'village': return 0;
+    case 'outer': return 1;
+    case 'inner': return 2;
+    case 'heavy': return 3;
   }
+}
 
-  /**
-   * 污霭暴露反应难度
-   */
-  getHazeReactionDifficulty(zone: DrakkenheimZone): number {
-    switch (zone) {
-      case 'outer': return 12;
-      case 'inner': return 14;
-      case 'heavy': return 16;
-    }
+/**
+ * 翠晶拾取污染风险
+ */
+export function getDeleriumContaminationRisk(
+  deleriumType: 'fragment' | 'shard' | 'crystal' | 'vein',
+): number {
+  switch (deleriumType) {
+    case 'fragment': return 1;
+    case 'shard': return 2;
+    case 'crystal': return 3;
+    case 'vein': return 4;
   }
+}
+
+/**
+ * 派系关系标签（与 shared/types/game.ts 对齐）
+ * 1-2: 敌对, 3-4: 不友好, 5-6: 中立, 7-8: 友好, 9-10: 同盟
+ */
+export function getFactionRelationLabel(level: number): string {
+  if (level <= 2) return '敌对';
+  if (level <= 4) return '不友好';
+  if (level <= 6) return '中立';
+  if (level <= 8) return '友好';
+  return '同盟';
+}
+
+/**
+ * 派系关系等级变化
+ * 返回新的关系值（1-10范围）
+ */
+export function changeFactionRelation(
+  currentRelation: number,
+  change: number,
+): number {
+  return Math.max(1, Math.min(10, currentRelation + change));
+}
+
+// ===== 闪避值系统 =====
+
+/**
+ * 计算角色闪避值
+ * 基础值 + 敏捷调整值 - 护甲惩罚
+ */
+export function calculateEvasion(
+  baseEvasion: number,
+  agilityModifier: number,
+  armorPenalty: number,
+): number {
+  return baseEvasion + agilityModifier - armorPenalty;
+}
+
+// ===== 辅助工具 =====
+
+/**
+ * 掷 N 面骰
+ */
+export function rollDie(sides: number): number {
+  return Math.floor(Math.random() * sides) + 1;
+}
+
+/**
+ * 掷多个骰子
+ */
+export function rollDice(count: number, sides: number): number[] {
+  return Array.from({ length: count }, () => rollDie(sides));
+}
+
+/**
+ * 解析伤害字符串（如 "2d8+3"）并掷骰
+ */
+export function rollDamageString(damageString: string): number {
+  const match = damageString.match(/^(\d+)d(\d+)([+-]\d+)?$/);
+  if (!match) return 0;
+
+  const count = parseInt(match[1]);
+  const sides = parseInt(match[2]);
+  const modifier = match[3] ? parseInt(match[3]) : 0;
+
+  const rolls = rollDice(count, sides);
+  return rolls.reduce((sum, r) => sum + r, 0) + modifier;
+}
+
+/**
+ * 属性值 → 调整值映射
+ * 1-4: -2, 5-8: -1, 9-12: 0, 13-16: +1, 17-20: +2, 21+: +3
+ */
+export function attributeToModifier(attributeValue: number): number {
+  if (attributeValue <= 4) return -2;
+  if (attributeValue <= 8) return -1;
+  if (attributeValue <= 12) return 0;
+  if (attributeValue <= 16) return 1;
+  if (attributeValue <= 20) return 2;
+  return 3;
 }

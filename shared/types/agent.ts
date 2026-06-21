@@ -1,44 +1,43 @@
 import type { Character, EnemyStatBlock, Faction, NPC } from './character';
-import type { SessionState, TimelineEntry } from './events';
-import type { RuleSystemId, WeaponData, ArmorData, ClassData } from './rules';
+import type { SessionState, TimelineEntry, CampaignState, AIMessage } from './events';
+import type { WeaponData, ArmorData, ClassData, SubclassData, AncestryData, CommunityData, DomainType } from './rules';
 
-// ===== Agent Types =====
+// ===== AI 管家类型 =====
 
-export interface AgentMessage {
-  agentType: string;
-  content: string;
-  metadata?: Record<string, unknown>;
-  timestamp: number;
-}
-
-export interface AgentContext {
+// AI 管家上下文
+export interface AIGMContext {
   sessionId: string;
   sessionState: SessionState;
-  relevantHistory: TimelineEntry[];
+  recentHistory: TimelineEntry[];
   worldLore: WorldLore;
-  ruleSystemData: RuleSystemData;
+  character: Character;          // 保留向后兼容（单人模式）
+  characters?: Character[];      // 多人模式：队伍所有角色
+  activePlayerId?: string;       // 当前行动玩家ID
+  activePlayerName?: string;     // 当前行动玩家名
 }
 
-export interface AgentResponse {
-  agentType: string;
-  output: string;
-  events?: AgentGeneratedEvent[];
+// AI 管家响应
+export interface AIGMResponse {
+  message: AIMessage;
+  events?: AIGMGeneratedEvent[];
+  stateChanges?: Partial<SessionState>;
   tokenUsage?: number;
 }
 
-export interface AgentGeneratedEvent {
+export interface AIGMGeneratedEvent {
   type: string;
   payload: Record<string, unknown>;
   priority: 'low' | 'normal' | 'high' | 'critical';
 }
 
-// ===== World Lore =====
+// ===== 世界设定 =====
 
 export interface WorldLore {
   campaignId: string;
   campaignName: string;
   overview: string;
   themes: string[];
+  tone: string;           // 'dark' | 'heroic' | 'balanced'
   locations: LocationData[];
   factions: Faction[];
   npcs: NPC[];
@@ -49,118 +48,95 @@ export interface WorldLore {
 export interface LocationData {
   id: string;
   name: string;
+  nameEn?: string;
   description: string;
   parentLocationId?: string;
   dangerLevel: 'safe' | 'low' | 'moderate' | 'high' | 'extreme';
   features: string[];
-  connections: string[]; // connected location IDs
-  explorationTimer?: number; // Drakkenheim: exploration countdown
+  connections: string[];
+  explorationTimer?: number;
   hazeLevel?: 'none' | 'light' | 'moderate' | 'heavy';
+  contaminationRisk?: number;  // 0-5, 污染风险等级
+  deleriumPresence?: 'none' | 'trace' | 'moderate' | 'abundant';
 }
 
 export interface CampaignTimelineEntry {
   id: string;
   era: string;
-  yearOffset: number; // years before campaign start
+  yearOffset: number;
   description: string;
 }
 
-// ===== Rule System Data =====
+// ===== 规则系统数据 =====
 
 export interface RuleSystemData {
-  id: RuleSystemId;
+  id: 'daggerheart';
   name: string;
   version: string;
   classes: ClassData[];
+  subclasses: SubclassData[];
+  ancestries: AncestryData[];
+  communities: CommunityData[];
   weapons: WeaponData[];
   armor: ArmorData[];
   enemies: EnemyStatBlock[];
   randomTables: RandomTable[];
-  conditions: ConditionData[];
 }
 
 export interface RandomTable {
   id: string;
   name: string;
-  dice: string; // e.g. "1d20", "1d6"
+  dice: string;
   entries: RandomTableEntry[];
 }
 
 export interface RandomTableEntry {
-  range: [number, number]; // [min, max]
+  range: [number, number];
   result: string;
-  subtable?: string; // reference to another table
+  subtable?: string;
 }
 
-export interface ConditionData {
-  id: string;
+// ===== 德拉肯海姆特有类型 =====
+
+// 污染等级
+export type ContaminationLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
+// 污染效果
+export interface ContaminationEffect {
+  level: ContaminationLevel;
   name: string;
   description: string;
-  clearCondition: string;
+  mechanicalEffect: string;
 }
 
-// ===== Image Types =====
-
-export interface ImageGenerationRequest {
-  prompt: string;
-  negativePrompt: string;
-  style: ImageStyle;
-  referenceImageId?: string;
-  width: number;
-  height: number;
+// 翠晶数据
+export interface DeleriumData {
+  id: string;
+  type: 'fragment' | 'shard' | 'crystal' | 'vein';
+  value: number;             // 金币价值
+  contaminationRisk: number; // 暴露污染的风险
+  magicalPotency: number;    // 魔法效能等级
+  description: string;
 }
 
-export interface ImageStyle {
+// 德拉肯海姆封印
+export interface SealOfDrakkenheim {
   id: string;
   name: string;
-  basePrompt: string;
-  characterPromptTemplate: string;
-  scenePromptTemplate: string;
-  negativePrompt: string;
+  nameEn: string;
+  description: string;
+  location: string;
+  holder?: string;           // 当前持有者
+  powers: string[];
+  isFound: boolean;
 }
 
-export interface GeneratedImage {
+// 圣维特鲁维奥圣物
+export interface RelicOfSaintVitruvio {
   id: string;
-  url: string;
-  prompt: string;
-  styleId: string;
-  category: 'character' | 'scene' | 'item' | 'map';
-  relatedEntityId?: string;
-  timestamp: number;
-}
-
-// ===== Novel Types =====
-
-export interface NovelRequest {
-  sessionId: string;
-  playerId: string;
-  characterId: string;
-  perspective: 'firstPerson' | 'thirdPerson';
-  style: NovelStyle;
-}
-
-export interface NovelStyle {
-  genre: string;
-  tone: string;
-  pov: 'firstPerson' | 'thirdPerson';
-  language: 'zh' | 'en';
-}
-
-export interface NovelChapter {
-  chapterNumber: number;
-  title: string;
-  content: string;
-  keyMoments: string[];
-  imageUrl?: string;
-}
-
-export interface Novel {
-  id: string;
-  sessionId: string;
-  playerId: string;
-  characterId: string;
-  characterName: string;
-  title: string;
-  chapters: NovelChapter[];
-  generatedAt: number;
+  name: string;
+  nameEn: string;
+  description: string;
+  powers: string[];
+  isFound: boolean;
 }

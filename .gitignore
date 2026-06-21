@@ -3,6 +3,8 @@ dist/
 build/
 .env
 .env.local
+ai_config.json
+session_data.json
 *.log
 .DS_Store
 Thumbs.db

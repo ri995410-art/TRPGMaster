@@ -1,15 +1,16 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import type { Character } from '@trpgmaster/shared';
-import { ATTRIBUTE_LABELS } from '@trpgmaster/shared';
+import { ATTRIBUTE_LABELS, CONDITION_LABELS } from '@trpgmaster/shared';
 
 interface CharacterCardProps {
   character: Character;
   isMyCharacter?: boolean;
   onStatChange?: (characterId: string, stat: 'hp' | 'stress' | 'hope' | 'armorSlots', delta: number) => void;
+  contaminationLevel?: number; // From campaignState, not character
 }
 
-export function CharacterCard({ character, isMyCharacter, onStatChange }: CharacterCardProps) {
+export function CharacterCard({ character, isMyCharacter, onStatChange, contaminationLevel }: CharacterCardProps) {
   const renderResourceBar = (
     label: string,
     current: number,
@@ -20,7 +21,7 @@ export function CharacterCard({ character, isMyCharacter, onStatChange }: Charac
     <View style={styles.resourceRow}>
       <Text style={styles.resourceLabel}>{label}</Text>
       <View style={styles.resourceBarContainer}>
-        <View style={[styles.resourceBarFill, { width: `${(current / max) * 100}%`, backgroundColor: color }]} />
+        <View style={[styles.resourceBarFill, { width: `${max > 0 ? (current / max) * 100 : 0}%`, backgroundColor: color }]} />
       </View>
       <View style={styles.resourceButtons}>
         <TouchableOpacity
@@ -65,22 +66,25 @@ export function CharacterCard({ character, isMyCharacter, onStatChange }: Charac
 
       {character.conditions.length > 0 && (
         <View style={styles.conditions}>
-          {character.conditions.map((cond) => (
-            <View key={cond} style={styles.conditionBadge}>
-              <Text style={styles.conditionText}>{cond}</Text>
+          {character.conditions.map((cond, i) => (
+            <View key={`${cond.condition}-${i}`} style={styles.conditionBadge}>
+              <Text style={styles.conditionText}>
+                {CONDITION_LABELS[cond.condition] || cond.condition}
+              </Text>
             </View>
           ))}
         </View>
       )}
 
-      {character.corruption > 0 && (
-        <View style={styles.corruptionRow}>
-          <Text style={styles.corruptionLabel}>污染等级</Text>
-          <View style={styles.corruptionDots}>
+      {/* Contamination from campaign state (not character property) */}
+      {contaminationLevel !== undefined && contaminationLevel > 0 && (
+        <View style={styles.contaminationRow}>
+          <Text style={styles.contaminationLabel}>污染等级</Text>
+          <View style={styles.contaminationDots}>
             {Array.from({ length: 6 }, (_, i) => (
               <View
                 key={i}
-                style={[styles.corruptionDot, i < character.corruption && styles.corruptionDotActive]}
+                style={[styles.contaminationDot, i < contaminationLevel && styles.contaminationDotActive]}
               />
             ))}
           </View>
@@ -210,21 +214,22 @@ const styles = StyleSheet.create({
     color: '#e74c3c',
     fontSize: 11,
   },
-  corruptionRow: {
+  // Contamination (from campaign state)
+  contaminationRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 8,
     gap: 8,
   },
-  corruptionLabel: {
+  contaminationLabel: {
     color: '#9b59b6',
     fontSize: 12,
   },
-  corruptionDots: {
+  contaminationDots: {
     flexDirection: 'row',
     gap: 4,
   },
-  corruptionDot: {
+  contaminationDot: {
     width: 12,
     height: 12,
     borderRadius: 6,
@@ -232,7 +237,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#9b59b6',
   },
-  corruptionDotActive: {
+  contaminationDotActive: {
     backgroundColor: '#9b59b6',
   },
 });

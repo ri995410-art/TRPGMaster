@@ -3,7 +3,6 @@
  * 封装AI模型调用，支持并行、流式、重试和上下文管理
  * 兼容OpenAI格式API（硅基流动SiliconFlow等）
  */
-import type { AgentType } from '@trpgmaster/shared';
 
 // ===== Types =====
 
@@ -26,7 +25,7 @@ export interface AIRequest {
   messages: AIMessage[];
   temperature: number;
   maxTokens: number;
-  agentType: AgentType | string;
+  agentType: string;
   stream?: boolean;
   requestId?: string;
 }
@@ -244,7 +243,7 @@ export class AIGateway {
    * 构建Agent上下文
    */
   buildAgentContext(
-    agentType: AgentType | string,
+    agentType: string,
     context: AIAgentContext,
     maxTokens: number,
   ): { messages: AIMessage[] } {
@@ -305,7 +304,7 @@ export class AIGateway {
     const response = await this.httpClient.post(url, {
       headers,
       body,
-      timeout: 30000,
+      timeout: 120000,  // 2 minutes — AI GM responses with large context can take 30-90s
     });
 
     if (!response.ok) {
@@ -391,7 +390,7 @@ export class AIGateway {
     this.requestStats.set(agentType, stats);
   }
 
-  private getSystemPrompt(agentType: AgentType | string): string {
+  private getSystemPrompt(agentType: string): string {
     const prompts: Record<string, string> = {
       narrative: '你是TRPGMaster的叙事Agent，负责生成沉浸式的场景描述和剧情推进。',
       rules: '你是TRPGMaster的规则裁定Agent，严格依据匕首之心规则书进行裁定。',

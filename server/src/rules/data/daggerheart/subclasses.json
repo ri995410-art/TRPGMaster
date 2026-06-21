@@ -4,161 +4,701 @@
     "name": "游唱乐手",
     "nameEn": "Troubadour",
     "classId": "bard",
-    "level": 1,
     "castingAttribute": "presence",
-    "description": "选择游唱乐手，演奏音乐来鼓舞你的盟友。"
+    "description": "选择游唱乐手，演奏音乐来鼓舞你的盟友。",
+    "backgroundQuestions": [
+      "你的音乐天赋是如何被发现的？是谁第一个教你演奏乐器的？",
+      "你曾在何处表演过最难忘的一曲？那次的观众是谁？"
+    ],
+    "relationshipQuestions": [
+      "你曾为谁写过一首歌或编过一段旋律？那首歌讲述了什么？",
+      "有没有一个人总是出现在你的观众中，无论你走到哪里？"
+    ],
+    "features": {
+      "base": {
+        "name": "战歌",
+        "nameEn": "Battle Song",
+        "description": "当你使用一个攻击动作时，你可以标记1压力点来对攻击掷骰获得优势。如果你这样做，在此次攻击中你造成的是魔法伤害而非物理伤害。",
+        "level": 1,
+        "isCard": true
+      },
+      "advanced": {
+        "name": "鼓舞旋律",
+        "nameEn": "Inspiring Melody",
+        "description": "当你使用战歌并成功命中时，近距离范围内的一名盟友获得1希望点。",
+        "level": 4,
+        "isCard": true
+      },
+      "mastery": {
+        "name": "传奇演出",
+        "nameEn": "Legendary Performance",
+        "description": "当你使用战歌时，你不再需要标记压力点来获得优势。此外，当你的战歌攻击成功命中时，所有近距离范围内的盟友获得1希望点。",
+        "level": 7,
+        "isCard": true
+      }
+    }
   },
   {
     "id": "bard-wordsmith",
     "name": "言文巧匠",
     "nameEn": "Wordsmith",
     "classId": "bard",
-    "level": 1,
     "castingAttribute": "presence",
-    "description": "选择言文巧匠，以机锋妙语折服广大听众。"
+    "description": "选择言文巧匠，以机锋妙语折服广大听众。",
+    "backgroundQuestions": [
+      "你的口才是在什么样的环境中磨练出来的？是宫廷辩论还是街头叫卖？",
+      "你曾经用言语改变了一个人的命运吗？那是怎样的经历？"
+    ],
+    "relationshipQuestions": [
+      "你曾与谁进行过一场改变彼此看法的深入对话？",
+      "有没有一个人，你说的话对方从不相信，但你却无法停止尝试说服？"
+    ],
+    "features": {
+      "base": {
+        "name": "巧言令色",
+        "nameEn": "Silver Tongue",
+        "description": "当你进行一次涉及说服、欺骗或表演的风度掷骰时，你可以标记1压力点来对此次掷骰获得优势。",
+        "level": 1,
+        "isCard": true
+      },
+      "advanced": {
+        "name": "挑拨离间",
+        "nameEn": "Sow Discord",
+        "description": "当你使用巧言令色并成功时，你可以使目标对近距离范围内的另一个目标产生敌意，持续到场景结束。",
+        "level": 4,
+        "isCard": true
+      },
+      "mastery": {
+        "name": "万语千言",
+        "nameEn": "Thousand Words",
+        "description": "你使用巧言令色不再需要标记压力点。此外，当你成功时，你可以同时影响近距离范围内最多3个目标。",
+        "level": 7,
+        "isCard": true
+      }
+    }
   },
   {
     "id": "druid-renewal",
     "name": "复兴结社",
     "nameEn": "Circle of Renewal",
     "classId": "druid",
-    "level": 1,
     "castingAttribute": "instinct",
-    "description": "选择复兴结社，使用强大的魔法治疗盟友。"
+    "description": "选择复兴结社，使用强大的魔法治疗盟友。",
+    "backgroundQuestions": [
+      "你是在什么情况下第一次感受到自然的治愈之力？",
+      "你的结社中谁教会了你复兴之道的核心理念？"
+    ],
+    "relationshipQuestions": [
+      "你曾经治愈过一个本已放弃希望的人吗？那个人后来怎样了？",
+      "有没有一片被破坏的自然之地，你誓言要将其恢复？"
+    ],
+    "features": {
+      "base": {
+        "name": "生命之触",
+        "nameEn": "Touch of Life",
+        "description": "当你对近距离范围内的一名盟友施放治疗法术时，你可以标记1压力点来额外恢复等同于你位阶的生命点。",
+        "level": 1,
+        "isCard": true
+      },
+      "advanced": {
+        "name": "复苏之风",
+        "nameEn": "Wind of Renewal",
+        "description": "当你使用生命之触时，你也可以清除目标的1压力点。",
+        "level": 4,
+        "isCard": true
+      },
+      "mastery": {
+        "name": "万物复苏",
+        "nameEn": "All Things Renew",
+        "description": "当你使用生命之触时，你不再需要标记压力点。此外，你可以同时治疗近距离范围内的所有盟友，每人恢复等同于你位阶的生命点。",
+        "level": 7,
+        "isCard": true
+      }
+    }
   },
   {
     "id": "druid-elemental",
     "name": "元素结社",
     "nameEn": "Circle of Elements",
     "classId": "druid",
-    "level": 1,
     "castingAttribute": "instinct",
-    "description": "选择元素结社，体现自然元素的不同面貌。"
+    "description": "选择元素结社，体现自然元素的不同面貌。",
+    "backgroundQuestions": [
+      "你与哪种自然元素有着最深的联系——火、水、土还是风？这种联系是如何形成的？",
+      "你曾目睹过元素力量失控的景象吗？那次经历如何影响了你？"
+    ],
+    "relationshipQuestions": [
+      "你结社中是否有人选择了与你不同的元素之道？你们的关系如何？",
+      "有没有一个地方，你感受到的元素之力特别强烈？"
+    ],
+    "features": {
+      "base": {
+        "name": "元素亲和",
+        "nameEn": "Elemental Affinity",
+        "description": "选择一种元素（火、水、土、风）。当你使用与所选元素相关的法术时，你可以标记1压力点来使伤害掷骰中一个骰子取最大值。",
+        "level": 1,
+        "isCard": true
+      },
+      "advanced": {
+        "name": "元素共鸣",
+        "nameEn": "Elemental Resonance",
+        "description": "当你使用元素亲和时，你可以在所选元素相关的法术上额外选择一种元素效果：火=持续伤害，水=减速，土=击退，风=拉近距离。",
+        "level": 4,
+        "isCard": true
+      },
+      "mastery": {
+        "name": "元素主宰",
+        "nameEn": "Elemental Mastery",
+        "description": "你使用元素亲和不再需要标记压力点。此外，你可以同时选择两种元素效果，且法术范围增加一个距离等级。",
+        "level": 7,
+        "isCard": true
+      }
+    }
   },
   {
     "id": "guardian-ironclad",
     "name": "坚毅铁卫",
     "nameEn": "Ironclad",
     "classId": "guardian",
-    "level": 1,
     "castingAttribute": null,
-    "description": "选择坚毅铁卫，承受重击后依然奋战不休。"
+    "description": "选择坚毅铁卫，承受重击后依然奋战不休。",
+    "backgroundQuestions": [
+      "你是在哪场战役中学会了承受一切为同伴挡下致命一击的意义？",
+      "你的护甲上最深的伤痕来自哪次战斗？那次的对手是谁？"
+    ],
+    "relationshipQuestions": [
+      "你守护过的人中，谁让你觉得一切牺牲都值得？",
+      "有没有一个同伴曾替你挡下你本应承受的攻击？"
+    ],
+    "features": {
+      "base": {
+        "name": "铁壁坚守",
+        "nameEn": "Iron Hold",
+        "description": "当你受到严重伤害时，你可以标记1压力点来改为只受到重度伤害。",
+        "level": 1,
+        "isCard": true
+      },
+      "advanced": {
+        "name": "不动如山",
+        "nameEn": "Unshakeable",
+        "description": "当你使用铁壁坚守时，你同时清除1护甲槽。此外，当有敌人试图将你移动时，你可以标记1压力点来抵抗此效果。",
+        "level": 4,
+        "isCard": true
+      },
+      "mastery": {
+        "name": "钢铁意志",
+        "nameEn": "Iron Will",
+        "description": "你使用铁壁坚守不再需要标记压力点。此外，当你受到伤害时，你可以选择让近距离范围内的一名盟友代为承受此伤害（该盟友可以选择拒绝）。",
+        "level": 7,
+        "isCard": true
+      }
+    }
   },
   {
     "id": "guardian-vengeance",
     "name": "复仇战卫",
     "nameEn": "Vengeance",
     "classId": "guardian",
-    "level": 1,
     "castingAttribute": null,
-    "description": "选择复仇战卫，痛击伤害你与同伴的敌人。"
+    "description": "选择复仇战卫，痛击伤害你与同伴的敌人。",
+    "backgroundQuestions": [
+      "是什么人或事件点燃了你心中复仇的火焰？",
+      "你追求的是正义的报复还是纯粹的惩罚？你如何区分两者？"
+    ],
+    "relationshipQuestions": [
+      "你曾因追求复仇而伤害过无辜的人吗？那个人是谁？",
+      "有没有一个人，你愿意为其复仇到世界尽头？"
+    ],
+    "features": {
+      "base": {
+        "name": "以牙还牙",
+        "nameEn": "Eye for an Eye",
+        "description": "当一个敌人在你近战范围内对你或你的盟友造成伤害时，你可以标记1压力点来对该敌人进行一次反击，造成等同于你武器伤害骰的物理伤害。",
+        "level": 1,
+        "isCard": true
+      },
+      "advanced": {
+        "name": "血债血偿",
+        "nameEn": "Blood Debt",
+        "description": "当你使用以牙还牙时，你的反击伤害额外增加你的力量调整值。如果此调整值为正，你同时清除1压力点。",
+        "level": 4,
+        "isCard": true
+      },
+      "mastery": {
+        "name": "天罚降临",
+        "nameEn": "Divine Retribution",
+        "description": "你使用以牙还牙不再需要标记压力点。此外，当你的反击造成伤害时，该敌人获得脆弱状态直到其下一回合结束。",
+        "level": 7,
+        "isCard": true
+      }
+    }
   },
   {
     "id": "ranger-beastmaster",
     "name": "驯兽大师",
     "nameEn": "Beastmaster",
     "classId": "ranger",
-    "level": 1,
     "castingAttribute": "agility",
-    "description": "选择驯兽大师，与动物盟友建立深厚情谊。"
+    "description": "选择驯兽大师，与动物盟友建立深厚情谊。",
+    "backgroundQuestions": [
+      "你的动物伙伴是如何成为你的伙伴的？你们第一次相遇的情景是怎样的？",
+      "你与动物之间的联系是天生的还是经过训练的？"
+    ],
+    "relationshipQuestions": [
+      "你的动物伙伴对你意味着什么？如果失去了它你会怎样？",
+      "有没有一个人也理解你与动物之间的特殊纽带？"
+    ],
+    "features": {
+      "base": {
+        "name": "野兽伙伴",
+        "nameEn": "Beast Companion",
+        "description": "你拥有一只野兽伙伴。在你的回合中，你可以指挥你的伙伴执行一个动作：攻击一个近战范围内的敌人（造成1d6+你敏捷调整值物理伤害），或帮你搜索一个近距离范围内的区域。当你的伙伴受到伤害时，你标记1压力点。",
+        "level": 1,
+        "isCard": true
+      },
+      "advanced": {
+        "name": "野性连结",
+        "nameEn": "Wild Bond",
+        "description": "你的野兽伙伴的攻击伤害增加为1d8+你敏捷调整值。此外，当你的伙伴攻击成功时，你获得1希望点。",
+        "level": 4,
+        "isCard": true
+      },
+      "mastery": {
+        "name": "万兽之王",
+        "nameEn": "Lord of Beasts",
+        "description": "你可以同时拥有两只野兽伙伴。此外，你的伙伴不再因受到伤害而使你标记压力点；它们改为清除1护甲槽。你的伙伴攻击伤害增加为1d10+你敏捷调整值。",
+        "level": 7,
+        "isCard": true
+      }
+    }
   },
   {
     "id": "ranger-pathfinder",
     "name": "寻路斥候",
     "nameEn": "Pathfinder",
     "classId": "ranger",
-    "level": 1,
     "castingAttribute": "agility",
-    "description": "选择寻路斥候，用致命武力追踪猎杀目标。"
+    "description": "选择寻路斥候，用致命武力追踪猎杀目标。",
+    "backgroundQuestions": [
+      "你追踪过的最危险的猎物是什么？那次追踪的结局如何？",
+      "你是独自学会追踪技巧的，还是有人教导了你？"
+    ],
+    "relationshipQuestions": [
+      "你曾与谁并肩追踪过同一个目标？你们是合作还是竞争？",
+      "有没有一个你追踪过的人，最终成为了你的盟友？"
+    ],
+    "features": {
+      "base": {
+        "name": "猎手印记",
+        "nameEn": "Hunter's Mark",
+        "description": "当你对一个目标进行攻击时，你可以标记1压力点来对该目标施加猎手印记。被印记的目标受到你的攻击时额外受到等同于你位阶的伤害。印记持续到场景结束或你标记新目标。",
+        "level": 1,
+        "isCard": true
+      },
+      "advanced": {
+        "name": "致命追踪",
+        "nameEn": "Deadly Tracker",
+        "description": "当你对被猎手印记标记的目标攻击成功时，你的伤害掷骰获得+1加值。此外，你追踪被印记目标时获得优势。",
+        "level": 4,
+        "isCard": true
+      },
+      "mastery": {
+        "name": "天罚猎手",
+        "nameEn": "Apex Predator",
+        "description": "你使用猎手印记不再需要标记压力点。此外，当被印记的目标生命值降至0时，你立即恢复1希望点并可以免费对近距离范围内的另一个目标施加猎手印记。",
+        "level": 7,
+        "isCard": true
+      }
+    }
   },
   {
     "id": "rogue-nightwalker",
     "name": "黑夜行者",
     "nameEn": "Nightwalker",
     "classId": "rogue",
-    "level": 1,
     "castingAttribute": "finesse",
-    "description": "选择黑夜行者，操纵阴影使你穿行于环境。"
+    "description": "选择黑夜行者，操纵阴影使你穿行于环境。",
+    "backgroundQuestions": [
+      "你是在什么情况下第一次发现自己能操纵阴影？",
+      "黑暗对你来说是庇护所还是牢笼？"
+    ],
+    "relationshipQuestions": [
+      "有没有一个人见过你在阴影中的真实面目？那个人是谁？",
+      "你曾在黑暗中与谁分享过秘密？"
+    ],
+    "features": {
+      "base": {
+        "name": "暗影步",
+        "nameEn": "Shadow Step",
+        "description": "你可以标记1压力点来从一片阴影中瞬间移动到近距离范围内另一片阴影中。此移动不引发机会攻击。你必须在有阴影的区域才能使用此能力。",
+        "level": 1,
+        "isCard": true
+      },
+      "advanced": {
+        "name": "暗影融合",
+        "nameEn": "Shadow Meld",
+        "description": "当你使用暗影步时，你可以选择在到达目标阴影后获得隐藏状态直到你进行攻击或施法。如果你从隐藏状态进行攻击，该攻击获得优势。",
+        "level": 4,
+        "isCard": true
+      },
+      "mastery": {
+        "name": "暗影主宰",
+        "nameEn": "Shadow Lord",
+        "description": "你使用暗影步不再需要标记压力点。此外，你可以将暗影步的范围增加至远距离，且可以携带一名自愿的近距离范围内的盟友一同移动。",
+        "level": 7,
+        "isCard": true
+      }
+    }
   },
   {
     "id": "rogue-gangster",
     "name": "帮派豪杰",
     "nameEn": "Gangster",
     "classId": "rogue",
-    "level": 1,
     "castingAttribute": "finesse",
-    "description": "选择帮派豪杰，你所到之处皆有人脉网络。"
+    "description": "选择帮派豪杰，你所到之处皆有人脉网络。",
+    "backgroundQuestions": [
+      "你是如何建立起你的人脉网络的？从一个小混混到一方之霸，你经历了什么？",
+      "你的帮派中谁是你最信任的人？"
+    ],
+    "relationshipQuestions": [
+      "你曾为帮派中的谁承担过不该由你承担的罪责？",
+      "有没有一个对手，你们之间有着超越敌意的某种默契？"
+    ],
+    "features": {
+      "base": {
+        "name": "街头情报",
+        "nameEn": "Street Intel",
+        "description": "当你进入一个新地点时，你可以标记1压力点来从当地线人处获得一条关于该地点的有用情报（如危险位置、有价值的目标或秘密通道）。",
+        "level": 1,
+        "isCard": true
+      },
+      "advanced": {
+        "name": "一呼百应",
+        "nameEn": "Call in Favors",
+        "description": "当你使用街头情报时，你可以额外获得一条情报。此外，每次长休一次，你可以召唤一名帮派成员来协助你，持续一个场景。该帮派成员拥有等同于你位阶的生命值并可进行基本攻击。",
+        "level": 4,
+        "isCard": true
+      },
+      "mastery": {
+        "name": "地下之王",
+        "nameEn": "Underworld King",
+        "description": "你使用街头情报不再需要标记压力点。此外，你召唤的帮派成员数量增加为2名，且他们的生命值翻倍。在任何定居点中，你进行社交互动时获得优势。",
+        "level": 7,
+        "isCard": true
+      }
+    }
   },
   {
     "id": "seraph-divine",
     "name": "神兵驭者",
     "nameEn": "Divine Armament",
     "classId": "seraph",
-    "level": 1,
     "castingAttribute": "strength",
-    "description": "选择神兵驭者，凭借传奇武器来主宰战场。"
+    "description": "选择神兵驭者，凭借传奇武器来主宰战场。",
+    "backgroundQuestions": [
+      "你的神兵是如何来到你手中的？是传承、赐予还是你在某次神圣试炼中获得的？",
+      "你的神兵中蕴含着怎样的神圣力量？你感受到它的意志了吗？"
+    ],
+    "relationshipQuestions": [
+      "有没有一个人认出了你神兵的来历，并因此改变了对你的态度？",
+      "你与你的神兵之间是主仆关系还是伙伴关系？"
+    ],
+    "features": {
+      "base": {
+        "name": "神圣武装",
+        "nameEn": "Divine Weapon",
+        "description": "你的主武器被视为神兵，造成魔法伤害。当你使用神兵攻击时，你可以标记1压力点来使此次攻击的伤害掷骰中一个骰子取最大值。",
+        "level": 1,
+        "isCard": true
+      },
+      "advanced": {
+        "name": "神兵解放",
+        "nameEn": "Armament Unleashed",
+        "description": "当你使用神圣武装时，你的攻击额外造成等同于你位阶的魔法伤害。此外，你的神兵攻击范围增加一个距离等级。",
+        "level": 4,
+        "isCard": true
+      },
+      "mastery": {
+        "name": "天罚神兵",
+        "nameEn": "Celestial Armament",
+        "description": "你使用神圣武装不再需要标记压力点。此外，当你的神兵攻击造成关键成功时，所有近距离范围内的敌人受到等同于你位阶的魔法伤害。",
+        "level": 7,
+        "isCard": true
+      }
+    }
   },
   {
     "id": "seraph-soaring",
     "name": "翔翼哨兵",
     "nameEn": "Soaring Sentinel",
     "classId": "seraph",
-    "level": 1,
     "castingAttribute": "strength",
-    "description": "选择翔翼哨兵，翱翔天际并施展毁灭打击。"
+    "description": "选择翔翼哨兵，翱翔天际并施展毁灭打击。",
+    "backgroundQuestions": [
+      "你的翅膀是天生就有的还是后天获得的？你是如何学会飞行的？",
+      "你第一次从高空俯瞰大地时，心中涌起的是自由还是恐惧？"
+    ],
+    "relationshipQuestions": [
+      "你曾在暴风中救起过谁？那个人后来怎样了？",
+      "有没有一个人在地面上等待你每次归来？"
+    ],
+    "features": {
+      "base": {
+        "name": "翱翔天际",
+        "nameEn": "Soar",
+        "description": "你可以标记1压力点来获得飞行能力，持续到场景结束。在飞行期间，你对近战攻击具有优势，且你的近战范围扩展为近距离。",
+        "level": 1,
+        "isCard": true
+      },
+      "advanced": {
+        "name": "俯冲打击",
+        "nameEn": "Dive Attack",
+        "description": "当你使用翱翔天际并从高处对目标进行攻击时，你的攻击掷骰获得优势且伤害掷骰额外增加一个d6。如果攻击成功，目标被击倒。",
+        "level": 4,
+        "isCard": true
+      },
+      "mastery": {
+        "name": "天空之主",
+        "nameEn": "Lord of the Skies",
+        "description": "你使用翱翔天际不再需要标记压力点。此外，在飞行期间，你的闪避值获得+2加值，且你可以携带一名自愿的近距离范围内的盟友一同飞行。",
+        "level": 7,
+        "isCard": true
+      }
+    }
   },
   {
     "id": "sorcerer-elemental",
     "name": "元素起源",
     "nameEn": "Elemental Origin",
     "classId": "sorcerer",
-    "level": 1,
     "castingAttribute": "instinct",
-    "description": "选择元素起源，引导某一元素的原始魔力。"
+    "description": "选择元素起源，引导某一元素的原始魔力。",
+    "backgroundQuestions": [
+      "你的元素之力源自血脉还是一次与元素位面的接触？",
+      "当你使用元素之力时，你的身体会发生什么变化？"
+    ],
+    "relationshipQuestions": [
+      "有没有一个人对你体内的元素之力感到恐惧？你如何面对这种恐惧？",
+      "你曾与另一个拥有元素之力的人产生过共鸣吗？"
+    ],
+    "features": {
+      "base": {
+        "name": "元素爆发",
+        "nameEn": "Elemental Burst",
+        "description": "当你施放一个造成魔法伤害的法术时，你可以标记1压力点来使法术的目标数量增加1（如果法术原本只影响一个目标），或使伤害掷骰中一个骰子取最大值。",
+        "level": 1,
+        "isCard": true
+      },
+      "advanced": {
+        "name": "元素涌动",
+        "nameEn": "Elemental Surge",
+        "description": "当你使用元素爆发时，你可以选择改变法术的伤害类型为与你起源相关的类型。此外，你元素爆发造成的伤害额外增加你的本能调整值。",
+        "level": 4,
+        "isCard": true
+      },
+      "mastery": {
+        "name": "元素化身",
+        "nameEn": "Elemental Incarnation",
+        "description": "你使用元素爆发不再需要标记压力点。此外，每次长休一次，你可以化身为元素形态持续一个场景：你的体型增大，获得+2力量和+2本能，且对与你起源相同的伤害类型免疫。",
+        "level": 7,
+        "isCard": true
+      }
+    }
   },
   {
     "id": "sorcerer-primal",
     "name": "原初起源",
     "nameEn": "Primal Origin",
     "classId": "sorcerer",
-    "level": 1,
     "castingAttribute": "instinct",
-    "description": "选择原初起源，强力地拓展法术的多变性。"
+    "description": "选择原初起源，强力地拓展法术的多变性。",
+    "backgroundQuestions": [
+      "你的魔法来自远古的血脉还是一次禁忌的仪式？",
+      "你的原初之力是否有时会不受控制地爆发？那次发生了什么？"
+    ],
+    "relationshipQuestions": [
+      "有没有一个人帮助你控制你体内不稳定的原初之力？",
+      "你曾因魔法失控而伤害过亲近的人吗？"
+    ],
+    "features": {
+      "base": {
+        "name": "原初涌动",
+        "nameEn": "Primal Surge",
+        "description": "当你施放一个法术时，你可以标记1压力点来从以下效果中选择一个：增加法术范围一个距离等级、延长法术持续时间、或使法术的一个数值效果增加你位阶的一半（向上取整）。",
+        "level": 1,
+        "isCard": true
+      },
+      "advanced": {
+        "name": "魔力变异",
+        "nameEn": "Spell Mutation",
+        "description": "当你使用原初涌动时，你可以同时选择两个效果而非一个。此外，当你施法掷骰获得恐惧成功时，你可以花费1希望点来将其视为希望成功。",
+        "level": 4,
+        "isCard": true
+      },
+      "mastery": {
+        "name": "原初主宰",
+        "nameEn": "Primal Dominion",
+        "description": "你使用原初涌动不再需要标记压力点。此外，你可以同时选择所有三个效果。当你施法时，如果掷骰结果包含恐惧骰大于希望骰，你可以重掷希望骰一次。",
+        "level": 7,
+        "isCard": true
+      }
+    }
   },
   {
     "id": "warrior-valor",
     "name": "勇气呼唤",
     "nameEn": "Call of Valor",
     "classId": "warrior",
-    "level": 1,
     "castingAttribute": null,
-    "description": "选择勇气呼唤，利用敌人的力量激励自己。"
+    "description": "选择勇气呼唤，利用敌人的力量激励自己。",
+    "backgroundQuestions": [
+      "你是在哪场战斗中领悟到勇气比力量更重要的？",
+      "谁是你心中最勇敢的人？是战场上的英雄还是日常生活中的平凡人？"
+    ],
+    "relationshipQuestions": [
+      "你曾因勇气而鼓舞了谁？那个人后来怎样了？",
+      "有没有一个人在你最恐惧的时刻给了你勇气？"
+    ],
+    "features": {
+      "base": {
+        "name": "勇气冲锋",
+        "nameEn": "Valor Charge",
+        "description": "当你进行攻击时，你可以标记1压力点来对攻击掷骰获得优势。如果此次攻击成功，你获得1希望点。",
+        "level": 1,
+        "isCard": true
+      },
+      "advanced": {
+        "name": "英勇无畏",
+        "nameEn": "Fearless",
+        "description": "当你使用勇气冲锋时，如果攻击成功，你可以选择将获得的希望点给予近距离范围内的一名盟友而非自己。此外，你对恐惧效果免疫。",
+        "level": 4,
+        "isCard": true
+      },
+      "mastery": {
+        "name": "传奇勇者",
+        "nameEn": "Legendary Hero",
+        "description": "你使用勇气冲锋不再需要标记压力点。此外，当你的勇气冲锋攻击成功时，所有近距离范围内的盟友获得1希望点。你的攻击掷骰永久获得+1加值。",
+        "level": 7,
+        "isCard": true
+      }
+    }
   },
   {
     "id": "warrior-slaughter",
     "name": "屠戮呼唤",
     "nameEn": "Call of Slaughter",
     "classId": "warrior",
-    "level": 1,
     "castingAttribute": null,
-    "description": "选择屠戮呼唤，以摧枯拉朽之力碾碎敌人。"
+    "description": "选择屠戮呼唤，以摧枯拉朽之力碾碎敌人。",
+    "backgroundQuestions": [
+      "你第一次在战斗中体验到杀戮的快感是什么时候？那让你感到兴奋还是恐惧？",
+      "你如何在战斗的狂热中保持自己的理智？"
+    ],
+    "relationshipQuestions": [
+      "有没有一个人见过你战斗中失控的样子，却依然站在你身边？",
+      "你曾因战斗中的暴行而让同伴感到不安吗？"
+    ],
+    "features": {
+      "base": {
+        "name": "屠戮打击",
+        "nameEn": "Slaughter Strike",
+        "description": "当你进行攻击时，你可以标记1压力点来使伤害掷骰额外增加一个d8。如果此次攻击将目标生命值降至0，你清除1压力点。",
+        "level": 1,
+        "isCard": true
+      },
+      "advanced": {
+        "name": "嗜血狂怒",
+        "nameEn": "Blood Frenzy",
+        "description": "当你使用屠戮打击且击杀目标时，你可以立即对近距离范围内的另一个目标进行一次免费攻击。此额外攻击的伤害掷骰获得+1加值。",
+        "level": 4,
+        "isCard": true
+      },
+      "mastery": {
+        "name": "毁灭化身",
+        "nameEn": "Avatar of Destruction",
+        "description": "你使用屠戮打击不再需要标记压力点。此外，你的屠戮打击额外增加的骰子从d8升级为d12。当你击杀目标时，你清除2压力点而非1点，且获得1希望点。",
+        "level": 7,
+        "isCard": true
+      }
+    }
   },
   {
     "id": "wizard-lore",
     "name": "知识学派",
     "nameEn": "School of Lore",
     "classId": "wizard",
-    "level": 1,
     "castingAttribute": "knowledge",
-    "description": "选择知识学派，敏锐地洞察世间参透万物。"
+    "description": "选择知识学派，敏锐地洞察世间参透万物。",
+    "backgroundQuestions": [
+      "你是在哪座图书馆或哪位导师门下开始你的学术生涯的？",
+      "你追求知识的动力是什么——是对未知的渴望，还是对力量的追求？"
+    ],
+    "relationshipQuestions": [
+      "你曾与谁分享过一个改变世界的发现？那个人如何利用了这个知识？",
+      "有没有一个人，你们在学术上既是竞争对手又是彼此最好的理解者？"
+    ],
+    "features": {
+      "base": {
+        "name": "博闻强识",
+        "nameEn": "Arcane Insight",
+        "description": "当你进行一次涉及知识、历史或奥秘的知识掷骰时，你可以标记1压力点来对此次掷骰获得优势。如果你这样做，在此次掷骰成功时你额外获得1希望点。",
+        "level": 1,
+        "isCard": true
+      },
+      "advanced": {
+        "name": "法术解析",
+        "nameEn": "Spell Analysis",
+        "description": "当你使用博闻强识时，如果你成功识别了一个法术或魔法效果，你可以花费1希望点来暂时获得对该法术的基本理解，使你在对抗该法术效果时获得优势，持续一个场景。",
+        "level": 4,
+        "isCard": true
+      },
+      "mastery": {
+        "name": "全知之眼",
+        "nameEn": "Omniscient Eye",
+        "description": "你使用博闻强识不再需要标记压力点。此外，当你进行任何知识掷骰时，你可以选择取10作为结果而非掷骰。你可以在施法前识别任何法术的效果而无需掷骰。",
+        "level": 7,
+        "isCard": true
+      }
+    }
   },
   {
     "id": "wizard-war",
     "name": "战争学派",
     "nameEn": "School of War",
     "classId": "wizard",
-    "level": 1,
     "castingAttribute": "knowledge",
-    "description": "选择战争学派，熟练地使用魔法大杀四方。"
+    "description": "选择战争学派，熟练地使用魔法大杀四方。",
+    "backgroundQuestions": [
+      "你为何选择将魔法用于战争而非和平？是被迫还是主动选择？",
+      "你曾在战场上用魔法造成过怎样的毁灭？那次经历如何改变了你？"
+    ],
+    "relationshipQuestions": [
+      "有没有一个人试图阻止你将魔法用于战争？你如何回应？",
+      "你曾与谁并肩在战场上施法？你们的配合如何？"
+    ],
+    "features": {
+      "base": {
+        "name": "战法术",
+        "nameEn": "Battle Magic",
+        "description": "当你施放一个造成伤害的法术时，你可以标记1压力点来使法术的伤害掷骰中一个骰子取最大值。如果法术影响多个目标，每个目标都受到此额外伤害。",
+        "level": 1,
+        "isCard": true
+      },
+      "advanced": {
+        "name": "毁灭聚焦",
+        "nameEn": "Destructive Focus",
+        "description": "当你使用战法术时，你可以选择将法术的伤害类型改为另一种伤害类型。此外，当你的战法术攻击造成关键成功时，法术范围增加一个距离等级。",
+        "level": 4,
+        "isCard": true
+      },
+      "mastery": {
+        "name": "战争领主",
+        "nameEn": "Warlord",
+        "description": "你使用战法术不再需要标记压力点。此外，当你施放一个伤害法术时，你可以标记1护甲槽来使法术的伤害掷骰全部取最大值。每次长休一次，你可以施放一个法术而不消耗其正常资源。",
+        "level": 7,
+        "isCard": true
+      }
+    }
   }
 ]

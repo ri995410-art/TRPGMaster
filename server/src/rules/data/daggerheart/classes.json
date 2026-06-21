@@ -7,10 +7,22 @@
     "baseEvasion": 10,
     "baseHp": 5,
     "baseStress": 6,
-    "baseHope": 6,
-    "hopeFeature": "大闹一场：花费3希望点来暂时干扰近距离范围内一个目标，使其难度降低2点。",
-    "hopeFeatureCost": 3,
-    "primaryAttribute": "presence",
+    "hopeFeature": {
+      "name": "大闹一场",
+      "nameEn": "Make a Scene",
+      "description": "花费3希望点来暂时干扰近距离范围内一个目标，使其难度降低2点。",
+      "cost": 3
+    },
+    "classFeature": {
+      "name": "鼓舞骰",
+      "nameEn": "Inspiration Dice",
+      "description": "当你标记希望点时，将一个d6放在一边作为鼓舞骰。在你的回合中，你可以将鼓舞骰给予近距离范围内的一名盟友，该盟友可以在其下一次动作掷骰中加上此骰的结果。未使用的鼓舞骰在你下次休息时消失。",
+      "usesPerRest": "session"
+    },
+    "recommendedAttributes": { "presence": 2, "agility": 1 },
+    "recommendedWeapon": "rapier",
+    "recommendedArmor": "padded-armor",
+    "classItem": "乐器",
     "subclassIds": ["bard-troubadour", "bard-wordsmith"]
   },
   {
@@ -21,10 +33,21 @@
     "baseEvasion": 10,
     "baseHp": 6,
     "baseStress": 6,
-    "baseHope": 6,
-    "hopeFeature": "幻化成兽：花费3希望点变形成野兽形态，而无需标记1压力点。当你这样做时，选择一个属性获得+1加值，直到你解除野兽形态。",
-    "hopeFeatureCost": 3,
-    "primaryAttribute": "instinct",
+    "hopeFeature": {
+      "name": "幻化成兽",
+      "nameEn": "Shapeshift",
+      "description": "花费3希望点变形成野兽形态，而无需标记1压力点。当你这样做时，选择一个属性获得+1加值，直到你解除野兽形态。",
+      "cost": 3
+    },
+    "classFeature": {
+      "name": "野兽形态",
+      "nameEn": "Wild Shape",
+      "description": "你可以标记1压力点变形成中型或更小的野兽。在野兽形态中，你保留属性和生命值，但获得该野兽的移动方式和感知。你可以使用野兽的自然攻击造成1d8+敏捷调整值物理伤害。此效果持续到场景结束或你主动解除。"
+    },
+    "recommendedAttributes": { "instinct": 2, "knowledge": 1 },
+    "recommendedWeapon": "hand-rune",
+    "recommendedArmor": "leather-armor",
+    "classItem": "德鲁伊法器",
     "subclassIds": ["druid-renewal", "druid-elemental"]
   },
   {
@@ -35,10 +58,21 @@
     "baseEvasion": 9,
     "baseHp": 7,
     "baseStress": 6,
-    "baseHope": 6,
-    "hopeFeature": "前线铁壁：花费3希望点，清除2护甲槽。",
-    "hopeFeatureCost": 3,
-    "primaryAttribute": "strength",
+    "hopeFeature": {
+      "name": "前线铁壁",
+      "nameEn": "Iron Wall",
+      "description": "花费3希望点，清除2护甲槽。",
+      "cost": 3
+    },
+    "classFeature": {
+      "name": "威势骰",
+      "nameEn": "Menace Dice",
+      "description": "你拥有一颗威势骰（d8）。当一个敌人在你近战范围内攻击你或你的盟友时，你可以掷威势骰并从攻击掷骰结果中减去此值。当威势骰掷出1-3时，将其放回。当掷出4-8时，标记1压力点，然后在下次休息时重置威势骰。"
+    },
+    "recommendedAttributes": { "strength": 2, "agility": 1 },
+    "recommendedWeapon": "broadsword",
+    "recommendedArmor": "chain-armor",
+    "classItem": "战争号角",
     "subclassIds": ["guardian-ironclad", "guardian-vengeance"]
   },
   {
@@ -49,10 +83,21 @@
     "baseEvasion": 12,
     "baseHp": 6,
     "baseStress": 6,
-    "baseHope": 6,
-    "hopeFeature": "压制众敌：当你用武器攻击成功时，花费3希望点，可以使用相同的掷骰结果攻击此次攻击范围内额外的两个敌人。",
-    "hopeFeatureCost": 3,
-    "primaryAttribute": "agility",
+    "hopeFeature": {
+      "name": "压制众敌",
+      "nameEn": "Press the Advantage",
+      "description": "当你用武器攻击成功时，花费3希望点，可以使用相同的掷骰结果攻击此次攻击范围内额外的两个敌人。",
+      "cost": 3
+    },
+    "classFeature": {
+      "name": "荒野求生",
+      "nameEn": "Wilderness Survival",
+      "description": "你在追踪、觅食和在自然环境中导航的掷骰中具有优势。当你在野外休息时，你的休整行动额外恢复1生命点或清除1压力点。"
+    },
+    "recommendedAttributes": { "agility": 2, "instinct": 1 },
+    "recommendedWeapon": "shortbow",
+    "recommendedArmor": "leather-armor",
+    "classItem": "陷阱工具",
     "subclassIds": ["ranger-beastmaster", "ranger-pathfinder"]
   },
   {
@@ -63,10 +108,21 @@
     "baseEvasion": 12,
     "baseHp": 6,
     "baseStress": 6,
-    "baseHope": 6,
-    "hopeFeature": "闪身伎俩：花费3希望点，直到下次攻击成功命中你之前，你的闪避值获得+2加值。否则，此加值持续到你下次休息。",
-    "hopeFeatureCost": 3,
-    "primaryAttribute": "finesse",
+    "hopeFeature": {
+      "name": "闪身伎俩",
+      "nameEn": "Trickster's Dodge",
+      "description": "花费3希望点，直到下次攻击成功命中你之前，你的闪避值获得+2加值。否则，此加值持续到你下次休息。",
+      "cost": 3
+    },
+    "classFeature": {
+      "name": "偷袭",
+      "nameEn": "Sneak Attack",
+      "description": "当你对一个尚未在本回合中行动过的目标进行攻击时，或当你对一个处于脆弱状态的目标进行攻击时，你的伤害掷骰额外增加一个d8。"
+    },
+    "recommendedAttributes": { "finesse": 2, "agility": 1 },
+    "recommendedWeapon": "dagger",
+    "recommendedArmor": "padded-armor",
+    "classItem": "盗贼工具",
     "subclassIds": ["rogue-nightwalker", "rogue-gangster"]
   },
   {
@@ -77,10 +133,21 @@
     "baseEvasion": 9,
     "baseHp": 7,
     "baseStress": 6,
-    "baseHope": 6,
-    "hopeFeature": "维生救援：花费3希望点，为一个近距离范围内的盟友恢复1生命点。",
-    "hopeFeatureCost": 3,
-    "primaryAttribute": "strength",
+    "hopeFeature": {
+      "name": "维生救援",
+      "nameEn": "Sustaining Rescue",
+      "description": "花费3希望点，为一个近距离范围内的盟友恢复1生命点。",
+      "cost": 3
+    },
+    "classFeature": {
+      "name": "神圣之力",
+      "nameEn": "Divine Power",
+      "description": "你的攻击可以造成魔法伤害而非物理伤害。当你在攻击中造成魔法伤害时，你的伤害掷骰获得+1加值。"
+    },
+    "recommendedAttributes": { "strength": 2, "presence": 1 },
+    "recommendedWeapon": "holy-axe",
+    "recommendedArmor": "chain-armor",
+    "classItem": "圣徽",
     "subclassIds": ["seraph-divine", "seraph-soaring"]
   },
   {
@@ -91,10 +158,22 @@
     "baseEvasion": 10,
     "baseHp": 6,
     "baseStress": 6,
-    "baseHope": 6,
-    "hopeFeature": "无常魔法：花费3希望点来重掷你在一次造成魔法伤害的攻击中任意数量的伤害骰。",
-    "hopeFeatureCost": 3,
-    "primaryAttribute": "instinct",
+    "hopeFeature": {
+      "name": "无常魔法",
+      "nameEn": "Chaotic Magic",
+      "description": "花费3希望点来重掷你在一次造成魔法伤害的攻击中任意数量的伤害骰。",
+      "cost": 3
+    },
+    "classFeature": {
+      "name": "魔法源泉",
+      "nameEn": "Font of Magic",
+      "description": "每次长休一次，当你施放一个法术时，你可以标记1压力点来增加一个额外的效果：延长法术持续时间、增加法术范围、或使法术目标数量翻倍。",
+      "usesPerRest": "longRest"
+    },
+    "recommendedAttributes": { "instinct": 2, "knowledge": 1 },
+    "recommendedWeapon": "dual-staff",
+    "recommendedArmor": "padded-armor",
+    "classItem": "奥术核心",
     "subclassIds": ["sorcerer-elemental", "sorcerer-primal"]
   },
   {
@@ -105,10 +184,22 @@
     "baseEvasion": 11,
     "baseHp": 6,
     "baseStress": 6,
-    "baseHope": 6,
-    "hopeFeature": "绝不手软：花费3希望点，直到你下次休息前，你的攻击掷骰获得+1加值。",
-    "hopeFeatureCost": 3,
-    "primaryAttribute": "agility",
+    "hopeFeature": {
+      "name": "绝不手软",
+      "nameEn": "No Mercy",
+      "description": "花费3希望点，直到你下次休息前，你的攻击掷骰获得+1加值。",
+      "cost": 3
+    },
+    "classFeature": {
+      "name": "武器精通",
+      "nameEn": "Weapon Mastery",
+      "description": "每次短休一次，选择一种你装备的武器。直到你下次休息前，使用该武器的攻击掷骰获得+1加值，且伤害掷骰中一个骰子可取最大值。",
+      "usesPerRest": "shortRest"
+    },
+    "recommendedAttributes": { "agility": 2, "strength": 1 },
+    "recommendedWeapon": "longsword",
+    "recommendedArmor": "chain-armor",
+    "classItem": "战斗徽章",
     "subclassIds": ["warrior-valor", "warrior-slaughter"]
   },
   {
@@ -119,10 +210,21 @@
     "baseEvasion": 11,
     "baseHp": 5,
     "baseStress": 6,
-    "baseHope": 6,
-    "hopeFeature": "死期未至：花费3希望点，迫使远距离范围内的某个敌人重掷一次攻击掷骰或伤害掷骰。",
-    "hopeFeatureCost": 3,
-    "primaryAttribute": "knowledge",
+    "hopeFeature": {
+      "name": "死期未至",
+      "nameEn": "Not Yet",
+      "description": "花费3希望点，迫使远距离范围内的某个敌人重掷一次攻击掷骰或伤害掷骰。",
+      "cost": 3
+    },
+    "classFeature": {
+      "name": "法术书",
+      "nameEn": "Spellbook",
+      "description": "你拥有一本法术书，其中记录了你掌握的法术。在每次长休时，你可以从宝库中交换一张典籍领域卡到你的配置中，而无需花费回想费用。"
+    },
+    "recommendedAttributes": { "knowledge": 2, "instinct": 1 },
+    "recommendedWeapon": "wand",
+    "recommendedArmor": "leather-armor",
+    "classItem": "法术书",
     "subclassIds": ["wizard-lore", "wizard-war"]
   }
 ]

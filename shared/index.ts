@@ -1,4 +1,11 @@
+// Shared module exports
+
+// Type exports
 export * from './types/game';
 export * from './types/rules';
 export * from './types/character';
-export { GAME_EVENTS, AGENT_SUBSCRIPTIONS, EVENT_PRIORITY } from './constants/gameEvents';
+export * from './types/events';
+export * from './types/agent';
+
+// Constants
+export { GAME_EVENTS, AIGM_EVENT_SUBSCRIPTIONS, RULE_ENGINE_SUBSCRIPTIONS } from './constants/gameEvents';

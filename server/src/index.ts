@@ -1,27 +1,86 @@
 import 'dotenv/config';
 import express from 'express';
 import { createServer } from 'http';
-import { SessionOrchestrator } from './core/SessionOrchestrator';
-import { RulesAgent } from './agents/RulesAgent';
-import { NarrativeAgent } from './agents/NarrativeAgent';
-import { NPCAgent } from './agents/NPCAgent';
-import { CombatAgent } from './agents/CombatAgent';
-import { FactionAgent } from './agents/FactionAgent';
-import { MemoryCompressorAgent } from './agents/MemoryCompressorAgent';
-import { ImageDirectorAgent } from './agents/ImageDirectorAgent';
-import { NovelAgent } from './agents/NovelAgent';
-import { SceneDirectorAgent } from './agents/SceneDirectorAgent';
-import { UnifiedAgent } from './agents/UnifiedAgent';
+import { readFileSync, writeFileSync } from 'fs';
 import { AIGateway } from './ai/AIGateway';
-import { AgentAIConfig } from './ai/AgentAIConfig';
+import { AIGameMaster } from './ai/AIGameMaster';
 import { CharacterCreator } from './core/CharacterCreator';
 import { CharacterLevelUp } from './core/CharacterLevelUp';
+import { StateManager } from './core/StateManager';
+import { SessionRegistry } from './core/SessionRegistry';
 import { SocketServer } from './network/SocketServer';
-import { VoiceProcessor } from './input/VoiceProcessor';
-import { ImageClient } from './image/ImageClient';
-import { LANDiscovery } from './network/LANDiscovery';
+import { loadSessionData } from './core/SessionPersistence';
+import type { AIConfig } from './ai/AIGateway';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
+const AI_CONFIG_FILE = 'ai_config.json'; // Persisted runtime AI config
+
+// Mask API key for display (show only last 4 chars)
+function maskApiKey(key: string): string {
+  if (!key || key.length <= 4) return key ? '••••' : '';
+  return '••••' + key.slice(-4);
+}
+
+// Persisted runtime AI config shape
+interface PersistedAIConfig {
+  apiKey: string;
+  baseUrl: string;
+  defaultModel: string;
+  narratorModel: string;
+  combatModel: string;
+  temperature: number;
+  maxTokens: number;
+}
+
+// Load persisted AI config from file (survives server restarts)
+function loadPersistedConfig(): PersistedAIConfig | null {
+  try {
+    const raw = readFileSync(AI_CONFIG_FILE, 'utf-8');
+    const cfg = JSON.parse(raw);
+    if (cfg && cfg.apiKey) return cfg;
+  } catch {
+    // File doesn't exist or is invalid — that's fine
+  }
+  return null;
+}
+
+// Save runtime AI config to file
+function savePersistedConfig(cfg: PersistedAIConfig): void {
+  try {
+    writeFileSync(AI_CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to persist AI config:', err);
+  }
+}
+
+// Simple AI config — prefer persisted file, then fall back to env vars
+function getAIConfig(): AIConfig | null {
+  // Try persisted config first (from runtime settings saved by user)
+  const persisted = loadPersistedConfig();
+  if (persisted) {
+    return {
+      apiKey: persisted.apiKey,
+      baseUrl: persisted.baseUrl || 'https://api.siliconflow.cn/v1',
+      defaultModel: persisted.defaultModel || 'nex-agi/Nex-N2-Pro',
+      maxRetries: 3,
+      retryDelay: 1000,
+      maxConcurrent: 5,
+    };
+  }
+
+  // Fall back to environment variables
+  const apiKey = process.env.SILICONFLOW_API_KEY;
+  if (!apiKey) return null;
+
+  return {
+    apiKey,
+    baseUrl: process.env.SILICONFLOW_BASE_URL || 'https://api.siliconflow.cn/v1',
+    defaultModel: process.env.AI_DEFAULT_MODEL || 'nex-agi/Nex-N2-Pro',
+    maxRetries: 3,
+    retryDelay: 1000,
+    maxConcurrent: 5,
+  };
+}
 
 async function main() {
   const app = express();
@@ -29,10 +88,10 @@ async function main() {
 
   app.use(express.json());
 
-  // CORS — allow all origins for LAN development (React Native + Expo web mode)
+  // CORS — allow all origins for local development
   app.use((_req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type');
     if (_req.method === 'OPTIONS') {
       res.sendStatus(204);
@@ -41,26 +100,118 @@ async function main() {
     next();
   });
 
-  // Initialize AgentAIConfig
-  const agentAIConfig = new AgentAIConfig();
-  const defaultConfig = agentAIConfig.getConfig('narrative');
+  // Initialize AI Gateway (mutable for hot-reload)
+  let aiConfig = getAIConfig();
+  let aiGateway = aiConfig ? new AIGateway(aiConfig) : undefined;
 
-  // Initialize AI Gateway
-  const aiGateway = agentAIConfig.isConfigured()
-    ? new AIGateway({
-        apiKey: defaultConfig.apiKey,
-        baseUrl: defaultConfig.baseUrl,
-        defaultModel: defaultConfig.model,
-        maxRetries: 3,
-        retryDelay: 1000,
-        maxConcurrent: 5,
+  // Track current AI GM parameters — prefer persisted config, then env vars, then defaults
+  const persisted = loadPersistedConfig();
+  let currentNarratorModel = persisted?.narratorModel || process.env.AI_NARRATOR_MODEL || (aiConfig?.defaultModel || '');
+  let currentCombatModel = persisted?.combatModel || process.env.AI_COMBAT_MODEL || (aiConfig?.defaultModel || '');
+  let currentTemperature = persisted?.temperature ?? 0.8;
+  let currentMaxTokens = persisted?.maxTokens ?? 4096;
+
+  if (aiGateway && aiConfig) {
+    console.log(`AI Gateway initialized (${aiConfig.baseUrl})`);
+  } else {
+    console.log('Warning: No SILICONFLOW_API_KEY set, AI GM will use fallback responses');
+  }
+
+  // Initialize AI Game Master
+  let aiGM = aiGateway && aiConfig
+    ? new AIGameMaster({
+        gateway: aiConfig,
+        narratorModel: currentNarratorModel || aiConfig.defaultModel,
+        combatModel: currentCombatModel || aiConfig.defaultModel,
+        maxTokensPerResponse: currentMaxTokens,
+        temperature: currentTemperature,
       })
     : undefined;
 
-  if (aiGateway) {
-    console.log(`AI Gateway initialized with SiliconFlow (${defaultConfig.baseUrl})`);
-  } else {
-    console.log('Warning: No SILICONFLOW_API_KEY set, agents will use fallback responses');
+  // Helper: reinitialize AI with new config
+  function reinitializeAI(updates: {
+    apiKey?: string;
+    baseUrl?: string;
+    defaultModel?: string;
+    narratorModel?: string;
+    combatModel?: string;
+    temperature?: number;
+    maxTokens?: number;
+  }): { success: boolean; errors?: string[] } {
+    const errors: string[] = [];
+
+    // Validate
+    if (updates.apiKey !== undefined && updates.apiKey.length === 0) {
+      errors.push('API Key 不能为空');
+    }
+    if (updates.baseUrl !== undefined && !/^https?:\/\/.+/.test(updates.baseUrl)) {
+      errors.push('API 地址格式无效（需以 http:// 或 https:// 开头）');
+    }
+    if (updates.temperature !== undefined && ![0.4, 0.8, 1.2].includes(updates.temperature)) {
+      errors.push('温度值无效（仅接受 0.4 / 0.8 / 1.2）');
+    }
+    if (updates.maxTokens !== undefined && (updates.maxTokens < 256 || updates.maxTokens > 1048576)) {
+      errors.push('最大Token需在 256-1048576 之间');
+    }
+    if (errors.length > 0) return { success: false, errors };
+
+    // Build new config — use ?? to allow explicit empty strings to pass through
+    // but fall back to hardcoded defaults for base config (apiKey, baseUrl, defaultModel)
+    const newApiKey = updates.apiKey ?? aiConfig?.apiKey ?? '';
+    const newBaseUrl = updates.baseUrl || aiConfig?.baseUrl || 'https://api.siliconflow.cn/v1';
+    const newDefaultModel = updates.defaultModel || aiConfig?.defaultModel || 'nex-agi/Nex-N2-Pro';
+
+    // Update runtime parameters — ?? allows empty narratorModel (means "use default")
+    if (updates.narratorModel !== undefined) currentNarratorModel = updates.narratorModel;
+    if (updates.combatModel !== undefined) currentCombatModel = updates.combatModel;
+    if (updates.temperature !== undefined) currentTemperature = updates.temperature;
+    if (updates.maxTokens !== undefined) currentMaxTokens = updates.maxTokens;
+
+    if (!newApiKey) {
+      // No API key — disable AI and clear persisted config
+      aiConfig = null;
+      aiGateway = undefined;
+      aiGM = undefined;
+      socketServer.setAIGM(undefined);
+      try { require('fs').unlinkSync(AI_CONFIG_FILE); } catch { /* ok */ }
+      console.log('AI disabled: no API key');
+      return { success: true };
+    }
+
+    aiConfig = {
+      apiKey: newApiKey,
+      baseUrl: newBaseUrl,
+      defaultModel: newDefaultModel,
+      maxRetries: 3,
+      retryDelay: 1000,
+      maxConcurrent: 5,
+    };
+
+    aiGateway = new AIGateway(aiConfig);
+
+    aiGM = new AIGameMaster({
+      gateway: aiConfig,
+      narratorModel: currentNarratorModel || aiConfig.defaultModel,
+      combatModel: currentCombatModel || aiConfig.defaultModel,
+      maxTokensPerResponse: currentMaxTokens,
+      temperature: currentTemperature,
+    });
+
+    socketServer.setAIGM(aiGM);
+
+    // Persist config to file so it survives server restarts
+    savePersistedConfig({
+      apiKey: newApiKey,
+      baseUrl: newBaseUrl,
+      defaultModel: newDefaultModel,
+      narratorModel: currentNarratorModel,
+      combatModel: currentCombatModel,
+      temperature: currentTemperature,
+      maxTokens: currentMaxTokens,
+    });
+
+    console.log(`AI Gateway re-initialized (${aiConfig.baseUrl}, model: ${aiConfig.defaultModel})`);
+    return { success: true };
   }
 
   // Health check
@@ -68,82 +219,145 @@ async function main() {
     res.json({
       status: 'ok',
       timestamp: Date.now(),
-      agents: ['rules', 'narrative', 'npc', 'combat', 'faction', 'memoryCompressor', 'imageDirector', 'novel', 'sceneDirector', 'unified'],
       aiConnected: !!aiGateway,
-      models: agentAIConfig.isConfigured() ? agentAIConfig.getAllConfigs() : undefined,
-      agentMode,
+      version: '2.0.0',
+      rules: 'Daggerheart',
+      campaign: 'Drakkenheim',
     });
   });
 
-  // Create session orchestrator
-  const orchestrator = new SessionOrchestrator('daggerheart', aiGateway, agentAIConfig);
+  // Create session registry for multi-session support
+  const sessionRegistry = new SessionRegistry();
 
-  // Create VoiceProcessor and ImageClient with config
-  const sttConfig = agentAIConfig.isConfigured() ? agentAIConfig.getSTTConfig() : undefined;
-  const imageConfig = agentAIConfig.isConfigured() ? agentAIConfig.getImageConfig() : undefined;
-  const voiceProcessor = new VoiceProcessor(sttConfig);
-  const imageClient = new ImageClient(imageConfig);
+  // Try to restore sessions from persisted data
+  const persistedData = loadSessionData();
+  let stateManager: StateManager;
 
-  // Register all agents with per-agent AI config
-  const multiAgents = [
-    new RulesAgent(),
-    new NarrativeAgent(aiGateway, agentAIConfig),
-    new NPCAgent(aiGateway, agentAIConfig),
-    new CombatAgent(aiGateway, agentAIConfig),
-    new FactionAgent(aiGateway, agentAIConfig),
-    new MemoryCompressorAgent(aiGateway, 30 * 60 * 1000, agentAIConfig),
-    new ImageDirectorAgent(aiGateway, imageClient, agentAIConfig),
-    new NovelAgent(aiGateway, agentAIConfig),
-    new SceneDirectorAgent(aiGateway, agentAIConfig),
-  ];
-  const unifiedAgent = new UnifiedAgent(aiGateway, agentAIConfig);
+  if (persistedData && Object.keys(persistedData.sessions).length > 0) {
+    // Restore all persisted sessions
+    for (const [sessionId, sessionData] of Object.entries(persistedData.sessions)) {
+      sessionRegistry.createSessionFromPersisted(sessionData);
+    }
 
-  for (const agent of multiAgents) {
-    orchestrator.getAgentCoordinator().registerAgent(
-      agent.agentType,
-      (event, context) => agent.process(event, context),
-    );
-    console.log(`Registered agent: ${agent.agentType}`);
+    // Use the default session's state manager
+    const defaultSessionId = persistedData.defaultSessionId || Object.keys(persistedData.sessions)[0];
+    const restoredDefault = sessionRegistry.findById(defaultSessionId);
+    if (restoredDefault) {
+      stateManager = restoredDefault;
+      console.log(`Default session restored: ${defaultSessionId}`);
+    } else {
+      // Fallback: create new if default session ID not found
+      const newSession = sessionRegistry.createSession();
+      stateManager = newSession.stateManager;
+      console.log(`Default session created: ${newSession.sessionId} (code: ${newSession.code})`);
+    }
+
+    console.log(`Restored ${Object.keys(persistedData.sessions).length} session(s) from session_data.json`);
+  } else {
+    // No persisted data — create a fresh default session
+    const defaultSession = sessionRegistry.createSession();
+    stateManager = defaultSession.stateManager;
+    console.log(`Default session created: ${defaultSession.sessionId} (code: ${defaultSession.code})`);
   }
-  orchestrator.getAgentCoordinator().registerAgent(
-    unifiedAgent.agentType,
-    (event, context) => unifiedAgent.process(event, context),
-  );
-  console.log(`Registered agent: ${unifiedAgent.agentType}`);
-
-  // Track current agent mode
-  let agentMode: 'multi' | 'unified' = 'multi';
 
   // Setup Socket.IO
-  const socketServer = new SocketServer(httpServer, orchestrator);
+  const socketServer = new SocketServer(httpServer, sessionRegistry, aiGM);
 
-  // Sync state changes to clients
-  orchestrator.getStateManager().onChange('state', (state) => {
+  // Set up state change listeners for ALL sessions (including restored ones)
+  for (const sessionInfo of sessionRegistry.getAllSessions()) {
+    const sm = sessionRegistry.findById(sessionInfo.sessionId);
+    if (sm) {
+      sm.onChange('state', (state) => {
+        socketServer.broadcastState(state);
+        sessionRegistry.markDirty(state.sessionId);
+      });
+    }
+  }
+
+  // Also set up for the default session specifically (may already be covered above)
+  stateManager.onChange('state', (state) => {
     socketServer.broadcastState(state);
-  });
-
-  // Forward agent output to clients via Socket.IO
-  orchestrator.setAgentOutputHandler((agentType, output) => {
-    socketServer.broadcastAgentOutput(agentType, output);
+    // Trigger debounced persistence
+    sessionRegistry.markDirty(state.sessionId);
   });
 
   // API routes
   app.get('/api/session', (_req, res) => {
-    res.json(orchestrator.getState());
+    res.json(stateManager.getState());
   });
 
   app.post('/api/session/start', (_req, res) => {
-    orchestrator.startSession();
+    stateManager.startSession();
     res.json({ status: 'started' });
   });
 
   app.post('/api/session/end', (_req, res) => {
-    orchestrator.endSession();
+    stateManager.endSession();
     res.json({ status: 'ended' });
   });
 
-  app.get('/api/characters', (_req, res) => {
-    res.json(orchestrator.getStateManager().getAllCharacters());
+  // ===== Multi-session API =====
+
+  app.post('/api/session/create', (_req, res) => {
+    const { sessionId, code, stateManager: sm } = sessionRegistry.createSession();
+    // Set up state change listener for new session
+    sm.onChange('state', (state) => {
+      socketServer.broadcastState(state);
+      sessionRegistry.markDirty(state.sessionId);
+    });
+    // Persist immediately so the new session is saved
+    sessionRegistry.persistSession(sessionId);
+    res.json({ sessionId, code });
+  });
+
+  app.get('/api/session/by-code/:code', (req, res) => {
+    const code = req.params.code.toUpperCase();
+    const info = sessionRegistry.getSessionInfoByCode(code);
+    if (!info) {
+      res.status(404).json({ error: '房间码无效' });
+      return;
+    }
+    res.json(info);
+  });
+
+  app.get('/api/session/:id/players', (req, res) => {
+    const sm = sessionRegistry.findById(req.params.id);
+    if (!sm) {
+      res.status(404).json({ error: '会话不存在' });
+      return;
+    }
+    const state = sm.getState();
+    res.json({
+      players: state.players.map(p => ({
+        id: p.id,
+        name: p.name,
+        characterName: p.character?.name,
+        isConnected: p.isConnected,
+        joinedAt: p.joinedAt,
+      })),
+    });
+  });
+
+  app.get('/api/character', (_req, res) => {
+    const char = stateManager.getCharacter();
+    if (char) {
+      res.json(char);
+    } else {
+      res.json(null);
+    }
+  });
+
+  // Direct character set (from client character creation)
+  app.put('/api/character', (req, res) => {
+    const character = req.body;
+    if (!character || !character.id || !character.name) {
+      res.status(400).json({ errors: ['无效的角色数据'] });
+      return;
+    }
+    stateManager.setCharacter(character);
+    socketServer.broadcastState(stateManager.getState());
+    console.log(`Character set: ${character.name} (${character.classId})`);
+    res.json({ character: stateManager.getCharacter() });
   });
 
   // AI stats endpoint
@@ -155,30 +369,99 @@ async function main() {
     }
   });
 
-  // Agent status endpoint
-  app.get('/api/agents', (_req, res) => {
+  // ===== AI Config API =====
+
+  // Get current AI configuration (apiKey is masked)
+  app.get('/api/ai/config', (_req, res) => {
     res.json({
-      enabled: orchestrator.getAgentCoordinator().getEnabledAgents(),
-      processing: orchestrator.getAgentCoordinator().getProcessingCount(),
-      mode: agentMode,
+      apiKey: aiConfig ? maskApiKey(aiConfig.apiKey) : '',
+      baseUrl: aiConfig?.baseUrl || '',
+      defaultModel: aiConfig?.defaultModel || '',
+      narratorModel: currentNarratorModel || aiConfig?.defaultModel || '',
+      combatModel: currentCombatModel || aiConfig?.defaultModel || '',
+      temperature: currentTemperature,
+      maxTokens: currentMaxTokens,
+      aiConnected: !!aiGateway,
     });
   });
 
-  // Agent mode switching (also available via socket.io agent:mode event)
-  app.post('/api/agents/mode', (req, res) => {
-    const { mode } = req.body as { mode: 'multi' | 'unified' };
-    if (mode !== 'multi' && mode !== 'unified') {
-      res.status(400).json({ error: 'Invalid mode. Use "multi" or "unified".' });
+  // Update AI configuration (hot-reload)
+  app.put('/api/ai/config', (req, res) => {
+    const { apiKey, baseUrl, defaultModel, narratorModel, temperature, maxTokens } = req.body as {
+      apiKey?: string;
+      baseUrl?: string;
+      defaultModel?: string;
+      narratorModel?: string;
+      temperature?: number;
+      maxTokens?: number;
+    };
+
+    // If apiKey is masked (contains ••••), don't update it
+    const cleanApiKey = apiKey && apiKey.includes('••••') ? undefined : apiKey;
+
+    const result = reinitializeAI({
+      apiKey: cleanApiKey,
+      baseUrl,
+      defaultModel,
+      narratorModel,
+      temperature,
+      maxTokens,
+    });
+
+    if (!result.success) {
+      res.status(400).json({ success: false, errors: result.errors });
       return;
     }
 
-    agentMode = mode;
-    socketServer.switchAgentMode(mode);
-
+    // Return updated config
     res.json({
-      mode: agentMode,
-      enabled: orchestrator.getAgentCoordinator().getEnabledAgents(),
+      success: true,
+      config: {
+        apiKey: aiConfig ? maskApiKey(aiConfig.apiKey) : '',
+        baseUrl: aiConfig?.baseUrl || '',
+        defaultModel: aiConfig?.defaultModel || '',
+        narratorModel: currentNarratorModel || '',
+        temperature: currentTemperature,
+        maxTokens: currentMaxTokens,
+        aiConnected: !!aiGateway,
+      },
     });
+  });
+
+  // Test AI connection
+  app.post('/api/ai/test', async (_req, res) => {
+    if (!aiGateway || !aiConfig) {
+      res.json({ success: false, error: 'AI未配置，请先设置API Key和模型' });
+      return;
+    }
+
+    try {
+      const startTime = Date.now();
+      const response = await aiGateway.sendRequest({
+        model: aiConfig.defaultModel,
+        messages: [
+          { role: 'system', content: 'You are a helpful assistant. Respond with exactly: OK' },
+          { role: 'user', content: 'Hello' },
+        ],
+        temperature: 0.1,
+        maxTokens: 16,
+        agentType: 'test',
+      });
+      const responseTime = Date.now() - startTime;
+
+      res.json({
+        success: true,
+        model: aiConfig.defaultModel,
+        responseTime,
+        tokenUsage: response.tokenUsage.totalTokens,
+      });
+    } catch (err: any) {
+      res.json({
+        success: false,
+        model: aiConfig.defaultModel,
+        error: err.message || '连接失败',
+      });
+    }
   });
 
   // Character creation data
@@ -222,6 +505,22 @@ async function main() {
     res.json(subclasses);
   });
 
+  // Campaign data
+  app.get('/api/data/factions', (_req, res) => {
+    const factions = require('./campaign/data/factions.json');
+    res.json(factions);
+  });
+
+  app.get('/api/data/locations', (_req, res) => {
+    const locations = require('./campaign/data/locations.json');
+    res.json(locations);
+  });
+
+  app.get('/api/data/npcs', (_req, res) => {
+    const npcs = require('./campaign/data/npcs.json');
+    res.json(npcs);
+  });
+
   // Character creation endpoints
   app.post('/api/character/validate', (req, res) => {
     const { step, data } = req.body as { step: number; data: Record<string, unknown> };
@@ -233,28 +532,23 @@ async function main() {
   });
 
   app.post('/api/character/create', (req, res) => {
-    const { playerId, data } = req.body as { playerId: string; data: Record<string, unknown> };
+    const { data } = req.body as { data: Record<string, unknown> };
     const creator = new CharacterCreator();
     creator.setStepData(data);
-    const { character, errors } = creator.buildCharacter(playerId);
+    const { character, errors } = creator.buildCharacter();
     if (errors.length > 0) {
       res.status(400).json({ errors });
     } else {
-      orchestrator.addPlayer(
-        { playerId, name: character.name, connected: true, characterId: character.id, isActing: false },
-        character,
-      );
-      // Broadcast updated state so all clients see the new character
-      socketServer.broadcastState(orchestrator.getState());
+      stateManager.setCharacter(character);
+      socketServer.broadcastState(stateManager.getState());
       res.json({ character });
     }
   });
 
-  // Character level-up endpoint (GM approves)
+  // Character level-up endpoint
   app.post('/api/character/levelup', (req, res) => {
-    const { characterId, newLevel, options, attributeChoices, experienceChoices, domainCardChoice, domainCardSwap } =
+    const { newLevel, options, attributeChoices, experienceChoices, domainCardChoice, domainCardSwap } =
       req.body as {
-        characterId: string;
         newLevel: number;
         options: string[];
         attributeChoices?: [string, string];
@@ -263,14 +557,14 @@ async function main() {
         domainCardSwap?: { add: string; remove: string };
       };
 
-    const character = orchestrator.getStateManager().getCharacter(characterId);
+    const character = stateManager.getCharacter();
     if (!character) {
       res.status(404).json({ errors: ['角色不存在'] });
       return;
     }
 
     const request: import('./core/CharacterLevelUp').LevelUpRequest = {
-      characterId,
+      characterId: character.id,
       newLevel,
       options: options as any[],
       attributeChoices: attributeChoices as any,
@@ -285,9 +579,8 @@ async function main() {
       return;
     }
 
-    // Update character in state manager
-    orchestrator.getStateManager().setCharacter(result.character);
-    socketServer.broadcastState(orchestrator.getState());
+    stateManager.setCharacter(result.character);
+    socketServer.broadcastState(stateManager.getState());
 
     res.json({
       character: result.character,
@@ -297,10 +590,9 @@ async function main() {
     });
   });
 
-  // Get available level-up options for a character
-  app.get('/api/character/:id/levelup-options', (req, res) => {
-    const characterId = req.params.id;
-    const character = orchestrator.getStateManager().getCharacter(characterId);
+  // Get available level-up options for the character
+  app.get('/api/character/levelup-options', (_req, res) => {
+    const character = stateManager.getCharacter();
     if (!character) {
       res.status(404).json({ errors: ['角色不存在'] });
       return;
@@ -310,9 +602,8 @@ async function main() {
     res.json({ options, nextLevel: character.level + 1, bonuses });
   });
 
-  // GM inventory management - add item to character
-  app.post('/api/character/:id/inventory/add', (req, res) => {
-    const characterId = req.params.id;
+  // Inventory management
+  app.post('/api/character/inventory/add', (req, res) => {
     const { itemId, name, quantity, description } = req.body as {
       itemId?: string;
       name?: string;
@@ -320,13 +611,12 @@ async function main() {
       description?: string;
     };
 
-    const character = orchestrator.getStateManager().getCharacter(characterId);
+    const character = stateManager.getCharacter();
     if (!character) {
       res.status(404).json({ errors: ['角色不存在'] });
       return;
     }
 
-    // Generate item ID if not provided
     const item = {
       id: itemId || `item_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       name: name || '未命名物品',
@@ -335,7 +625,6 @@ async function main() {
       equipped: false,
     };
 
-    // Check if item already exists in inventory
     const existing = character.inventory.find(i => i.id === item.id);
     if (existing) {
       existing.quantity += item.quantity;
@@ -343,18 +632,16 @@ async function main() {
       character.inventory.push(item);
     }
 
-    orchestrator.getStateManager().setCharacter(character);
-    socketServer.broadcastState(orchestrator.getState());
+    stateManager.setCharacter(character);
+    socketServer.broadcastState(stateManager.getState());
 
     res.json({ character, itemAdded: item });
   });
 
-  // GM inventory management - remove item from character
-  app.post('/api/character/:id/inventory/remove', (req, res) => {
-    const characterId = req.params.id;
+  app.post('/api/character/inventory/remove', (req, res) => {
     const { itemId, quantity } = req.body as { itemId: string; quantity?: number };
 
-    const character = orchestrator.getStateManager().getCharacter(characterId);
+    const character = stateManager.getCharacter();
     if (!character) {
       res.status(404).json({ errors: ['角色不存在'] });
       return;
@@ -373,50 +660,50 @@ async function main() {
       character.inventory[itemIndex].quantity -= removeQty;
     }
 
-    orchestrator.getStateManager().setCharacter(character);
-    socketServer.broadcastState(orchestrator.getState());
+    stateManager.setCharacter(character);
+    socketServer.broadcastState(stateManager.getState());
 
     res.json({ character });
   });
 
   // Loot/consumable data endpoint
   app.get('/api/data/loot', (_req, res) => {
-    const loot = require('./rules/data/daggerheart/loot.json');
-    res.json(loot);
+    try {
+      const loot = require('./rules/data/daggerheart/loot.json');
+      res.json(loot);
+    } catch {
+      res.json([]);
+    }
   });
 
   app.get('/api/data/consumables', (_req, res) => {
-    const consumables = require('./rules/data/daggerheart/consumables.json');
-    res.json(consumables);
+    try {
+      const consumables = require('./rules/data/daggerheart/consumables.json');
+      res.json(consumables);
+    } catch {
+      res.json([]);
+    }
   });
 
   // Start server
   httpServer.listen(PORT, '0.0.0.0', () => {
+    const defaultSessionId = sessionRegistry.getDefaultSessionId() || stateManager.getState().sessionId;
     console.log(`\n========================================`);
-    console.log(`  TRPGMaster Server v0.3.0`);
-    console.log(`  Session ID: ${orchestrator.getSessionId()}`);
+    console.log(`  TRPGMaster Server v2.0.0`);
+    console.log(`  Rules: Daggerheart`);
+    console.log(`  Campaign: Drakkenheim`);
+    console.log(`  Default Session: ${defaultSessionId}`);
     console.log(`  Port: ${PORT}`);
-    console.log(`  AI: ${aiGateway ? `SiliconFlow (${defaultConfig.model})` : 'Fallback Mode'}`);
-    console.log(`  STT: ${voiceProcessor.isConfigured() ? 'Configured' : 'Not configured'}`);
-    console.log(`  Image: ${imageClient.isConfigured() ? 'Configured' : 'Not configured'}`);
-    console.log(`  Agents: ${multiAgents.map(a => a.agentType).join(', ')}, unified`);
+    console.log(`  AI: ${aiGateway && aiConfig ? `Connected (${aiConfig.defaultModel})` : 'Fallback Mode'}`);
     console.log(`========================================\n`);
     console.log('Waiting for players to connect...');
   });
 
-  // Start LAN Discovery for local network device discovery
-  const lanDiscovery = new LANDiscovery(19000);
-  lanDiscovery.startBroadcasting({
-    serviceName: 'TRPGMaster',
-    port: PORT,
-    host: '0.0.0.0',
-    sessionId: orchestrator.getSessionId(),
-  }).catch(err => console.error('LAN Discovery broadcast failed:', err.message));
-
-  // Graceful shutdown
+  // Graceful shutdown — save all session data before exiting
   process.on('SIGINT', () => {
     console.log('\nShutting down...');
-    lanDiscovery.stop();
+    sessionRegistry.persistAll();
+    console.log('Session data saved.');
     socketServer.close();
     httpServer.close();
     process.exit(0);

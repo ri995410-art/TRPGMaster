@@ -3,54 +3,109 @@
     "id": "high-city",
     "name": "高城之民",
     "nameEn": "High City",
-    "feature": "高人一等：你在与贵族交际、议价或利用你的声誉来达到目的的掷骰中具有优势。"
+    "description": "来自高城的精英阶层，习惯于上流社会的交际和权力游戏。",
+    "feature": {
+      "name": "高人一等",
+      "nameEn": "Above It All",
+      "description": "你在与贵族交际、议价或利用你的声誉来达到目的的掷骰中具有优势。",
+      "type": "passive"
+    }
   },
   {
     "id": "learned",
     "name": "博识之民",
     "nameEn": "Learned",
-    "feature": "博览群书：你在关于重要人物或地点的历史、文化和政治的掷骰中具有优势。"
+    "description": "在学问之城中成长的居民，以广博的知识和学术素养闻名。",
+    "feature": {
+      "name": "博览群书",
+      "nameEn": "Well Read",
+      "description": "你在关于重要人物或地点的历史、文化和政治的掷骰中具有优势。",
+      "type": "passive"
+    }
   },
   {
     "id": "order",
     "name": "结社之民",
     "nameEn": "Order",
-    "feature": "恪守不渝：记录三个你的成长经历灌输给你的格言或价值观。每次休息一次，当你描述你如何通过当前行动来体现这些原则之一时，你可以将一个d20作为你的希望骰，而不是d12。"
+    "description": "属于某个秩序组织的成员，以恪守原则和坚定信念闻名。",
+    "feature": {
+      "name": "恪守不渝",
+      "nameEn": "Steadfast",
+      "description": "记录三个你的成长经历灌输给你的格言或价值观。每次休息一次，当你描述你如何通过当前行动来体现这些原则之一时，你可以将一个d20作为你的希望骰，而不是d12。",
+      "type": "action"
+    }
   },
   {
     "id": "hill",
     "name": "山岭之民",
     "nameEn": "Hill",
-    "feature": "脚踏实地：你在穿越危险的悬崖峭壁、在恶劣环境中导航以及使用你的生存知识的掷骰上具有优势。"
+    "description": "在山岭中生活的坚韧居民，以脚踏实地的生存技能闻名。",
+    "feature": {
+      "name": "脚踏实地",
+      "nameEn": "Sure Footed",
+      "description": "你在穿越危险的悬崖峭壁、在恶劣环境中导航以及使用你的生存知识的掷骰上具有优势。",
+      "type": "passive"
+    }
   },
   {
     "id": "seaside",
     "name": "滨海之民",
     "nameEn": "Seaside",
-    "feature": "潮起潮落：你深谙生命和生活的变化无常。当你掷出恐惧结果时，在这张卡牌上放置一个指示物。你可以持有最大等于你等级数量的指示物。在你进行动作掷骰之前，你可以花费任意数量指示物，每个指示物使你的掷骰获得+1加值。在每场游戏结束时，清除所有未使用的指示物。"
+    "description": "生活在海边的居民，深知潮起潮落的道理，适应力极强。",
+    "feature": {
+      "name": "潮起潮落",
+      "nameEn": "Ebb and Flow",
+      "description": "你深谙生命和生活的变化无常。当你掷出恐惧结果时，在这张卡牌上放置一个指示物。你可以持有最大等于你等级数量的指示物。在你进行动作掷骰之前，你可以花费任意数量指示物，每个指示物使你的掷骰获得+1加值。在每场游戏结束时，清除所有未使用的指示物。",
+      "type": "passive"
+    }
   },
   {
     "id": "outlaw",
     "name": "法外之民",
     "nameEn": "Outlaw",
-    "feature": "恶贯满盈：你在与罪犯谈判、侦测谎言或寻找安全藏身之处的掷骰中具有优势。"
+    "description": "在法律之外生活的边缘人，以江湖义气和街头智慧闻名。",
+    "feature": {
+      "name": "恶贯满盈",
+      "nameEn": "Notorious",
+      "description": "你在与罪犯谈判、侦测谎言或寻找安全藏身之处的掷骰中具有优势。",
+      "type": "passive"
+    }
   },
   {
     "id": "underground",
     "name": "地下之民",
     "nameEn": "Underground",
-    "feature": "微光生存：当你处于微光或严重遮蔽的区域时，在隐匿、调查或感知该区域内细节的掷骰中具有优势。"
+    "description": "在地下世界生活的居民，以微光适应和隐匿技能闻名。",
+    "feature": {
+      "name": "微光生存",
+      "nameEn": "Low Light Living",
+      "description": "当你处于微光或严重遮蔽的区域时，在隐匿、调查或感知该区域内细节的掷骰中具有优势。",
+      "type": "passive"
+    }
   },
   {
     "id": "nomad",
     "name": "漂泊之民",
     "nameEn": "Nomad",
-    "feature": "游牧行囊：将一个游牧行囊添加到你的携带物品中。每局游戏一次，你可以花费1希望点从背包中拿出一件对当前情况有用的普通物品。与游戏主持人一起确定这件物品是什么。"
+    "description": "在旅途中成长的游牧民族，以灵活的行囊和适应力闻名。",
+    "feature": {
+      "name": "游牧行囊",
+      "nameEn": "Traveler's Pack",
+      "description": "将一个游牧行囊添加到你的携带物品中。每局游戏一次，你可以花费1希望点从背包中拿出一件对当前情况有用的普通物品。与游戏主持人一起确定这件物品是什么。",
+      "type": "action",
+      "hopeCost": 1
+    }
   },
   {
     "id": "wilderness",
     "name": "荒野之民",
     "nameEn": "Wilderness",
-    "feature": "轻盈步伐：你的移动天然无声。在试图不被察觉的移动掷骰中具有优势。"
+    "description": "在荒野中生活的猎人，以轻盈步伐和野外本能闻名。",
+    "feature": {
+      "name": "轻盈步伐",
+      "nameEn": "Light Step",
+      "description": "你的移动天然无声。在试图不被察觉的移动掷骰中具有优势。",
+      "type": "passive"
+    }
   }
 ]

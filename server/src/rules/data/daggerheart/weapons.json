@@ -7,9 +7,10 @@
     "distance": "melee",
     "damageDie": "d8",
     "damageModifier": 0,
-    "handedness": "oneHanded",
     "load": "oneHanded",
-    "traits": ["reliable"],
+    "traits": [
+      "reliable"
+    ],
     "weaponTier": 1,
     "description": "可靠：你的攻击掷骰+1。"
   },
@@ -21,7 +22,6 @@
     "distance": "melee",
     "damageDie": "d10",
     "damageModifier": 3,
-    "handedness": "twoHanded",
     "load": "twoHanded",
     "traits": [],
     "weaponTier": 1,
@@ -35,7 +35,6 @@
     "distance": "melee",
     "damageDie": "d10",
     "damageModifier": 3,
-    "handedness": "twoHanded",
     "load": "twoHanded",
     "traits": [],
     "weaponTier": 1,
@@ -49,9 +48,10 @@
     "distance": "melee",
     "damageDie": "d10",
     "damageModifier": 3,
-    "handedness": "twoHanded",
     "load": "twoHanded",
-    "traits": ["massive"],
+    "traits": [
+      "massive"
+    ],
     "weaponTier": 1,
     "description": "巨型：闪避值-1，额外掷一个伤害骰并去掉其中最小的一个。"
   },
@@ -63,7 +63,6 @@
     "distance": "melee",
     "damageDie": "d8",
     "damageModifier": 1,
-    "handedness": "oneHanded",
     "load": "oneHanded",
     "traits": [],
     "weaponTier": 1,
@@ -77,9 +76,10 @@
     "distance": "melee",
     "damageDie": "d12",
     "damageModifier": 3,
-    "handedness": "twoHanded",
     "load": "twoHanded",
-    "traits": ["heavy"],
+    "traits": [
+      "heavy"
+    ],
     "weaponTier": 1,
     "description": "沉重：闪避值-1。"
   },
@@ -91,7 +91,6 @@
     "distance": "melee",
     "damageDie": "d8",
     "damageModifier": 1,
-    "handedness": "oneHanded",
     "load": "oneHanded",
     "traits": [],
     "weaponTier": 1,
@@ -105,7 +104,6 @@
     "distance": "melee",
     "damageDie": "d10",
     "damageModifier": 3,
-    "handedness": "twoHanded",
     "load": "twoHanded",
     "traits": [],
     "weaponTier": 1,
@@ -119,7 +117,6 @@
     "distance": "melee",
     "damageDie": "d8",
     "damageModifier": 1,
-    "handedness": "oneHanded",
     "load": "oneHanded",
     "traits": [],
     "weaponTier": 1,
@@ -133,9 +130,10 @@
     "distance": "melee",
     "damageDie": "d8",
     "damageModifier": 0,
-    "handedness": "oneHanded",
     "load": "oneHanded",
-    "traits": ["swift"],
+    "traits": [
+      "swift"
+    ],
     "weaponTier": 1,
     "description": "迅捷：标记1压力点以额外攻击一个范围内的目标。"
   },
@@ -147,9 +145,10 @@
     "distance": "nearby",
     "damageDie": "d10",
     "damageModifier": 2,
-    "handedness": "twoHanded",
     "load": "twoHanded",
-    "traits": ["cumbersome"],
+    "traits": [
+      "cumbersome"
+    ],
     "weaponTier": 1,
     "description": "繁琐：灵巧-1。"
   },
@@ -161,7 +160,6 @@
     "distance": "nearby",
     "damageDie": "d8",
     "damageModifier": 3,
-    "handedness": "twoHanded",
     "load": "twoHanded",
     "traits": [],
     "weaponTier": 1,
@@ -175,7 +173,6 @@
     "distance": "far",
     "damageDie": "d6",
     "damageModifier": 3,
-    "handedness": "twoHanded",
     "load": "twoHanded",
     "traits": [],
     "weaponTier": 1,
@@ -189,7 +186,6 @@
     "distance": "far",
     "damageDie": "d6",
     "damageModifier": 1,
-    "handedness": "oneHanded",
     "load": "oneHanded",
     "traits": [],
     "weaponTier": 1,
@@ -203,9 +199,10 @@
     "distance": "veryFar",
     "damageDie": "d8",
     "damageModifier": 3,
-    "handedness": "twoHanded",
     "load": "twoHanded",
-    "traits": ["cumbersome"],
+    "traits": [
+      "cumbersome"
+    ],
     "weaponTier": 1,
     "description": "繁琐：灵巧-1。"
   },
@@ -217,9 +214,10 @@
     "distance": "melee",
     "damageDie": "d10",
     "damageModifier": 3,
-    "handedness": "twoHanded",
     "load": "twoHanded",
-    "traits": ["spellcasting"],
+    "traits": [
+      "spellcasting"
+    ],
     "weaponTier": 1,
     "description": "施法：可用于施法。需要施法属性。"
   },
@@ -231,9 +229,10 @@
     "distance": "melee",
     "damageDie": "d8",
     "damageModifier": 1,
-    "handedness": "oneHanded",
     "load": "oneHanded",
-    "traits": ["spellcasting"],
+    "traits": [
+      "spellcasting"
+    ],
     "weaponTier": 1,
     "description": "施法：可用于施法。需要施法属性。"
   },
@@ -245,9 +244,10 @@
     "distance": "nearby",
     "damageDie": "d10",
     "damageModifier": 2,
-    "handedness": "twoHanded",
     "load": "twoHanded",
-    "traits": ["spellcasting"],
+    "traits": [
+      "spellcasting"
+    ],
     "weaponTier": 1,
     "description": "施法：可用于施法。需要施法属性。"
   },
@@ -259,9 +259,10 @@
     "distance": "nearby",
     "damageDie": "d10",
     "damageModifier": 0,
-    "handedness": "oneHanded",
     "load": "oneHanded",
-    "traits": ["spellcasting"],
+    "traits": [
+      "spellcasting"
+    ],
     "weaponTier": 1,
     "description": "施法：可用于施法。需要施法属性。"
   },
@@ -273,9 +274,11 @@
     "distance": "close",
     "damageDie": "d8",
     "damageModifier": 0,
-    "handedness": "oneHanded",
     "load": "oneHanded",
-    "traits": ["spellcasting", "returning"],
+    "traits": [
+      "spellcasting",
+      "returning"
+    ],
     "weaponTier": 1,
     "description": "回旋：当此武器在射程内被投掷后，会在完成攻击的瞬间重新出现在你手中。需要施法属性。"
   },
@@ -287,9 +290,10 @@
     "distance": "close",
     "damageDie": "d8",
     "damageModifier": 1,
-    "handedness": "oneHanded",
     "load": "oneHanded",
-    "traits": ["spellcasting"],
+    "traits": [
+      "spellcasting"
+    ],
     "weaponTier": 1,
     "description": "施法：可用于施法。需要施法属性。"
   },
@@ -301,9 +305,10 @@
     "distance": "far",
     "damageDie": "d6",
     "damageModifier": 3,
-    "handedness": "twoHanded",
     "load": "twoHanded",
-    "traits": ["spellcasting"],
+    "traits": [
+      "spellcasting"
+    ],
     "weaponTier": 1,
     "description": "施法：可用于施法。需要施法属性。"
   },
@@ -315,9 +320,11 @@
     "distance": "far",
     "damageDie": "d6",
     "damageModifier": 0,
-    "handedness": "twoHanded",
     "load": "twoHanded",
-    "traits": ["spellcasting", "versatile"],
+    "traits": [
+      "spellcasting",
+      "versatile"
+    ],
     "weaponTier": 1,
     "description": "多用：这把武器也可以此方式使用 - 风度 近战 d8。需要施法属性。"
   },
@@ -329,9 +336,10 @@
     "distance": "far",
     "damageDie": "d6",
     "damageModifier": 1,
-    "handedness": "oneHanded",
     "load": "oneHanded",
-    "traits": ["spellcasting"],
+    "traits": [
+      "spellcasting"
+    ],
     "weaponTier": 1,
     "description": "施法：可用于施法。需要施法属性。"
   },
@@ -343,9 +351,11 @@
     "distance": "veryFar",
     "damageDie": "d6",
     "damageModifier": 0,
-    "handedness": "twoHanded",
     "load": "twoHanded",
-    "traits": ["spellcasting", "powerful"],
+    "traits": [
+      "spellcasting",
+      "powerful"
+    ],
     "weaponTier": 1,
     "description": "强力：额外掷一个伤害骰并去掉其中最小的一个。需要施法属性。"
   },
@@ -357,9 +367,10 @@
     "distance": "melee",
     "damageDie": "d8",
     "damageModifier": 0,
-    "handedness": "oneHanded",
     "load": "offHand",
-    "traits": ["dual"],
+    "traits": [
+      "dual"
+    ],
     "weaponTier": 1,
     "description": "双持：近战时主武器伤害+2。"
   },
@@ -371,9 +382,10 @@
     "distance": "melee",
     "damageDie": "d4",
     "damageModifier": 0,
-    "handedness": "oneHanded",
     "load": "offHand",
-    "traits": ["protect"],
+    "traits": [
+      "protect"
+    ],
     "weaponTier": 1,
     "description": "防御：护甲值+1。"
   },
@@ -385,9 +397,10 @@
     "distance": "melee",
     "damageDie": "d6",
     "damageModifier": 0,
-    "handedness": "oneHanded",
     "load": "offHand",
-    "traits": ["barricade"],
+    "traits": [
+      "barricade"
+    ],
     "weaponTier": 1,
     "description": "屏障：+2护甲值，-1闪避值。"
   },
@@ -399,9 +412,10 @@
     "distance": "melee",
     "damageDie": "d8",
     "damageModifier": 0,
-    "handedness": "oneHanded",
     "load": "offHand",
-    "traits": ["dual"],
+    "traits": [
+      "dual"
+    ],
     "weaponTier": 1,
     "description": "双持：近战时主武器伤害+2。"
   },
@@ -413,9 +427,10 @@
     "distance": "nearby",
     "damageDie": "d6",
     "damageModifier": 0,
-    "handedness": "oneHanded",
     "load": "offHand",
-    "traits": ["lash"],
+    "traits": [
+      "lash"
+    ],
     "weaponTier": 1,
     "description": "鞭挞：标记1压力点，将所有近战范围内的敌人击退至近距离。"
   },
@@ -427,9 +442,10 @@
     "distance": "close",
     "damageDie": "d6",
     "damageModifier": 0,
-    "handedness": "oneHanded",
     "load": "offHand",
-    "traits": ["hook"],
+    "traits": [
+      "hook"
+    ],
     "weaponTier": 1,
     "description": "抓钩：进行一次成功的攻击后，你可以将目标拉至你的近战范围内。"
   },
@@ -441,7 +457,6 @@
     "distance": "far",
     "damageDie": "d6",
     "damageModifier": 1,
-    "handedness": "oneHanded",
     "load": "offHand",
     "traits": [],
     "weaponTier": 1,

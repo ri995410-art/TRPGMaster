@@ -15,13 +15,14 @@ export function useGameData() {
 
     const fetchAll = async () => {
       try {
-        const [classesRes, weaponsRes, armorRes, domainsRes, ancestriesRes, communitiesRes] = await Promise.all([
+        const [classesRes, weaponsRes, armorRes, domainsRes, ancestriesRes, communitiesRes, subclassesRes] = await Promise.all([
           fetch(`${serverUrl}/api/data/classes`),
           fetch(`${serverUrl}/api/data/weapons`),
           fetch(`${serverUrl}/api/data/armor`),
           fetch(`${serverUrl}/api/data/domains`),
           fetch(`${serverUrl}/api/data/ancestries`),
           fetch(`${serverUrl}/api/data/communities`),
+          fetch(`${serverUrl}/api/data/subclasses`),
         ]);
 
         const classes = await classesRes.json();
@@ -30,11 +31,13 @@ export function useGameData() {
         const domainCards = await domainsRes.json();
         const ancestries = ancestriesRes.ok ? await ancestriesRes.json() : [];
         const communities = communitiesRes.ok ? await communitiesRes.json() : [];
+        const subclasses = subclassesRes.ok ? await subclassesRes.json() : [];
 
-        console.log(`[useGameData] Loaded: ${classes.length} classes, ${weapons.length} weapons, ${armor.length} armor, ${domainCards.length} domainCards, ${ancestries.length} ancestries, ${communities.length} communities`);
+        console.log(`[useGameData] Loaded: ${classes.length} classes, ${subclasses.length} subclasses, ${weapons.length} weapons, ${armor.length} armor, ${domainCards.length} domainCards, ${ancestries.length} ancestries, ${communities.length} communities`);
 
         useGameStore.getState().setGameData({
           classes,
+          subclasses,
           weapons,
           armor,
           domainCards,

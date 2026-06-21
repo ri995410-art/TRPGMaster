@@ -1,37 +1,39 @@
 import type {
   SessionState,
-  PlayerState,
   SceneState,
   CombatState,
   CombatEnemy,
   TimelineEntry,
   GameEvent,
   GameEventType,
-  CorruptionLevel,
+  CampaignState,
+  Player,
 } from '@trpgmaster/shared';
 import { getTier } from '@trpgmaster/shared';
 import type { Character } from '@trpgmaster/shared';
+import type { PersistedSession, PersistedAdventureMessage } from './SessionPersistence';
 
 export class StateManager {
   private state: SessionState;
   private listeners: Map<string, Set<(state: SessionState) => void>>;
-  private characters: Map<string, Character>;
   private dirtyFlags: Set<string>;
+  // Adventure messages — stored server-side for persistence
+  private adventureMessages: PersistedAdventureMessage[];
 
-  constructor(sessionId: string, gmId: string, ruleSystem: SessionState['ruleSystem'] = 'daggerheart') {
-    this.state = this.createInitialState(sessionId, gmId, ruleSystem);
+  constructor(sessionId: string) {
+    this.state = this.createInitialState(sessionId);
     this.listeners = new Map();
-    this.characters = new Map();
     this.dirtyFlags = new Set();
+    this.adventureMessages = [];
   }
 
-  private createInitialState(sessionId: string, gmId: string, ruleSystem: SessionState['ruleSystem']): SessionState {
+  private createInitialState(sessionId: string): SessionState {
     return {
       sessionId,
-      ruleSystem,
       status: 'setup',
-      gmId,
-      players: [],
+      character: null as unknown as Character, // Set during character creation (backward compat)
+      characters: [],                           // Multi-player character list
+      players: [],                              // Multi-player player list
       currentScene: {
         id: 'initial',
         name: '开场',
@@ -40,15 +42,31 @@ export class StateManager {
         activeConditions: [],
         npcPresent: [],
         enemies: [],
+        countdowns: [],
       },
       fearPoints: 0,
       totalFearGained: 0,
       totalFearSpent: 0,
-      roundTracker: {
-        currentRound: 0,
-        playerActionsRemaining: {},
-      },
       timeline: [],
+      shortRestsSinceLong: 0,
+      campaignState: this.createInitialCampaignState(),
+    };
+  }
+
+  private createInitialCampaignState(): CampaignState {
+    return {
+      campaignId: 'drakkenheim',
+      currentLocation: 'emberVillage',
+      visitedLocations: [],
+      factionRelations: {},
+      personalQuestProgress: {},
+      factionQuestProgress: {},
+      contaminationLevel: 0,
+      deleriumCollected: 0,
+      sealsFound: [],
+      currentChapter: 'arrival',
+      hazeExpansion: 0,
+      narrativeFlags: {},
     };
   }
 
@@ -58,19 +76,83 @@ export class StateManager {
     return JSON.parse(JSON.stringify(this.state));
   }
 
-  getCharacter(characterId: string): Character | undefined {
-    return this.characters.get(characterId);
+  getCharacter(): Character {
+    return this.state.character;
   }
 
-  getAllCharacters(): Character[] {
-    return Array.from(this.characters.values());
+  // ===== Multi-player Management =====
+
+  addPlayer(player: Player): void {
+    // Check if player already exists
+    const existing = this.state.players.find(p => p.id === player.id);
+    if (existing) {
+      // Update existing player
+      existing.isConnected = true;
+      existing.character = player.character;
+      existing.name = player.name;
+    } else {
+      this.state.players.push({ ...player });
+      this.state.characters.push({ ...player.character });
+    }
+    // Sync backward-compat character (first player's character)
+    if (this.state.players.length > 0 && this.state.players[0].character) {
+      this.state.character = this.state.players[0].character;
+    }
+    this.markDirty('players');
+  }
+
+  removePlayer(playerId: string): void {
+    const player = this.state.players.find(p => p.id === playerId);
+    if (!player) return;
+
+    player.isConnected = false;
+    // Keep the player in the list but mark as disconnected
+    // (character data is preserved for when they reconnect)
+    this.markDirty('players');
+  }
+
+  getPlayerCharacter(playerId: string): Character | undefined {
+    const player = this.state.players.find(p => p.id === playerId);
+    return player?.character;
+  }
+
+  updatePlayerCharacter(playerId: string, updates: Partial<Character>): void {
+    const player = this.state.players.find(p => p.id === playerId);
+    if (!player) return;
+
+    Object.assign(player.character, updates);
+
+    // Also update in characters array
+    const charIndex = this.state.characters.findIndex(c => c.id === player.character.id);
+    if (charIndex >= 0) {
+      this.state.characters[charIndex] = { ...player.character };
+    }
+
+    // Sync backward compat
+    if (this.state.players[0]?.id === playerId) {
+      this.state.character = { ...player.character };
+    }
+
+    this.markDirty('character');
+  }
+
+  getPlayers(): Player[] {
+    return this.state.players;
+  }
+
+  getConnectedPlayers(): Player[] {
+    return this.state.players.filter(p => p.isConnected);
+  }
+
+  setSessionCode(code: string): void {
+    this.state.sessionCode = code;
+    this.markDirty('session');
   }
 
   // ===== Session Management =====
 
   startSession(): void {
     this.state.status = 'active';
-    this.state.roundTracker.currentRound = 1;
     this.markDirty('session');
   }
 
@@ -89,119 +171,76 @@ export class StateManager {
     this.markDirty('session');
   }
 
-  // ===== Player Management =====
-
-  addPlayer(player: PlayerState): void {
-    this.state.players.push(player);
-    this.markDirty('players');
-  }
-
-  removePlayer(playerId: string): void {
-    this.state.players = this.state.players.filter(p => p.playerId !== playerId);
-    this.markDirty('players');
-  }
-
-  setPlayerConnected(playerId: string, connected: boolean): void {
-    const player = this.state.players.find(p => p.playerId === playerId);
-    if (player) {
-      player.connected = connected;
-      this.markDirty('players');
-    }
-  }
-
-  setFocusToken(playerId: string): void {
-    this.state.players.forEach(p => { p.isActing = p.playerId === playerId; });
-    this.state.roundTracker.actingPlayerId = playerId;
-    this.markDirty('roundTracker');
-  }
-
   // ===== Character Management =====
 
   setCharacter(character: Character): void {
-    this.characters.set(character.id, { ...character });
-    this.markDirty(`character:${character.id}`);
+    this.state.character = { ...character };
+    // If no players yet, this is single-player mode — sync characters array
+    if (this.state.players.length === 0) {
+      const existingIdx = this.state.characters.findIndex(c => c.id === character.id);
+      if (existingIdx >= 0) {
+        this.state.characters[existingIdx] = { ...character };
+      } else {
+        this.state.characters.push({ ...character });
+      }
+    }
+    this.markDirty('character');
   }
 
-  updateCharacterHp(characterId: string, delta: number): boolean {
-    const char = this.characters.get(characterId);
+  updateCharacterHp(delta: number): boolean {
+    const char = this.state.character;
     if (!char) return false;
 
-    // Clone before mutation to prevent state leakage
-    const updated = { ...char };
-    updated.hp = Math.max(0, Math.min(updated.maxHp, updated.hp + delta));
-    this.characters.set(characterId, updated);
-    this.markDirty(`character:${characterId}`);
+    char.hp = Math.max(0, Math.min(char.maxHp, char.hp + delta));
+    this.markDirty('character');
     return true;
   }
 
-  updateCharacterStress(characterId: string, delta: number): boolean {
-    const char = this.characters.get(characterId);
+  updateCharacterStress(delta: number): boolean {
+    const char = this.state.character;
     if (!char) return false;
 
-    // Clone before mutation to prevent state leakage
-    const updated = { ...char };
-    const newStress = updated.stress + delta;
+    const newStress = char.stress + delta;
     // If stress would overflow max, mark HP instead
-    if (newStress > updated.maxStress) {
-      const overflow = newStress - updated.maxStress;
-      updated.stress = updated.maxStress;
-      updated.hp = Math.max(0, updated.hp - overflow);
+    if (newStress > char.maxStress) {
+      const overflow = newStress - char.maxStress;
+      char.stress = char.maxStress;
+      char.hp = Math.max(0, char.hp - overflow);
     } else {
-      updated.stress = Math.max(0, newStress);
+      char.stress = Math.max(0, newStress);
     }
-    this.characters.set(characterId, updated);
-    this.markDirty(`character:${characterId}`);
+    this.markDirty('character');
     return true;
   }
 
-  updateCharacterHope(characterId: string, delta: number): boolean {
-    const char = this.characters.get(characterId);
+  updateCharacterHope(delta: number): boolean {
+    const char = this.state.character;
     if (!char) return false;
 
-    // Clone before mutation to prevent state leakage
-    const updated = { ...char };
-    updated.hope = Math.max(0, Math.min(updated.maxHope, updated.hope + delta));
-    this.characters.set(characterId, updated);
-    this.markDirty(`character:${characterId}`);
+    char.hope = Math.max(0, Math.min(char.maxHope, char.hope + delta));
+    this.markDirty('character');
     return true;
   }
 
-  updateCharacterCorruption(characterId: string, level: CorruptionLevel): boolean {
-    const char = this.characters.get(characterId);
+  updateCharacterArmorSlots(used: boolean): boolean {
+    const char = this.state.character;
     if (!char) return false;
 
-    // Clone before mutation to prevent state leakage
-    const updated = { ...char };
-    updated.corruption = level;
-    this.characters.set(characterId, updated);
-    this.markDirty(`character:${characterId}`);
-    return true;
-  }
-
-  updateCharacterArmorSlots(characterId: string, used: boolean): boolean {
-    const char = this.characters.get(characterId);
-    if (!char) return false;
-
-    // Clone before mutation to prevent state leakage
-    const updated = { ...char };
-    if (used && updated.armorSlots > 0) {
-      updated.armorSlots -= 1;
-    } else if (!used && updated.armorSlots < updated.maxArmorSlots) {
-      updated.armorSlots += 1;
+    if (used && char.armorSlots > 0) {
+      char.armorSlots -= 1;
+    } else if (!used && char.armorSlots < char.maxArmorSlots) {
+      char.armorSlots += 1;
     }
-    this.characters.set(characterId, updated);
-    this.markDirty(`character:${characterId}`);
+    this.markDirty('character');
     return true;
   }
 
-  updateCharacter(characterId: string, updates: Partial<Character>): boolean {
-    const char = this.characters.get(characterId);
+  updateCharacter(updates: Partial<Character>): boolean {
+    const char = this.state.character;
     if (!char) return false;
 
-    // Clone before mutation to prevent state leakage
-    const updated = { ...char, ...updates };
-    this.characters.set(characterId, updated);
-    this.markDirty(`character:${characterId}`);
+    Object.assign(char, updates);
+    this.markDirty('character');
     return true;
   }
 
@@ -226,19 +265,6 @@ export class StateManager {
   setCurrentScene(scene: SceneState): void {
     this.state.currentScene = scene;
     this.markDirty('scene');
-  }
-
-  setExplorationTimer(timer: number): void {
-    this.state.explorationTimer = timer;
-    this.markDirty('explorationTimer');
-  }
-
-  decrementExplorationTimer(): number {
-    if (this.state.explorationTimer !== undefined && this.state.explorationTimer > 0) {
-      this.state.explorationTimer -= 1;
-      this.markDirty('explorationTimer');
-    }
-    return this.state.explorationTimer ?? 0;
   }
 
   // ===== Combat Management =====
@@ -299,6 +325,39 @@ export class StateManager {
     return this.state.timeline.filter(e => e.isKeyMoment);
   }
 
+  // ===== Rest Tracking =====
+
+  getShortRestsSinceLong(): number {
+    return this.state.shortRestsSinceLong;
+  }
+
+  incrementShortRests(): void {
+    this.state.shortRestsSinceLong++;
+    this.markDirty('rests');
+  }
+
+  resetShortRests(): void {
+    this.state.shortRestsSinceLong = 0;
+    this.markDirty('rests');
+  }
+
+  // ===== Campaign State =====
+
+  getCampaignState(): CampaignState {
+    return this.state.campaignState;
+  }
+
+  updateCampaignState(updates: Partial<CampaignState>): void {
+    Object.assign(this.state.campaignState, updates);
+    this.markDirty('campaign');
+  }
+
+  updateFactionRelation(factionId: string, change: number): void {
+    const current = this.state.campaignState.factionRelations[factionId] || 5;
+    this.state.campaignState.factionRelations[factionId] = Math.max(1, Math.min(10, current + change));
+    this.markDirty('campaign');
+  }
+
   // ===== Tension Level =====
 
   getTensionLevel(): 'low' | 'medium' | 'high' | 'critical' {
@@ -346,12 +405,139 @@ export class StateManager {
     this.dirtyFlags.clear();
   }
 
+  // ===== Adventure Messages (server-side persistence) =====
+
+  addAdventureMessage(msg: PersistedAdventureMessage): void {
+    this.adventureMessages.push(msg);
+    // Cap at 500 in memory
+    if (this.adventureMessages.length > 500) {
+      this.adventureMessages = this.adventureMessages.slice(-500);
+    }
+  }
+
+  getAdventureMessages(): PersistedAdventureMessage[] {
+    return [...this.adventureMessages];
+  }
+
+  // ===== Persistence =====
+
+  /**
+   * Export state for file persistence.
+   * Strips runtime-only fields (socket IDs, isConnected, combat state).
+   */
+  toPersisted(code: string): PersistedSession {
+    // Strip runtime fields from players (isConnected is transient)
+    const persistedPlayers = this.state.players.map(p => ({
+      id: p.id,
+      name: p.name,
+      characterName: p.character?.name,
+      joinedAt: p.joinedAt,
+    }));
+
+    return {
+      sessionId: this.state.sessionId,
+      code,
+      status: this.state.status,
+      currentScene: {
+        id: this.state.currentScene.id,
+        name: this.state.currentScene.name,
+        description: this.state.currentScene.description,
+        environment: this.state.currentScene.environment,
+      },
+      fearPoints: this.state.fearPoints,
+      totalFearGained: this.state.totalFearGained,
+      totalFearSpent: this.state.totalFearSpent,
+      character: this.state.character,
+      characters: this.state.characters,
+      players: persistedPlayers,
+      timeline: this.state.timeline,
+      campaignState: this.state.campaignState,
+      adventureMessages: this.adventureMessages,
+      shortRestsSinceLong: this.state.shortRestsSinceLong,
+      createdAt: Date.now(),
+    };
+  }
+
+  /**
+   * Restore state from persisted data.
+   * Runtime fields (isConnected, combat, etc.) get safe defaults.
+   */
+  loadFromPersisted(data: PersistedSession): void {
+    // Restore core session fields
+    this.state.sessionId = data.sessionId;
+    this.state.status = data.status || 'setup';
+    this.state.fearPoints = data.fearPoints || 0;
+    this.state.totalFearGained = data.totalFearGained || 0;
+    this.state.totalFearSpent = data.totalFearSpent || 0;
+    this.state.shortRestsSinceLong = data.shortRestsSinceLong || 0;
+
+    // Restore character
+    if (data.character) {
+      this.state.character = data.character;
+    }
+
+    // Restore characters array
+    if (data.characters) {
+      this.state.characters = data.characters;
+    }
+
+    // Restore players — mark all as disconnected (they'll reconnect)
+    if (data.players) {
+      this.state.players = data.players.map(p => ({
+        id: p.id,
+        name: p.name,
+        character: data.characters?.find(c => c.name === p.characterName) || (data.character as Character) || null as unknown as Character,
+        isConnected: false,  // Will be set to true on reconnect
+        joinedAt: p.joinedAt || Date.now(),
+      }));
+    }
+
+    // Restore scene
+    if (data.currentScene) {
+      this.state.currentScene = {
+        ...this.state.currentScene,
+        id: data.currentScene.id || 'initial',
+        name: data.currentScene.name || '开场',
+        description: data.currentScene.description || '',
+        environment: data.currentScene.environment || '',
+        // These runtime fields get defaults — AI GM will fill them on next narration
+        activeConditions: [],
+        npcPresent: [],
+        enemies: [],
+        countdowns: [],
+      };
+    }
+
+    // Restore timeline
+    if (data.timeline) {
+      this.state.timeline = data.timeline;
+    }
+
+    // Restore campaign state
+    if (data.campaignState) {
+      this.state.campaignState = {
+        ...this.state.campaignState,
+        ...data.campaignState,
+      } as CampaignState;
+    }
+
+    // Restore adventure messages
+    if (data.adventureMessages) {
+      this.adventureMessages = data.adventureMessages;
+    }
+
+    // Reset combat state — can't meaningfully persist mid-combat
+    // (enemies, conditions, etc. will be recreated by AI GM on next narration)
+    this.state.activeCombat = undefined;
+
+    this.notifyListeners();
+  }
+
   // ===== Snapshot =====
 
   getSnapshot(): Record<string, unknown> {
     return {
       state: this.getState(),
-      characters: this.getAllCharacters(),
       timestamp: Date.now(),
     };
   }

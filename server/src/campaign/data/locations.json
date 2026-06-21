@@ -1,0 +1,194 @@
+[
+  {
+    "id": "ember-village",
+    "name": "余烬村",
+    "nameEn": "Ember Village",
+    "type": "village",
+    "description": "德拉肯海姆废墟边缘的小型定居点，是冒险者的起点和避风港。简陋的木屋围绕着中央广场排列，村民们在恐惧与希望之间艰难求生。",
+    "dangerLevel": 1,
+    "hazeLevel": "none",
+    "contaminationRisk": 0,
+    "deleriumPresence": "none",
+    "encounters": [],
+    "npcs": ["elder-martha", "innkeeper-hans", "merchant-kara"],
+    "connections": ["outer-gate", "outer-market"],
+    "features": ["安全休息区", "补给购买", "任务发布板"],
+    "explored": true,
+    "keyEventsCompleted": []
+  },
+  {
+    "id": "outer-gate",
+    "name": "外城大门",
+    "nameEn": "Outer Gate",
+    "type": "outerCity",
+    "description": "曾经宏伟的城市大门如今半埋在碎石之中，门框上残留着旧日的纹章。提灯团的巡逻队在此设卡检查进出人员。",
+    "dangerLevel": 2,
+    "hazeLevel": "light",
+    "contaminationRisk": 1,
+    "deleriumPresence": "trace",
+    "encounters": [
+      { "id": "enc-gate-patrol", "trigger": "firstVisit", "probability": 0.5, "factionPresence": ["hoodedLanterns"] }
+    ],
+    "npcs": ["lantern-scout"],
+    "connections": ["ember-village", "outer-market", "outer-ruins"],
+    "features": ["提灯团巡逻", "检查关卡"],
+    "explored": false,
+    "keyEventsCompleted": []
+  },
+  {
+    "id": "outer-market",
+    "name": "外城集市",
+    "nameEn": "Outer Market",
+    "type": "outerCity",
+    "description": "曾经繁华的集市广场，如今只有零星的商贩在废墟间摆摊。女王之仆控制着这里的地下交易。",
+    "dangerLevel": 2,
+    "hazeLevel": "light",
+    "contaminationRisk": 1,
+    "deleriumPresence": "trace",
+    "encounters": [
+      { "id": "enc-market-thieves", "trigger": "random", "probability": 0.3, "factionPresence": ["queensMen"] }
+    ],
+    "npcs": ["fence-dimitri", "healer-old-sarah"],
+    "connections": ["ember-village", "outer-gate", "outer-ruins", "outer-dock"],
+    "features": ["黑市交易", "治疗服务", "情报交换"],
+    "explored": false,
+    "keyEventsCompleted": []
+  },
+  {
+    "id": "outer-ruins",
+    "name": "外城废墟",
+    "nameEn": "Outer Ruins",
+    "type": "outerCity",
+    "description": "倒塌的建筑和碎石铺就的荒凉地带。迷雾在废墟间低矮地飘荡，偶尔可见翠晶的微光闪烁。",
+    "dangerLevel": 3,
+    "hazeLevel": "moderate",
+    "contaminationRisk": 2,
+    "deleriumPresence": "moderate",
+    "encounters": [
+      { "id": "enc-ruins-haze", "trigger": "random", "probability": 0.4 },
+      { "id": "enc-ruins-monsters", "trigger": "random", "probability": 0.3, "enemies": ["haze-hound", "delerium-ooze"] }
+    ],
+    "npcs": [],
+    "connections": ["outer-gate", "outer-market", "inner-wall-breach"],
+    "features": ["翠晶采集", "废墟探索", "变异生物出没"],
+    "explored": false,
+    "keyEventsCompleted": []
+  },
+  {
+    "id": "outer-dock",
+    "name": "外城码头",
+    "nameEn": "Outer Docks",
+    "type": "outerCity",
+    "description": "曾经繁忙的河港，如今只有几艘破船搁浅在泥泞的岸边。紫晶学院在此设有秘密的翠晶运输点。",
+    "dangerLevel": 2,
+    "hazeLevel": "light",
+    "contaminationRisk": 1,
+    "deleriumPresence": "moderate",
+    "encounters": [
+      { "id": "enc-dock-smugglers", "trigger": "random", "probability": 0.3, "factionPresence": ["amethystAcademy", "queensMen"] }
+    ],
+    "npcs": ["dockmaster-chen"],
+    "connections": ["outer-market", "outer-ruins"],
+    "features": ["翠晶交易", "秘密运输", "水上通道"],
+    "explored": false,
+    "keyEventsCompleted": []
+  },
+  {
+    "id": "inner-wall-breach",
+    "name": "内城墙缺口",
+    "nameEn": "Inner Wall Breach",
+    "type": "innerCity",
+    "description": "内城墙被陨石击穿的大洞，从这里进入更加危险的内城区域。浓重的迷雾从缺口中涌出，空气中弥漫着翠晶的气味。",
+    "dangerLevel": 4,
+    "hazeLevel": "heavy",
+    "contaminationRisk": 3,
+    "deleriumPresence": "abundant",
+    "encounters": [
+      { "id": "enc-breach-guard", "trigger": "firstVisit", "probability": 0.6, "factionPresence": ["silverOrder"] },
+      { "id": "enc-breach-ambush", "trigger": "random", "probability": 0.4, "enemies": ["corrupted-knight", "haze-wraith"] }
+    ],
+    "npcs": [],
+    "connections": ["outer-ruins", "inner-cathedral", "inner-citadel"],
+    "features": ["进入内城", "迷雾反应必须", "高危区域"],
+    "explored": false,
+    "keyEventsCompleted": []
+  },
+  {
+    "id": "inner-cathedral",
+    "name": "内城大教堂",
+    "nameEn": "Inner Cathedral",
+    "type": "innerCity",
+    "description": "曾经宏伟的大教堂，穹顶已经半塌，但神圣的力量似乎仍在抵抗着周围的邪恶。白银骑士团在此驻守。",
+    "dangerLevel": 4,
+    "hazeLevel": "moderate",
+    "contaminationRisk": 2,
+    "deleriumPresence": "moderate",
+    "encounters": [
+      { "id": "enc-cathedral-undead", "trigger": "random", "probability": 0.3, "enemies": ["undead-priest", "spectral-choir"] },
+      { "id": "enc-cathedral-seal", "trigger": "milestone", "probability": 1.0 }
+    ],
+    "npcs": ["knight-commander"],
+    "connections": ["inner-wall-breach", "inner-citadel"],
+    "features": ["封印线索", "神圣庇护", "白银骑士团驻守"],
+    "explored": false,
+    "keyEventsCompleted": []
+  },
+  {
+    "id": "inner-citadel",
+    "name": "内城城堡",
+    "nameEn": "Inner Citadel",
+    "type": "stronghold",
+    "description": "德拉肯海姆城堡的外围防御工事，陨火信徒在此建立了据点。翠晶的光芒从墙壁中渗出，空气中充满了变异的气息。",
+    "dangerLevel": 5,
+    "hazeLevel": "heavy",
+    "contaminationRisk": 4,
+    "deleriumPresence": "abundant",
+    "encounters": [
+      { "id": "enc-citadel-cultist", "trigger": "random", "probability": 0.5, "factionPresence": ["fallingFire"], "enemies": ["fire-cultist"] },
+      { "id": "enc-citadel-boss", "trigger": "milestone", "probability": 1.0, "enemies": ["corrupted-guardian"] }
+    ],
+    "npcs": ["prophet-cassandra"],
+    "connections": ["inner-wall-breach", "inner-cathedral", "castle-approach"],
+    "features": ["陨火信徒据点", "翠晶矿脉", "高危战斗"],
+    "explored": false,
+    "keyEventsCompleted": []
+  },
+  {
+    "id": "castle-approach",
+    "name": "城堡通道",
+    "nameEn": "Castle Approach",
+    "type": "castle",
+    "description": "通往德拉肯海姆城堡核心的最后通道。迷雾在此最为浓重，翠晶覆盖了整个通道，发出诡异的紫光。",
+    "dangerLevel": 5,
+    "hazeLevel": "heavy",
+    "contaminationRisk": 5,
+    "deleriumPresence": "abundant",
+    "encounters": [
+      { "id": "enc-castle-elite", "trigger": "random", "probability": 0.6, "enemies": ["elite-corrupted", "delerium-golem"] }
+    ],
+    "npcs": [],
+    "connections": ["inner-citadel", "castle-throne"],
+    "features": ["最终区域", "极高污染风险", "精英敌人"],
+    "explored": false,
+    "keyEventsCompleted": []
+  },
+  {
+    "id": "castle-throne",
+    "name": "城堡王座厅",
+    "nameEn": "Castle Throne Room",
+    "type": "castle",
+    "description": "德拉肯海姆城堡的王座厅，陨石的核心就在这里。翠晶矿脉从陨石坑中蔓延至整个房间，这里是德拉肯海姆一切灾厄的源头。",
+    "dangerLevel": 5,
+    "hazeLevel": "heavy",
+    "contaminationRisk": 5,
+    "deleriumPresence": "abundant",
+    "encounters": [
+      { "id": "enc-final-boss", "trigger": "milestone", "probability": 1.0, "enemies": ["the-corrupted-king"] }
+    ],
+    "npcs": [],
+    "connections": ["castle-approach"],
+    "features": ["最终决战", "封印所在地", "德拉肯海姆的命运"],
+    "explored": false,
+    "keyEventsCompleted": []
+  }
+]

@@ -1,4 +1,4 @@
 export { AIGateway } from './AIGateway';
-export type { AIConfig, AIRequest, AIResponse, AIMessage, AIAgentContext } from './AIGateway';
-export { AgentAIConfig } from './AgentAIConfig';
-export type { AgentAIConfigResult } from './AgentAIConfig';
+export type { AIConfig, AIRequest, AIResponse, AIMessage as GatewayAIMessage, AIAgentContext } from './AIGateway';
+export { AIGameMaster } from './AIGameMaster';
+export type { AIGMConfig } from './AIGameMaster';

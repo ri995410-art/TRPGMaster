@@ -1,34 +1,116 @@
 import { io, Socket } from 'socket.io-client';
-import { useGameStore } from '../store/gameStore';
+import { useGameStore, type AdventureMessage } from '../store/gameStore';
 import type {
-  SocketMessage,
   GameEvent,
   SessionState,
   Character,
-  InputTextPayload,
-  InputVoicePayload,
-  InputVisionPayload,
-  ParsedIntent,
   GameEventType,
-  Suggestion,
-  RiskLevel,
-  AgentType,
+  Player,
 } from '@trpgmaster/shared';
 
+// Local SocketMessage interface for wire format
+interface SocketMessage<T = unknown> {
+  type: string;
+  sessionId: string;
+  senderId: string;
+  payload: T;
+  timestamp: number;
+}
+
 let socket: Socket | null = null;
+let hasJoinedSession = false;  // Track whether we've done initial join vs rejoin
 
 export function connectToServer(serverUrl: string): Promise<string> {
   return new Promise((resolve, reject) => {
+    // Ensure we have a stable playerId before connecting
+    useGameStore.getState().initPlayerId();
+
     socket = io(serverUrl, {
       transports: ['websocket', 'polling'],
       timeout: 5000,
     });
 
-    // Save server URL for HTTP API calls
-    useGameStore.getState().setServerUrl(serverUrl);
-
     socket.on('connect', () => {
       useGameStore.getState().setConnected(true);
+      useGameStore.getState().setServerUrl(serverUrl);
+
+      const store = useGameStore.getState();
+      const playerId = store.playerId;
+      const character = store.character;
+
+      if (!hasJoinedSession) {
+        // First connection: send session:join
+        socket!.emit('session:join', {
+          type: 'session:join',
+          sessionId: '',
+          senderId: playerId,
+          payload: {
+            playerId,
+            role: 'player',
+            name: character?.name || 'Player',
+            character: character || undefined,
+          },
+          timestamp: Date.now(),
+        } as SocketMessage<{ playerId: string; role: 'player'; name: string; character?: Character }>);
+        hasJoinedSession = true;
+      } else {
+        // Reconnection: send session:rejoin (silent rejoin, no playerJoined broadcast)
+        socket!.emit('session:rejoin', {
+          type: 'session:rejoin',
+          sessionId: store.campaignId || '',
+          senderId: playerId,
+          payload: {
+            playerId,
+            name: character?.name || 'Player',
+            character: character || undefined,
+          },
+          timestamp: Date.now(),
+        } as SocketMessage<{ playerId: string; name: string; character?: Character }>);
+      }
+      // Fetch character from server if we don't have one locally
+      if (!character) {
+        fetch(`${serverUrl}/api/character`)
+          .then((res) => res.json())
+          .then((char) => {
+            if (char && char.id && char.name) {
+              console.log('[useSocket] Restored character from server:', char.name);
+              useGameStore.getState().setCharacter(char);
+            }
+          })
+          .catch(() => {
+            // No character on server, that's fine
+          });
+      } else {
+        // We have a local character — sync it to server
+        fetch(`${serverUrl}/api/character`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(character),
+        }).catch(() => {
+          // Sync failure is non-critical
+        });
+      }
+
+      // Fetch AI config from server
+      fetch(`${serverUrl}/api/ai/config`)
+        .then((res) => res.json())
+        .then((config) => {
+          if (config) {
+            useGameStore.getState().setAiConfig({
+              apiKey: config.apiKey || '',
+              baseUrl: config.baseUrl || '',
+              defaultModel: config.defaultModel || '',
+              narratorModel: config.narratorModel || '',
+              temperature: config.temperature ?? 0.8,
+              maxTokens: config.maxTokens ?? 4096,
+              aiConnected: config.aiConnected ?? false,
+            });
+          }
+        })
+        .catch(() => {
+          // Config fetch failure is non-critical
+        });
+
       resolve(socket!.id!);
     });
 
@@ -40,333 +122,396 @@ export function connectToServer(serverUrl: string): Promise<string> {
       reject(err);
     });
 
-    // State sync - payload is { state: SessionState, characters: Character[] }
-    socket.on('game:state', (msg: SocketMessage<{ state: SessionState; characters: Character[] }>) => {
-      const { state, characters } = msg.payload;
+    // ===== Game State Sync =====
+
+    socket.on('game:state', (msg: SocketMessage<{ state: SessionState; adventureMessages?: Array<{ id: string; role: 'player' | 'narrator' | 'npc' | 'system'; content: string; timestamp: number; npcName?: string; npcId?: string; choices?: Array<{ id: string; text: string; action?: string }> }> }>) => {
+      const { state, adventureMessages } = msg.payload;
       const store = useGameStore.getState();
-      store.setSession(state.sessionId, state);
-      if (characters && characters.length > 0) {
-        store.setCharacters(characters);
+      store.setCampaign(state.sessionId, state);
+
+      // Update character from state (only if server has one — don't overwrite local with null)
+      if (state.character) {
+        store.setCharacter(state.character);
       }
 
-      // Derive myCharacterId from player list (match our socket ID to a player)
-      if (socket && store.role === 'player') {
-        const mySocketId = socket.id;
-        const myPlayer = state.players.find(p => p.playerId === mySocketId);
-        if (myPlayer && myPlayer.characterId) {
-          store.setMyCharacter(myPlayer.characterId);
-        }
+      // Update scene info
+      const scene = state.currentScene;
+      store.updateSceneInfo(scene.name, 0, 'none');
+
+      // Update fear points (set absolute value)
+      const fearDelta = state.fearPoints - store.fearPoints;
+      if (fearDelta !== 0) {
+        store.updateFearPoints(fearDelta);
+      }
+
+      // Update session code if present
+      if (state.sessionCode) {
+        store.setSessionCode(state.sessionCode);
+      }
+
+      // Update players list from state
+      if (state.players && state.players.length > 0) {
+        store.setPlayers(state.players.map(p => ({
+          id: p.id,
+          name: p.name,
+          characterName: p.character?.name,
+          isConnected: p.isConnected,
+        })));
+      }
+
+      // Sync adventure messages from server
+      // Only replace if server has more messages (server is the source of truth)
+      if (adventureMessages && adventureMessages.length > store.adventureMessages.length) {
+        store.setAdventureMessages(adventureMessages.map(m => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          timestamp: m.timestamp,
+          npcName: m.npcName,
+          npcId: m.npcId,
+          choices: m.choices?.map(c => ({
+            id: c.id,
+            text: c.text,
+            action: c.action,
+          })),
+        })));
       }
     });
 
-    // Game events
+    // ===== Game Events =====
+
     socket.on('game:event', (msg: SocketMessage<GameEvent>) => {
       useGameStore.getState().addEvent(msg.payload);
     });
 
-    // Chat messages - now include typeLabel for categorized display
-    socket.on('chat:message', (msg: SocketMessage<{ text: string; sender: string; typeLabel?: string; autoSent?: boolean; suggestionId?: string }>) => {
-      const state = useGameStore.getState();
+    // ===== AI GM Narration =====
 
-      // Determine message type based on sender
-      const senderType = msg.payload.sender === 'GM' ? 'gm' :
-        msg.payload.sender === '系统' ? 'system' : 'player';
-
-      state.addChatMessage({
-        id: msg.timestamp.toString(),
-        sender: senderType === 'gm' ? 'gm' : msg.payload.sender,
-        senderName: msg.payload.sender,
-        text: msg.payload.text,
+    socket.on('gm:narrate', (msg: SocketMessage<{ content: string; choices?: Array<{ id: string; label: string; action?: string }>; npcName?: string; npcId?: string; playerName?: string; characterName?: string }>) => {
+      const store = useGameStore.getState();
+      const adventureMsg: AdventureMessage = {
+        id: `msg_${msg.timestamp}`,
+        role: msg.payload.npcName ? 'npc' : 'narrator',
+        content: msg.payload.content,
         timestamp: msg.timestamp,
-        type: senderType,
-        typeLabel: msg.payload.typeLabel,
-        autoSent: msg.payload.autoSent,
-        suggestionId: msg.payload.suggestionId,
-      });
+        npcName: msg.payload.npcName,
+        npcId: msg.payload.npcId,
+        choices: msg.payload.choices?.map(c => ({
+          id: c.id,
+          text: c.label,
+          action: c.action,
+        })),
+      };
+      store.addAdventureMessage(adventureMsg);
+      store.setAiProcessing(false);
+    });
 
-      // If this message came from an auto-sent suggestion, remove the suggestion
-      // so it only appears in chat (not duplicated in SuggestionPanel)
-      if (msg.payload.suggestionId) {
-        state.dismissSuggestion(msg.payload.suggestionId);
+    // ===== Character Updates =====
+
+    socket.on('character:update', (msg: SocketMessage<{ character: Character }>) => {
+      useGameStore.getState().updateCharacterFromServer(msg.payload.character);
+    });
+
+    // ===== Session Events =====
+
+    socket.on('session:started', () => {
+      const store = useGameStore.getState();
+      const sysMsg: AdventureMessage = {
+        id: `msg_${Date.now()}_sys`,
+        role: 'system',
+        content: '冒险开始！',
+        timestamp: Date.now(),
+      };
+      store.addAdventureMessage(sysMsg);
+    });
+
+    socket.on('session:ended', () => {
+      const store = useGameStore.getState();
+      const sysMsg: AdventureMessage = {
+        id: `msg_${Date.now()}_sys`,
+        role: 'system',
+        content: '会话已结束',
+        timestamp: Date.now(),
+      };
+      store.addAdventureMessage(sysMsg);
+    });
+
+    // ===== Multi-player Session Events =====
+
+    socket.on('session:created', (msg: SocketMessage<{ sessionId: string; code: string; isHost: boolean }>) => {
+      const store = useGameStore.getState();
+      store.setSessionCode(msg.payload.code);
+      store.setIsHost(msg.payload.isHost);
+      console.log('[useSocket] Session created:', msg.payload.code);
+    });
+
+    socket.on('session:joined', (msg: SocketMessage<{ sessionId: string; code: string; isHost: boolean; status: string }>) => {
+      const store = useGameStore.getState();
+      store.setSessionCode(msg.payload.code);
+      store.setIsHost(msg.payload.isHost);
+      console.log('[useSocket] Joined session:', msg.payload.code);
+    });
+
+    socket.on('session:playerJoined', (msg: SocketMessage<{ name: string; characterName?: string }>) => {
+      const store = useGameStore.getState();
+      const sysMsg: AdventureMessage = {
+        id: `msg_${Date.now()}_join`,
+        role: 'system',
+        content: `${msg.payload.name}${msg.payload.characterName ? `（${msg.payload.characterName}）` : ''} 加入了房间`,
+        timestamp: Date.now(),
+      };
+      store.addAdventureMessage(sysMsg);
+    });
+
+    socket.on('session:playerLeft', (msg: SocketMessage<{ name: string }>) => {
+      const store = useGameStore.getState();
+      const sysMsg: AdventureMessage = {
+        id: `msg_${Date.now()}_leave`,
+        role: 'system',
+        content: `${msg.payload.name} 离开了房间`,
+        timestamp: Date.now(),
+      };
+      store.addAdventureMessage(sysMsg);
+    });
+
+    socket.on('session:playerList', (msg: SocketMessage<{ players: Array<{ id: string; name: string; characterName?: string; isConnected: boolean }>; code?: string }>) => {
+      const store = useGameStore.getState();
+      store.setPlayers(msg.payload.players);
+      if (msg.payload.code) {
+        store.setSessionCode(msg.payload.code);
       }
     });
 
-    // Chat undo - remove a specific message
-    socket.on('chat:undo', (msg: SocketMessage<{ messageId: string }>) => {
-      useGameStore.getState().removeChatMessage(msg.payload.messageId);
+    // Silent rejoin confirmation (no "player joined" message)
+    socket.on('session:rejoined', (msg: SocketMessage<{ sessionId: string; code?: string }>) => {
+      const store = useGameStore.getState();
+      if (msg.payload.code) {
+        store.setSessionCode(msg.payload.code);
+      }
+      console.log('[useSocket] Rejoined session:', msg.payload.sessionId);
     });
 
-    // Agent stream - now sends Suggestion objects to GM
-    socket.on('agent:stream', (msg: SocketMessage<Suggestion>) => {
-      const suggestion = msg.payload as Suggestion;
-      useGameStore.getState().addSuggestion(suggestion);
-    });
-
-    // Agent complete - auto-sent messages to players (no longer raw agent output)
-    socket.on('agent:complete', (msg: SocketMessage<{ text: string; typeLabel: string; autoSent: boolean; suggestionId?: string }>) => {
-      const payload = msg.payload;
-      useGameStore.getState().addChatMessage({
-        id: msg.timestamp.toString(),
-        sender: 'GM',
-        senderName: 'GM',
-        text: payload.text,
-        timestamp: msg.timestamp,
-        type: 'gm',
-        typeLabel: payload.typeLabel,
-        autoSent: payload.autoSent,
-        suggestionId: payload.suggestionId,
-      });
-    });
-
-    // Session events
-    socket.on('session:join', (msg: SocketMessage<{ name: string; role: string }>) => {
-      useGameStore.getState().addChatMessage({
-        id: msg.timestamp.toString(),
-        sender: 'system',
-        senderName: '系统',
-        text: `${msg.payload.name} 加入了会话`,
-        timestamp: msg.timestamp,
-        type: 'system',
-      });
-    });
-
-    socket.on('session:started', (msg: SocketMessage<{ status: string }>) => {
-      useGameStore.getState().addChatMessage({
-        id: msg.timestamp.toString(),
-        sender: 'system',
-        senderName: '系统',
-        text: '会话已开始！',
-        timestamp: msg.timestamp,
-        type: 'system',
-      });
-    });
-
-    socket.on('session:ended', (msg: SocketMessage<{ status: string }>) => {
-      useGameStore.getState().addChatMessage({
-        id: msg.timestamp.toString(),
-        sender: 'system',
-        senderName: '系统',
-        text: '会话已结束',
-        timestamp: msg.timestamp,
-        type: 'system',
-      });
-    });
-
-    // Input parsed events
-    socket.on('input:parsed', (msg: SocketMessage<{ originalType: GameEventType; parsedIntent: ParsedIntent; generatedEventTypes: GameEventType[] }>) => {
-      useGameStore.getState().setParsedIntent(msg.payload.parsedIntent);
-    });
-
-    // Image generation complete
-    socket.on('image:complete', (msg: SocketMessage<{ imageId: string; url: string; category: string }>) => {
-      const { imageId, url, category } = msg.payload;
-      useGameStore.getState().addGeneratedImage({
-        id: imageId,
-        url,
-        category,
-        timestamp: msg.timestamp,
-      });
-    });
-
-    socket.on('agent:mode', (msg: SocketMessage<{ mode: 'multi' | 'unified' }>) => {
-      useGameStore.getState().setAgentMode(msg.payload.mode);
-    });
-
-    socket.on('character:update', (msg: SocketMessage<{ character: Character }>) => {
-      const { character } = msg.payload;
-      useGameStore.getState().updateCharacterFromServer(character);
+    socket.on('session:error', (msg: SocketMessage<{ error: string; code?: string }>) => {
+      const store = useGameStore.getState();
+      const sysMsg: AdventureMessage = {
+        id: `msg_${Date.now()}_error`,
+        role: 'system',
+        content: `错误：${msg.payload.error}`,
+        timestamp: Date.now(),
+      };
+      store.addAdventureMessage(sysMsg);
     });
   });
 }
 
-export function joinSession(role: 'gm' | 'player', name: string): void {
-  if (!socket) return;
+/** Send player action to AI GM */
+export function sendPlayerAction(action: string): void {
+  if (!socket) {
+    const store = useGameStore.getState();
+    store.addAdventureMessage({
+      id: `msg_${Date.now()}_offline`,
+      role: 'system',
+      content: '未连接到服务器，请先在首页连接服务器。',
+      timestamp: Date.now(),
+    });
+    return;
+  }
 
-  const playerId = socket.id || 'unknown';
-  socket.emit('session:join', {
-    type: 'session:join',
-    sessionId: useGameStore.getState().sessionId || '',
-    senderId: playerId,
-    payload: { role, name },
+  const store = useGameStore.getState();
+  store.setAiProcessing(true);
+
+  socket.emit('player:action', {
+    type: 'player:action',
+    sessionId: store.campaignId || '',
+    senderId: useGameStore.getState().playerId,
+    payload: { action },
     timestamp: Date.now(),
-  } as SocketMessage);
+  } as SocketMessage<{ action: string }>);
 
-  useGameStore.getState().setRole(role);
-  useGameStore.getState().setPlayerName(name);
+  // Safety timeout: clear aiProcessing after 120s if no response (AI GM with large context can take 30-90s)
+  setTimeout(() => {
+    if (useGameStore.getState().aiProcessing) {
+      useGameStore.getState().setAiProcessing(false);
+      useGameStore.getState().addAdventureMessage({
+        id: `msg_${Date.now()}_timeout`,
+        role: 'system',
+        content: 'AI管家响应超时，请检查服务器连接或重试。',
+        timestamp: Date.now(),
+      });
+    }
+  }, 120000);
 }
 
-export function sendGameEvent(event: GameEvent): void {
-  if (!socket) return;
+/** Send player choice to AI GM */
+export function sendPlayerChoice(choiceId: string, choiceText: string): void {
+  if (!socket) {
+    const store = useGameStore.getState();
+    store.addAdventureMessage({
+      id: `msg_${Date.now()}_offline`,
+      role: 'system',
+      content: '未连接到服务器。',
+      timestamp: Date.now(),
+    });
+    return;
+  }
 
-  socket.emit('game:event', {
-    type: 'game:event',
-    sessionId: useGameStore.getState().sessionId || '',
-    senderId: socket.id || 'unknown',
-    payload: event,
+  const store = useGameStore.getState();
+  store.setAiProcessing(true);
+
+  socket.emit('player:choice', {
+    type: 'player:choice',
+    sessionId: store.campaignId || '',
+    senderId: useGameStore.getState().playerId,
+    payload: { choiceId, choiceText },
     timestamp: Date.now(),
-  } as SocketMessage<GameEvent>);
+  } as SocketMessage<{ choiceId: string; choiceText: string }>);
 }
 
-export function sendChatMessage(text: string): void {
+/** Request scene narration from AI GM */
+export function requestNarration(): void {
   if (!socket) return;
 
-  const state = useGameStore.getState();
-  socket.emit('chat:message', {
-    type: 'chat:message',
-    sessionId: state.sessionId || '',
-    senderId: socket.id || 'unknown',
-    payload: { text, sender: state.playerName },
-    timestamp: Date.now(),
-  } as SocketMessage<{ text: string; sender: string }>);
-}
-
-export function sendSuggestionAdopt(suggestionId: string, optionIndex: number, editContent?: string): void {
-  if (!socket) return;
-
-  socket.emit('gm:publishSuggestion', {
-    type: 'gm:publishSuggestion',
-    sessionId: useGameStore.getState().sessionId || '',
-    senderId: socket.id || 'unknown',
-    payload: { suggestionId, optionIndex, editContent },
-    timestamp: Date.now(),
-  } as SocketMessage<{ suggestionId: string; optionIndex: number; editContent?: string }>);
-}
-
-export function sendSuggestionDismiss(suggestionId: string): void {
-  if (!socket) return;
-
-  socket.emit('agent:dismiss', {
-    type: 'agent:dismiss',
-    sessionId: useGameStore.getState().sessionId || '',
-    senderId: socket.id || 'unknown',
-    payload: { suggestionId },
-    timestamp: Date.now(),
-  } as SocketMessage<{ suggestionId: string }>);
-}
-
-export function sendUndoLastAuto(): void {
-  if (!socket) return;
-
-  socket.emit('chat:undo', {
-    type: 'chat:undo',
-    sessionId: useGameStore.getState().sessionId || '',
-    senderId: socket.id || 'unknown',
+  socket.emit('gm:narrate', {
+    type: 'gm:narrate',
+    sessionId: useGameStore.getState().campaignId || '',
+    senderId: useGameStore.getState().playerId,
     payload: {},
     timestamp: Date.now(),
   } as SocketMessage);
 }
 
+/** Send rest request */
+export function sendRestRequest(restType: 'short' | 'long', actions: string[]): void {
+  if (!socket) return;
+
+  socket.emit('player:rest', {
+    type: 'player:rest',
+    sessionId: useGameStore.getState().campaignId || '',
+    senderId: useGameStore.getState().playerId,
+    payload: { restType, actions },
+    timestamp: Date.now(),
+  } as SocketMessage<{ restType: string; actions: string[] }>);
+}
+
+/** Send combat action */
+export function sendCombatAction(actionId: string, targetId?: string): void {
+  if (!socket) return;
+
+  socket.emit('combat:action', {
+    type: 'combat:action',
+    sessionId: useGameStore.getState().campaignId || '',
+    senderId: useGameStore.getState().playerId,
+    payload: { actionId, targetId },
+    timestamp: Date.now(),
+  } as SocketMessage<{ actionId: string; targetId?: string }>);
+}
+
+/** Request session start */
 export function startSession(): void {
   if (!socket) return;
   socket.emit('session:start', {
     type: 'session:start',
-    sessionId: useGameStore.getState().sessionId || '',
-    senderId: socket.id || 'unknown',
+    sessionId: useGameStore.getState().campaignId || '',
+    senderId: useGameStore.getState().playerId,
     payload: {},
     timestamp: Date.now(),
   } as SocketMessage);
 }
 
+/** Request session end */
 export function endSession(): void {
   if (!socket) return;
   socket.emit('session:end', {
     type: 'session:end',
-    sessionId: useGameStore.getState().sessionId || '',
-    senderId: socket.id || 'unknown',
+    sessionId: useGameStore.getState().campaignId || '',
+    senderId: useGameStore.getState().playerId,
     payload: {},
     timestamp: Date.now(),
   } as SocketMessage);
 }
 
-export function sendInputText(text: string, characterId?: string): void {
-  if (!socket) return;
+/** Create a new multiplayer session */
+export function createSession(character: Character): Promise<{ sessionId: string; code: string }> {
+  return new Promise((resolve, reject) => {
+    if (!socket) {
+      reject(new Error('未连接到服务器'));
+      return;
+    }
 
-  const state = useGameStore.getState();
-  const payload: InputTextPayload = {
-    text,
-    source: state.role === 'gm' ? 'gm' : 'player',
-    characterId,
-  };
+    const handler = (msg: SocketMessage<{ sessionId: string; code: string; isHost: boolean }>) => {
+      socket!.off('session:created', handler);
+      resolve({ sessionId: msg.payload.sessionId, code: msg.payload.code });
+    };
 
-  socket.emit('input:text', {
-    type: 'input:text',
-    sessionId: state.sessionId || '',
-    senderId: socket.id || 'unknown',
-    payload,
-    timestamp: Date.now(),
-  } as SocketMessage<InputTextPayload>);
+    socket.on('session:created', handler);
+
+    socket.emit('session:create', {
+      type: 'session:create',
+      sessionId: '',
+      senderId: useGameStore.getState().playerId,
+      payload: { name: character.name, character },
+      timestamp: Date.now(),
+    } as SocketMessage<{ name: string; character: Character }>);
+
+    // Timeout
+    setTimeout(() => {
+      socket!.off('session:created', handler);
+      reject(new Error('创建会话超时'));
+    }, 10000);
+  });
 }
 
-export function sendInputVoice(audioData: string, format: 'wav' | 'mp3' | 'ogg' | 'webm', duration: number): void {
-  if (!socket) return;
+/** Join a session by room code */
+export function joinSessionByCode(code: string, character: Character): Promise<{ sessionId: string; code: string }> {
+  return new Promise((resolve, reject) => {
+    if (!socket) {
+      reject(new Error('未连接到服务器'));
+      return;
+    }
 
-  const state = useGameStore.getState();
-  const payload: InputVoicePayload = {
-    audioData,
-    format,
-    duration,
-  };
+    const handler = (msg: SocketMessage<{ sessionId: string; code: string; isHost: boolean; status: string }>) => {
+      socket!.off('session:joined', handler);
+      resolve({ sessionId: msg.payload.sessionId, code: msg.payload.code });
+    };
 
-  socket.emit('input:voice', {
-    type: 'input:voice',
-    sessionId: state.sessionId || '',
-    senderId: socket.id || 'unknown',
-    payload,
-    timestamp: Date.now(),
-  } as SocketMessage<InputVoicePayload>);
+    const errorHandler = (msg: SocketMessage<{ error: string; code?: string }>) => {
+      socket!.off('session:error', errorHandler);
+      reject(new Error(msg.payload.error));
+    };
+
+    socket.on('session:joined', handler);
+    socket.on('session:error', errorHandler);
+
+    socket.emit('session:joinByCode', {
+      type: 'session:joinByCode',
+      sessionId: '',
+      senderId: useGameStore.getState().playerId,
+      payload: { code, name: character.name, character },
+      timestamp: Date.now(),
+    } as SocketMessage<{ code: string; name: string; character: Character }>);
+
+    // Timeout
+    setTimeout(() => {
+      socket!.off('session:joined', handler);
+      socket!.off('session:error', errorHandler);
+      reject(new Error('加入会话超时'));
+    }, 10000);
+  });
 }
 
-export function sendInputVision(imageData: string, format: 'jpeg' | 'png'): void {
-  if (!socket) return;
-
-  const state = useGameStore.getState();
-  const payload: InputVisionPayload = {
-    imageData,
-    format,
-    timestamp: Date.now(),
-  };
-
-  socket.emit('input:vision', {
-    type: 'input:vision',
-    sessionId: state.sessionId || '',
-    senderId: socket.id || 'unknown',
-    payload,
-    timestamp: Date.now(),
-  } as SocketMessage<InputVisionPayload>);
-}
-
-export function sendAgentModeSwitch(mode: 'multi' | 'unified'): void {
-  if (!socket) return;
-
-  socket.emit('agent:mode', {
-    type: 'agent:mode',
-    sessionId: useGameStore.getState().sessionId || '',
-    senderId: socket.id || 'unknown',
-    payload: { mode },
-    timestamp: Date.now(),
-  } as SocketMessage<{ mode: 'multi' | 'unified' }>);
-}
-
-export function sendCharacterUpdate(characterId: string, updates: Record<string, unknown>): void {
-  if (!socket) return;
-
-  socket.emit('character:update', {
-    type: 'character:update',
-    sessionId: useGameStore.getState().sessionId || '',
-    senderId: socket.id || 'unknown',
-    payload: { characterId, updates },
-    timestamp: Date.now(),
-  } as SocketMessage<{ characterId: string; updates: Record<string, unknown> }>);
-}
-
+/** Disconnect from server */
 export function disconnect(): void {
   if (socket) {
     socket.disconnect();
     socket = null;
   }
-  useGameStore.getState().reset();
+  hasJoinedSession = false;
+  // Only clear connection state, preserve character and adventure data
+  const store = useGameStore.getState();
+  store.setConnected(false);
+  store.setAiProcessing(false);
 }
 
+/** Get the raw socket instance */
 export function getSocket(): Socket | null {
   return socket;
 }

@@ -4,11 +4,9 @@ import type {
   Character,
   Experience,
   DomainCard,
-  CorruptionLevel,
-  RuleSystemId,
   ClassData,
   ArmorData,
-  Ancestry as AncestryType,
+  WeaponData,
 } from '@trpgmaster/shared';
 import { getTier, calculateThresholds } from '@trpgmaster/shared';
 import { validateCharacterSheet } from '../rules/systems/DaggerHeartRules';
@@ -67,10 +65,8 @@ const ALL_ATTRIBUTES: Attribute[] = ['agility', 'strength', 'finesse', 'instinct
 
 export class CharacterCreator {
   private state: CharacterCreationState;
-  private ruleSystem: RuleSystemId;
 
-  constructor(ruleSystem: RuleSystemId = 'daggerheart') {
-    this.ruleSystem = ruleSystem;
+  constructor() {
     this.state = {
       currentStep: 0,
       totalSteps: CREATION_STEPS.length,
@@ -196,7 +192,7 @@ export class CharacterCreator {
     return errors;
   }
 
-  buildCharacter(playerId: string): { character: Character; errors: string[] } {
+  buildCharacter(): { character: Character; errors: string[] } {
     const d = this.state.data;
     const errors: string[] = [];
 
@@ -224,23 +220,13 @@ export class CharacterCreator {
       return { character: null as unknown as Character, errors };
     }
 
-    // Look up ancestry data for modifiers
-    const ancestryData = daggerheartData.ancestries.find(a => a.id === d.ancestryId) as AncestryType | undefined;
-
-    // Apply ancestry attribute modifiers (no half-modifiers for mixed ancestry — official rules)
-    const finalAttributes = { ...d.attributes };
-    if (ancestryData?.modifiers) {
-      for (const [attr, mod] of Object.entries(ancestryData.modifiers)) {
-        if (mod !== undefined && mod !== null) {
-          finalAttributes[attr as Attribute] = (finalAttributes[attr as Attribute] || 0) + mod;
-        }
-      }
-    }
+    // Note: In Daggerheart, ancestry does not provide direct attribute modifiers.
+    // Ancestry features (traits/actions/passives) are tracked separately.
 
     // Calculate resources from class data
     const maxHp = classData.baseHp;
     const maxStress = classData.baseStress;
-    const maxHope = classData.baseHope;
+    const maxHope = 6; // Default hope slots, reduced by scars
     const maxArmorSlots = armorData.armorSlots;
 
     // Calculate evasion from class + armor penalty + ancestry
@@ -274,11 +260,9 @@ export class CharacterCreator {
 
     const character: Character = {
       id: uuidv4(),
-      playerId,
       name: d.name,
-      ruleSystem: this.ruleSystem,
       classId: d.classId,
-      subclassId: undefined,
+      subclassId: '',
       ancestryId: d.ancestryId,
       secondAncestryId: d.secondAncestryId,
       mixedAncestryFeature1: d.mixedAncestryFeature1,
@@ -287,7 +271,7 @@ export class CharacterCreator {
       level,
       tier,
       proficiency,
-      attributes: finalAttributes,
+      attributes: d.attributes,
       attributeMarks,
       hp: maxHp,
       maxHp,
@@ -298,22 +282,24 @@ export class CharacterCreator {
       armorSlots: maxArmorSlots,
       maxArmorSlots,
       evasion,
+      minorThreshold: thresholds.minor,
       majorThreshold: thresholds.major,
       severeThreshold: thresholds.severe,
-      massiveThreshold: thresholds.massive,
-      mainWeaponId: d.mainWeaponId,
-      offWeaponId: d.offWeaponId,
-      armorId: d.armorId,
+      mainWeapon: daggerheartData.weapons.find(w => w.id === d.mainWeaponId) as WeaponData,
+      offWeapon: d.offWeaponId ? daggerheartData.weapons.find(w => w.id === d.offWeaponId) as WeaponData : undefined,
+      armor: armorData,
       inventory: [],
+      gold: { coins: 0, handfuls: 0, bags: 0, chests: 0 },
       experiences: d.experiences,
-      domainCards: d.domainCards,
+      domainCardConfig: {
+        loadout: d.domainCards,
+        vault: [],
+        maxLoadout: 5,
+      },
       scars: [],
       conditions: [],
       resistances: [],
       reactionsUsed: 0,
-      focusTokens: 0,
-      corruption: 0 as CorruptionLevel,
-      factionRelations: {},
       backstory: d.backstory || '',
       personalQuest: d.personalQuest || '',
       relationships: [],

@@ -2,13 +2,16 @@ import {
   getTier,
   calculateThresholds,
   getDamageSeverity,
-  getHpChangeFromSeverity,
+  getHpLossFromSeverity,
   DIFFICULTY_LEVELS,
   ROLL_RESULT_LABELS,
   DAMAGE_SEVERITY_LABELS,
+  DAMAGE_SEVERITY_HP,
   ATTRIBUTE_LABELS,
   CONDITION_LABELS,
   DOMAIN_LABELS,
+  TIER_LEVELS,
+  DISTANCE_SQUARES,
 } from '../index';
 
 describe('Shared Types - Helper Functions', () => {
@@ -38,62 +41,58 @@ describe('Shared Types - Helper Functions', () => {
 
   describe('calculateThresholds', () => {
     it('calculates thresholds with armor base + level', () => {
-      // Official: major = armorBase + level, severe = armorBaseSevere + level
-      const result = calculateThresholds(6, 13, 1); // e.g.皮甲: 6/13, level 1
-      expect(result.major).toBe(7);   // 6 + 1
-      expect(result.severe).toBe(14); // 13 + 1
-      expect(result.massive).toBe(28); // 14 * 2
+      // New system: minor = armorBaseMinor + level, major = armorBaseMajor + level, severe = major * 2
+      const result = calculateThresholds(5, 11, 1); // e.g. 皮甲: 5/11, level 1
+      expect(result.minor).toBe(6);  // 5 + 1
+      expect(result.major).toBe(12); // 11 + 1
+      expect(result.severe).toBe(24); // 12 * 2
     });
 
     it('includes modifiers', () => {
-      const result = calculateThresholds(6, 13, 1, 2);
-      expect(result.major).toBe(9);   // 6 + 1 + 2
-      expect(result.severe).toBe(16); // 13 + 1 + 2
+      const result = calculateThresholds(5, 11, 1, 2);
+      expect(result.minor).toBe(8);  // 5 + 1 + 2
+      expect(result.major).toBe(14); // 11 + 1 + 2
     });
 
     it('handles heavy armor', () => {
       // 锁子甲: 7/15, level 1
       const result = calculateThresholds(7, 15, 1);
-      expect(result.major).toBe(8);   // 7 + 1
-      expect(result.severe).toBe(16); // 15 + 1
+      expect(result.minor).toBe(8);  // 7 + 1
+      expect(result.major).toBe(16); // 15 + 1
     });
   });
 
   describe('getDamageSeverity', () => {
-    const majorThreshold = 8;
-    const severeThreshold = 16;
+    const minorThreshold = 6;
+    const majorThreshold = 12;
+    const severeThreshold = 24;
+
+    it('returns none for zero damage', () => {
+      expect(getDamageSeverity(0, majorThreshold, severeThreshold)).toBe('none');
+    });
 
     it('returns minor for damage below major threshold', () => {
       expect(getDamageSeverity(5, majorThreshold, severeThreshold)).toBe('minor');
-      expect(getDamageSeverity(7, majorThreshold, severeThreshold)).toBe('minor');
+      expect(getDamageSeverity(11, majorThreshold, severeThreshold)).toBe('minor');
     });
 
     it('returns major for damage at/above major but below severe', () => {
-      expect(getDamageSeverity(8, majorThreshold, severeThreshold)).toBe('major');
-      expect(getDamageSeverity(15, majorThreshold, severeThreshold)).toBe('major');
+      expect(getDamageSeverity(12, majorThreshold, severeThreshold)).toBe('major');
+      expect(getDamageSeverity(23, majorThreshold, severeThreshold)).toBe('major');
     });
 
     it('returns severe for damage at/above severe threshold', () => {
-      expect(getDamageSeverity(16, majorThreshold, severeThreshold)).toBe('severe');
-      expect(getDamageSeverity(31, majorThreshold, severeThreshold)).toBe('severe');
-    });
-
-    it('returns massive for damage >= severe threshold * 2', () => {
-      expect(getDamageSeverity(32, majorThreshold, severeThreshold)).toBe('massive');
-    });
-
-    it('handles edge case: damage exactly at severe*2 - 1', () => {
-      expect(getDamageSeverity(31, majorThreshold, severeThreshold)).toBe('severe');
+      expect(getDamageSeverity(24, majorThreshold, severeThreshold)).toBe('severe');
+      expect(getDamageSeverity(50, majorThreshold, severeThreshold)).toBe('severe');
     });
   });
 
-  describe('getHpChangeFromSeverity', () => {
-    it('returns correct HP change for each severity', () => {
-      expect(getHpChangeFromSeverity('minor')).toBe(1);
-      expect(getHpChangeFromSeverity('major')).toBe(2);
-      expect(getHpChangeFromSeverity('severe')).toBe(3);
-      expect(getHpChangeFromSeverity('critical')).toBe(3); // deprecated alias
-      expect(getHpChangeFromSeverity('massive')).toBe(4);
+  describe('getHpLossFromSeverity', () => {
+    it('returns correct HP loss for each severity', () => {
+      expect(getHpLossFromSeverity('none')).toBe(0);
+      expect(getHpLossFromSeverity('minor')).toBe(1);
+      expect(getHpLossFromSeverity('major')).toBe(2);
+      expect(getHpLossFromSeverity('severe')).toBe(3);
     });
   });
 
@@ -115,12 +114,18 @@ describe('Shared Types - Helper Functions', () => {
       expect(ROLL_RESULT_LABELS.fearFailure).toBe('恐惧失败');
     });
 
-    it('DAMAGE_SEVERITY_LABELS has all severity types', () => {
+    it('DAMAGE_SEVERITY_LABELS has all 4 severity types', () => {
+      expect(DAMAGE_SEVERITY_LABELS.none).toBe('无伤');
       expect(DAMAGE_SEVERITY_LABELS.minor).toBe('轻度');
       expect(DAMAGE_SEVERITY_LABELS.major).toBe('重度');
       expect(DAMAGE_SEVERITY_LABELS.severe).toBe('严重');
-      expect(DAMAGE_SEVERITY_LABELS.critical).toBe('严重'); // deprecated alias
-      expect(DAMAGE_SEVERITY_LABELS.massive).toBe('巨额');
+    });
+
+    it('DAMAGE_SEVERITY_HP maps correctly', () => {
+      expect(DAMAGE_SEVERITY_HP.none).toBe(0);
+      expect(DAMAGE_SEVERITY_HP.minor).toBe(1);
+      expect(DAMAGE_SEVERITY_HP.major).toBe(2);
+      expect(DAMAGE_SEVERITY_HP.severe).toBe(3);
     });
 
     it('ATTRIBUTE_LABELS has 6 attributes with Chinese labels', () => {
@@ -133,12 +138,31 @@ describe('Shared Types - Helper Functions', () => {
       expect(Object.keys(ATTRIBUTE_LABELS)).toHaveLength(6);
     });
 
-    it('DOMAIN_LABELS has 11 domains', () => {
-      expect(Object.keys(DOMAIN_LABELS)).toHaveLength(11);
+    it('DOMAIN_LABELS has 9 domains', () => {
+      expect(Object.keys(DOMAIN_LABELS)).toHaveLength(9);
       expect(DOMAIN_LABELS.arcane).toBe('奥术');
       expect(DOMAIN_LABELS.valor).toBe('勇气');
-      expect(DOMAIN_LABELS.song).toBe('歌谣');
-      expect(DOMAIN_LABELS.nature).toBe('自然');
+      expect(DOMAIN_LABELS.blade).toBe('利刃');
+      expect(DOMAIN_LABELS.bone).toBe('骸骨');
+    });
+
+    it('TIER_LEVELS has 4 tiers with correct level ranges', () => {
+      expect(TIER_LEVELS[1]).toEqual([1, 1]);
+      expect(TIER_LEVELS[2]).toEqual([2, 4]);
+      expect(TIER_LEVELS[3]).toEqual([5, 7]);
+      expect(TIER_LEVELS[4]).toEqual([8, 10]);
+    });
+
+    it('DISTANCE_SQUARES has expected values', () => {
+      expect(DISTANCE_SQUARES.melee).toBe(1);
+      expect(DISTANCE_SQUARES.nearby).toBe(3);
+      expect(DISTANCE_SQUARES.far).toBe(12);
+    });
+
+    it('CONDITION_LABELS has 3 base conditions', () => {
+      expect(CONDITION_LABELS.hidden).toBe('隐藏');
+      expect(CONDITION_LABELS.restrained).toBe('束缚');
+      expect(CONDITION_LABELS.vulnerable).toBe('脆弱');
     });
   });
 });

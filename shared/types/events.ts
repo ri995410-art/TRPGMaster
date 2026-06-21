@@ -1,21 +1,25 @@
-import type { RollResultType, DamageSeverity, Attribute, Condition, RuleSystemId } from './rules';
-import type { CorruptionLevel } from './character';
+import type {
+  Attribute,
+  RollResultType,
+  DamageSeverity,
+  ConditionInstance,
+  RestType,
+  DeathMoveType,
+} from './rules';
+import type { Character, EnemyStatBlock, Faction, NPC, Gold } from './character';
 
-// ===== Game Event Types =====
+// ===== 游戏事件类型 =====
 
-// Base event structure
 export interface GameEvent {
   id: string;
   sessionId: string;
+  playerId?: string;         // 事件发起玩家ID
   timestamp: number;
   type: GameEventType;
-  source: EventSource;
 }
 
-export type EventSource = 'gm' | 'player' | 'system' | 'agent';
-
 export type GameEventType =
-  // Player actions
+  // 玩家行动
   | 'player:action'
   | 'player:dialogue'
   | 'player:roll'
@@ -23,15 +27,17 @@ export type GameEventType =
   | 'player:useExperience'
   | 'player:rest'
   | 'player:deathMove'
-  // GM actions
+  | 'player:swapDomainCard'
+  // AI GM 行动
+  | 'gm:narrate'
   | 'gm:sceneChange'
   | 'gm:useFear'
   | 'gm:enemyAction'
   | 'gm:ruling'
-  | 'gm:narrate'
+  | 'gm:setDifficulty'
   | 'gm:award'
-  | 'gm:publishSuggestion'
-  // Combat events
+  | 'gm:triggerCountdown'
+  // 战斗事件
   | 'combat:start'
   | 'combat:end'
   | 'combat:attack'
@@ -40,40 +46,31 @@ export type GameEventType =
   | 'combat:conditionApply'
   | 'combat:conditionRemove'
   | 'combat:enemyDefeated'
-  // Scene events
+  | 'combat:focus'
+  // 场景事件
   | 'scene:describe'
   | 'scene:transition'
   | 'scene:environmentChange'
-  // System events
+  // 战役事件
   | 'session:start'
   | 'session:end'
   | 'session:pause'
   | 'session:resume'
-  | 'agent:output'
-  | 'agent:request'
-  // Faction events
+  | 'campaign:milestone'
+  | 'campaign:levelUp'
   | 'faction:relationChange'
   | 'faction:action'
-  // Campaign events
-  | 'campaign:milestone'
-  | 'campaign:corruptionChange'
-  // Input events
-  | 'input:voice'
-  | 'input:vision'
-  | 'input:text'
-  | 'input:parsed'
-  // Image events
-  | 'image:generate'
-  | 'image:complete'
-  // Novel events
-  | 'novel:generate'
-  | 'novel:complete';
+  | 'faction:missionComplete'
+  // 德拉肯海姆特殊事件
+  | 'drakkenheim:contamination'
+  | 'drakkenheim:hazeEffect'
+  | 'drakkenheim:deleriumFound'
+  | 'drakkenheim:sealFound';
 
-// ===== Specific Event Payloads =====
+// ===== 具体事件载荷 =====
 
 export interface PlayerActionEvent extends GameEvent {
   type: 'player:action';
-  playerId: string;
   characterId: string;
   action: string;
   attribute?: Attribute;
@@ -84,7 +81,6 @@ export interface PlayerActionEvent extends GameEvent {
 
 export interface PlayerRollEvent extends GameEvent {
   type: 'player:roll';
-  playerId: string;
   characterId: string;
   hopeDie: number;
   fearDie: number;
@@ -92,9 +88,9 @@ export interface PlayerRollEvent extends GameEvent {
   difficulty: number;
   result: RollResultType;
   total: number;
-  advantageCount?: number; // number of advantage d6s
-  disadvantageCount?: number; // number of disadvantage d6s
-  rollType?: 'action' | 'reaction'; // reaction rolls don't generate hope/fear
+  advantageCount: number;
+  disadvantageCount: number;
+  rollType: 'action' | 'reaction' | 'damage';
 }
 
 export interface CombatAttackEvent extends GameEvent {
@@ -108,9 +104,7 @@ export interface CombatAttackEvent extends GameEvent {
   hit: boolean;
   damage?: number;
   damageSeverity?: DamageSeverity;
-  armorSlotUsed?: boolean;
-  resisted?: boolean; // target has resistance to this damage type
-  immune?: boolean; // target has immunity to this damage type
+  armorSlotUsed: boolean;
 }
 
 export interface CombatDamageEvent extends GameEvent {
@@ -124,12 +118,10 @@ export interface CombatDamageEvent extends GameEvent {
   armorSlotUsed: boolean;
 }
 
-export interface GmSceneChangeEvent extends GameEvent {
-  type: 'gm:sceneChange';
-  sceneId: string;
-  sceneName: string;
-  description: string;
-  locationId?: string;
+export interface GmNarrateEvent extends GameEvent {
+  type: 'gm:narrate';
+  narration: string;
+  sceneUpdate?: Partial<SceneState>;
 }
 
 export interface FactionRelationChangeEvent extends GameEvent {
@@ -140,58 +132,36 @@ export interface FactionRelationChangeEvent extends GameEvent {
   reason: string;
 }
 
-export interface CorruptionChangeEvent extends GameEvent {
-  type: 'campaign:corruptionChange';
-  characterId: string;
-  oldLevel: CorruptionLevel;
-  newLevel: CorruptionLevel;
-  reason: string;
+// ===== 玩家类型 =====
+
+export interface Player {
+  id: string;            // socket.id 或客户端生成
+  name: string;
+  character: Character;
+  isConnected: boolean;
+  joinedAt: number;
 }
 
-export interface AgentOutputEvent extends GameEvent {
-  type: 'agent:output';
-  agentType: AgentType;
-  output: string;
-  metadata?: Record<string, unknown>;
-}
+// ===== 会话状态 =====
 
-export type AgentType =
-  | 'narrative'
-  | 'rules'
-  | 'sceneDirector'
-  | 'npc'
-  | 'combat'
-  | 'faction'
-  | 'imageDirector'
-  | 'novel'
-  | 'memoryCompressor'
-  | 'intentParser'
-  | 'unified';
-
-// ===== Session State =====
+export type SessionStatus = 'setup' | 'characterCreation' | 'sessionZero' | 'active' | 'resting' | 'combat' | 'paused' | 'ended';
 
 export interface SessionState {
   sessionId: string;
-  ruleSystem: RuleSystemId;
-  status: 'setup' | 'active' | 'paused' | 'ended';
-  gmId: string;
-  players: PlayerState[];
+  sessionCode?: string;          // 6位房间码，多人模式使用
+  status: SessionStatus;
+  character: Character;          // 保留向后兼容（单人模式下 = characters[0]）
+  characters: Character[];       // 多人模式下的角色列表
+  players: Player[];             // 多人模式下的玩家列表
   currentScene: SceneState;
-  fearPoints: number;
+  fearPoints: number;              // GM恐惧点池
   totalFearGained: number;
   totalFearSpent: number;
-  explorationTimer?: number; // Drakkenheim-specific
-  roundTracker: RoundTracker;
   activeCombat?: CombatState;
   timeline: TimelineEntry[];
-}
-
-export interface PlayerState {
-  playerId: string;
-  name: string;
-  connected: boolean;
-  characterId: string;
-  isActing: boolean; // has focus token
+  shortRestsSinceLong: number;     // 两次长休间最多3次短休
+  campaignState: CampaignState;
+  characterCreationStep?: number;
 }
 
 export interface SceneState {
@@ -200,16 +170,10 @@ export interface SceneState {
   description: string;
   locationId?: string;
   environment: string;
-  activeConditions: Condition[];
-  npcPresent: string[]; // NPC IDs
-  enemies: string[]; // Enemy IDs
-}
-
-export interface RoundTracker {
-  currentRound: number;
-  actingPlayerId?: string;
-  actingEnemyId?: string;
-  playerActionsRemaining: Record<string, number>;
+  activeConditions: ConditionInstance[];
+  npcPresent: string[];
+  enemies: string[];
+  countdowns: Countdown[];
 }
 
 export interface CombatState {
@@ -218,6 +182,7 @@ export interface CombatState {
   enemies: CombatEnemy[];
   activeConditions: ActiveCondition[];
   fearPointsUsed: number;
+  currentFocus?: string;           // 当前聚焦的敌人ID
 }
 
 export interface CombatEnemy {
@@ -228,16 +193,16 @@ export interface CombatEnemy {
   maxHp: number;
   currentStress: number;
   maxStress: number;
-  conditions: Condition[];
+  conditions: ConditionInstance[];
   isFocused: boolean;
+  hasActed: boolean;
 }
 
 export interface ActiveCondition {
   targetId: string;
   targetType: 'player' | 'enemy';
-  condition: Condition;
-  source: string;
-  duration?: number; // rounds, undefined = until removed
+  condition: ConditionInstance;
+  roundsRemaining?: number;
 }
 
 export interface TimelineEntry {
@@ -249,121 +214,76 @@ export interface TimelineEntry {
   data?: Record<string, unknown>;
 }
 
-// ===== Input Event Payloads =====
+// ===== 倒计时系统 =====
 
-export type GameIntentType =
-  | 'action'
-  | 'dialogue'
-  | 'query'
-  | 'command'
-  | 'narration'
-  | 'combat_action'
-  | 'character_introduction'
-  | 'rest'
-  | 'movement'
-  | 'interaction'
-  | 'image_generation'
-  | 'unknown';
-
-export interface ParsedIntent {
-  intentType: GameIntentType;
-  confidence: number;
-  attributes: Record<string, unknown>;
-  rawInput: string;
-}
-
-export interface InputTextPayload {
-  text: string;
-  source: 'gm' | 'player';
-  characterId?: string;
-}
-
-export interface InputVoicePayload {
-  audioData: string;
-  format: 'wav' | 'mp3' | 'ogg' | 'webm';
-  duration: number;
-  language?: string;
-}
-
-export interface InputVisionPayload {
-  imageData: string;
-  format: 'jpeg' | 'png';
-  timestamp: number;
-}
-
-export interface InputTextEvent extends GameEvent {
-  type: 'input:text';
-  payload: InputTextPayload;
-}
-
-export interface InputVoiceEvent extends GameEvent {
-  type: 'input:voice';
-  payload: InputVoicePayload;
-}
-
-export interface InputVisionEvent extends GameEvent {
-  type: 'input:vision';
-  payload: InputVisionPayload;
-}
-
-export interface InputParsedEvent extends GameEvent {
-  type: 'input:parsed';
-  originalType: GameEventType;
-  parsedIntent: ParsedIntent;
-  generatedEventTypes: GameEventType[];
-}
-
-// ===== Network Messages =====
-
-// Risk levels for agent output authorization
-export type RiskLevel = 'L0' | 'L1' | 'L2' | 'L3' | 'L4';
-
-// Suggestion from AI agent (displayed to GM for review)
-export interface Suggestion {
+export interface Countdown {
   id: string;
-  agentType: AgentType;
-  riskLevel: RiskLevel;
-  timestamp: number;
-  options: SuggestionOption[];
-  autoSendAt?: number;   // L2: timestamp when default option auto-sends
-  typeLabel: string;      // e.g. '[场景]' / '[NPC:老祭司]' / '[战斗]' / '[规则]'
-  gmOnly?: string;        // Text only GM can see (e.g. NPC internal thoughts)
+  name: string;
+  description: string;
+  currentValue: number;
+  maxValue: number;
+  decrementOn: 'playerAction' | 'fearResult' | 'round' | 'rest' | 'custom';
+  triggerAt: number;               // 触发值（通常为0）
+  triggered: boolean;
+  triggerEffect: string;
 }
 
-export interface SuggestionOption {
-  label: string;    // e.g. '氛围渲染' / '友好' / '攻击最弱者'
-  content: string;  // The actual text to send to players
+// ===== 战役状态（德拉肯海姆） =====
+
+export interface CampaignState {
+  campaignId: 'drakkenheim';
+  currentLocation: string;
+  visitedLocations: string[];
+  factionRelations: Record<string, number>;
+  personalQuestProgress: Record<string, QuestProgress>;
+  factionQuestProgress: Record<string, QuestProgress>;
+  contaminationLevel: number;
+  deleriumCollected: number;
+  sealsFound: string[];
+  currentChapter: CampaignChapter;
+  hazeExpansion: number;           // 迷雾扩展进度
+  narrativeFlags: Record<string, boolean>;
 }
 
-export type SocketMessageType =
-  | 'session:join'
-  | 'session:leave'
-  | 'session:start'
-  | 'session:started'
-  | 'session:end'
-  | 'session:ended'
-  | 'session:sync'
-  | 'game:event'
-  | 'game:state'
-  | 'agent:stream'
-  | 'agent:complete'
-  | 'agent:dismiss'
-  | 'agent:mode'
-  | 'chat:message'
-  | 'chat:undo'
-  | 'dice:roll'
-  | 'dice:result'
-  | 'input:text'
-  | 'input:voice'
-  | 'input:vision'
-  | 'input:parsed'
-  | 'gm:publishSuggestion'
-  | 'character:update';
+export type CampaignChapter =
+  | 'arrival'           // 初到余烬村
+  | 'outerCity'         // 外城探索
+  | 'firstFactions'     // 首次接触派系
+  | 'innerCity'         // 内城探索
+  | 'factionConflict'   // 派系冲突
+  | 'strongholds'       // 攻打据点
+  | 'finalExpedition'   // 最终远征
+  | 'fate';             // 德拉肯海姆的命运
 
-export interface SocketMessage<T = unknown> {
-  type: SocketMessageType;
-  sessionId: string;
-  senderId: string;
-  payload: T;
+export interface QuestProgress {
+  questId: string;
+  status: 'notStarted' | 'inProgress' | 'completed' | 'failed';
+  milestones: string[];
+  currentObjective?: string;
+}
+
+// ===== AI GM 消息 =====
+
+export type AIMessageRole = 'narrator' | 'npc' | 'system' | 'combat';
+
+export interface AIMessage {
+  id: string;
+  role: AIMessageRole;
+  content: string;
   timestamp: number;
+  npcName?: string;
+  npcId?: string;
+  choices?: AIChoice[];
+  rollRequired?: boolean;
+  difficulty?: number;
+  attribute?: Attribute;
+}
+
+export interface AIChoice {
+  id: string;
+  label: string;
+  description?: string;
+  action?: string;
+  requiresRoll?: boolean;
+  difficulty?: number;
 }

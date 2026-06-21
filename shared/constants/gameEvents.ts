@@ -1,8 +1,8 @@
-// Event type constants for type-safe event bus usage
-import type { GameEventType, AgentType } from '../types/events';
+// 事件常量 - 简化为单人AI GM系统
+import type { GameEventType } from '../types/events';
 
 export const GAME_EVENTS = {
-  // Player actions
+  // 玩家行动
   PLAYER_ACTION: 'player:action',
   PLAYER_DIALOGUE: 'player:dialogue',
   PLAYER_ROLL: 'player:roll',
@@ -10,16 +10,19 @@ export const GAME_EVENTS = {
   PLAYER_USE_EXPERIENCE: 'player:useExperience',
   PLAYER_REST: 'player:rest',
   PLAYER_DEATH_MOVE: 'player:deathMove',
+  PLAYER_SWAP_DOMAIN_CARD: 'player:swapDomainCard',
 
-  // GM actions
+  // AI GM 行动
+  GM_NARRATE: 'gm:narrate',
   GM_SCENE_CHANGE: 'gm:sceneChange',
   GM_USE_FEAR: 'gm:useFear',
   GM_ENEMY_ACTION: 'gm:enemyAction',
   GM_RULING: 'gm:ruling',
-  GM_NARRATE: 'gm:narrate',
+  GM_SET_DIFFICULTY: 'gm:setDifficulty',
   GM_AWARD: 'gm:award',
+  GM_TRIGGER_COUNTDOWN: 'gm:triggerCountdown',
 
-  // Combat events
+  // 战斗事件
   COMBAT_START: 'combat:start',
   COMBAT_END: 'combat:end',
   COMBAT_ATTACK: 'combat:attack',
@@ -28,128 +31,63 @@ export const GAME_EVENTS = {
   COMBAT_CONDITION_APPLY: 'combat:conditionApply',
   COMBAT_CONDITION_REMOVE: 'combat:conditionRemove',
   COMBAT_ENEMY_DEFEATED: 'combat:enemyDefeated',
+  COMBAT_FOCUS: 'combat:focus',
 
-  // Scene events
+  // 场景事件
   SCENE_DESCRIBE: 'scene:describe',
   SCENE_TRANSITION: 'scene:transition',
   SCENE_ENVIRONMENT_CHANGE: 'scene:environmentChange',
 
-  // System events
+  // 战役事件
   SESSION_START: 'session:start',
   SESSION_END: 'session:end',
   SESSION_PAUSE: 'session:pause',
   SESSION_RESUME: 'session:resume',
-  AGENT_OUTPUT: 'agent:output',
-  AGENT_REQUEST: 'agent:request',
-
-  // Faction events
+  CAMPAIGN_MILESTONE: 'campaign:milestone',
+  CAMPAIGN_LEVEL_UP: 'campaign:levelUp',
   FACTION_RELATION_CHANGE: 'faction:relationChange',
   FACTION_ACTION: 'faction:action',
+  FACTION_MISSION_COMPLETE: 'faction:missionComplete',
 
-  // Campaign events
-  CAMPAIGN_MILESTONE: 'campaign:milestone',
-  CAMPAIGN_CORRUPTION_CHANGE: 'campaign:corruptionChange',
-
-  // Input events
-  INPUT_VOICE: 'input:voice',
-  INPUT_VISION: 'input:vision',
-  INPUT_TEXT: 'input:text',
-  INPUT_PARSED: 'input:parsed',
-
-  // Image events
-  IMAGE_GENERATE: 'image:generate',
-  IMAGE_COMPLETE: 'image:complete',
-
-  // Novel events
-  NOVEL_GENERATE: 'novel:generate',
-  NOVEL_COMPLETE: 'novel:complete',
+  // 德拉肯海姆特殊事件
+  DRAKKENHEIM_CONTAMINATION: 'drakkenheim:contamination',
+  DRAKKENHEIM_HAZE_EFFECT: 'drakkenheim:hazeEffect',
+  DRAKKENHEIM_DELERIUM_FOUND: 'drakkenheim:deleriumFound',
+  DRAKKENHEIM_SEAL_FOUND: 'drakkenheim:sealFound',
 } as const;
 
-// Agent subscription mapping: which agents listen to which events
-export const AGENT_SUBSCRIPTIONS: Record<AgentType, GameEventType[]> = {
-  narrative: [
-    GAME_EVENTS.PLAYER_ACTION,
-    GAME_EVENTS.GM_SCENE_CHANGE,
-    GAME_EVENTS.GM_NARRATE,
-    GAME_EVENTS.SCENE_TRANSITION,
-    GAME_EVENTS.INPUT_VISION,
-    GAME_EVENTS.COMBAT_END,
-  ],
-  rules: [
-    GAME_EVENTS.PLAYER_ACTION,
-    GAME_EVENTS.PLAYER_ROLL,
-    GAME_EVENTS.GM_RULING,
-    GAME_EVENTS.COMBAT_ATTACK,
-    GAME_EVENTS.PLAYER_USE_EXPERIENCE,
-    GAME_EVENTS.PLAYER_USE_HOPE,
-  ],
-  sceneDirector: [
-    GAME_EVENTS.PLAYER_ROLL,
-    GAME_EVENTS.GM_USE_FEAR,
-    GAME_EVENTS.GM_ENEMY_ACTION,
-    GAME_EVENTS.COMBAT_START,
-    GAME_EVENTS.INPUT_VISION,
-    GAME_EVENTS.SESSION_START,
-  ],
-  npc: [
-    GAME_EVENTS.PLAYER_DIALOGUE,
-    GAME_EVENTS.PLAYER_ACTION,
-    GAME_EVENTS.GM_NARRATE,
-  ],
-  combat: [
-    GAME_EVENTS.COMBAT_START,
-    GAME_EVENTS.COMBAT_ATTACK,
-    GAME_EVENTS.COMBAT_DAMAGE,
-    GAME_EVENTS.GM_USE_FEAR,
-    GAME_EVENTS.GM_ENEMY_ACTION,
-    GAME_EVENTS.PLAYER_DEATH_MOVE,
-  ],
-  faction: [
-    GAME_EVENTS.FACTION_RELATION_CHANGE,
-    GAME_EVENTS.PLAYER_ACTION,
-    GAME_EVENTS.GM_AWARD,
-    GAME_EVENTS.PLAYER_REST,
-    GAME_EVENTS.SESSION_RESUME,
-  ],
-  imageDirector: [
-    GAME_EVENTS.GM_SCENE_CHANGE,
-    GAME_EVENTS.SESSION_START,
-    GAME_EVENTS.IMAGE_GENERATE,
-    GAME_EVENTS.COMBAT_START,
-  ],
-  novel: [
-    GAME_EVENTS.SESSION_END,
-    GAME_EVENTS.NOVEL_GENERATE,
-  ],
-  memoryCompressor: [
-    GAME_EVENTS.SESSION_START,
-  ],
-  intentParser: [
-    GAME_EVENTS.INPUT_TEXT,
-    GAME_EVENTS.INPUT_VOICE,
-    GAME_EVENTS.INPUT_VISION,
-  ],
-  unified: [
-    GAME_EVENTS.PLAYER_ACTION,
-    GAME_EVENTS.PLAYER_DIALOGUE,
-    GAME_EVENTS.COMBAT_START,
-    GAME_EVENTS.COMBAT_ATTACK,
-    GAME_EVENTS.GM_SCENE_CHANGE,
-    GAME_EVENTS.GM_NARRATE,
-  ],
-};
+// AI GM处理的事件类型映射
+export const AIGM_EVENT_SUBSCRIPTIONS: GameEventType[] = [
+  GAME_EVENTS.PLAYER_ACTION,
+  GAME_EVENTS.PLAYER_DIALOGUE,
+  GAME_EVENTS.PLAYER_ROLL,
+  GAME_EVENTS.PLAYER_USE_HOPE,
+  GAME_EVENTS.PLAYER_USE_EXPERIENCE,
+  GAME_EVENTS.PLAYER_REST,
+  GAME_EVENTS.PLAYER_DEATH_MOVE,
+  GAME_EVENTS.COMBAT_START,
+  GAME_EVENTS.COMBAT_END,
+  GAME_EVENTS.COMBAT_ATTACK,
+  GAME_EVENTS.COMBAT_DAMAGE,
+  GAME_EVENTS.FACTION_RELATION_CHANGE,
+  GAME_EVENTS.FACTION_ACTION,
+  GAME_EVENTS.SESSION_START,
+  GAME_EVENTS.SESSION_END,
+  GAME_EVENTS.DRAKKENHEIM_CONTAMINATION,
+  GAME_EVENTS.DRAKKENHEIM_HAZE_EFFECT,
+  GAME_EVENTS.DRAKKENHEIM_DELERIUM_FOUND,
+];
 
-// Event priority for conflict resolution
-export const EVENT_PRIORITY: Record<AgentType, number> = {
-  rules: 100,
-  combat: 80,
-  sceneDirector: 60,
-  narrative: 40,
-  npc: 30,
-  faction: 20,
-  imageDirector: 10,
-  novel: 5,
-  memoryCompressor: 1,
-  intentParser: 50,
-  unified: 45,
-};
+// 规则引擎处理的事件（纯机制判定）
+export const RULE_ENGINE_SUBSCRIPTIONS: GameEventType[] = [
+  GAME_EVENTS.PLAYER_ROLL,
+  GAME_EVENTS.COMBAT_ATTACK,
+  GAME_EVENTS.COMBAT_DAMAGE,
+  GAME_EVENTS.COMBAT_HEAL,
+  GAME_EVENTS.PLAYER_USE_HOPE,
+  GAME_EVENTS.PLAYER_USE_EXPERIENCE,
+  GAME_EVENTS.PLAYER_DEATH_MOVE,
+  GAME_EVENTS.PLAYER_REST,
+  GAME_EVENTS.PLAYER_SWAP_DOMAIN_CARD,
+  GAME_EVENTS.CAMPAIGN_LEVEL_UP,
+];

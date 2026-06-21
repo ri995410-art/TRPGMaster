@@ -1,12 +1,8 @@
-export { BaseAgent } from './BaseAgent';
-export type { AgentConfig, StreamChunk } from './BaseAgent';
-export { RulesAgent } from './RulesAgent';
-export { NarrativeAgent } from './NarrativeAgent';
-export { NPCAgent } from './NPCAgent';
-export { CombatAgent } from './CombatAgent';
-export { FactionAgent } from './FactionAgent';
-export { MemoryCompressorAgent } from './MemoryCompressorAgent';
-export { ImageDirectorAgent } from './ImageDirectorAgent';
-export { NovelAgent } from './NovelAgent';
-export { SceneDirectorAgent } from './SceneDirectorAgent';
-export { UnifiedAgent } from './UnifiedAgent';
+/**
+ * Agent module exports — deprecated agents have been moved to _deprecated/agents/
+ * All GM functionality is now handled by AIGameMaster (see ../ai/AIGameMaster.ts)
+ */
+
+// Re-export AIGameMaster as the unified agent
+export { AIGameMaster } from '../ai/AIGameMaster';
+export type { AIGMConfig } from '../ai/AIGameMaster';

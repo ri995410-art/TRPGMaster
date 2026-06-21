@@ -1,4 +1,6 @@
-// DaggerHeart attribute types
+// ===== 匕首之心 (Daggerheart) 规则类型 =====
+
+// 六大属性
 export type Attribute = 'agility' | 'strength' | 'finesse' | 'instinct' | 'presence' | 'knowledge';
 
 export const ATTRIBUTE_LABELS: Record<Attribute, string> = {
@@ -10,45 +12,34 @@ export const ATTRIBUTE_LABELS: Record<Attribute, string> = {
   knowledge: '知识',
 };
 
-// Damage types
+// 伤害类型
 export type DamageType = 'physical' | 'magical' | 'direct';
 
-// Status conditions (expanded to match official rules)
-export type Condition =
-  | 'vulnerable'
-  | 'restrained'
-  | 'hidden'
-  | 'enchanted'
-  | 'poisoned'
-  | 'stunned'
-  | 'unconscious'
-  | 'bleeding'
-  | 'blinded'
-  | 'deafened'
-  | 'silenced'
-  | 'paralyzed'
-  | 'frozen'
-  | 'burning';
+// ===== 状态系统 =====
 
-export const CONDITION_LABELS: Record<Condition, string> = {
-  vulnerable: '脆弱',
+// 基础状态（三大核心状态）
+export type BaseCondition = 'hidden' | 'restrained' | 'vulnerable';
+
+// 状态持续时间分类
+export type ConditionDuration = 'temporary' | 'special' | 'permanent';
+
+export interface ConditionInstance {
+  condition: BaseCondition | string; // 允许特殊状态
+  duration: ConditionDuration;
+  source: string; // 来源描述
+  clearCondition?: string; // 解除条件描述
+  roundsRemaining?: number; // 临时状态的剩余回合
+}
+
+export const CONDITION_LABELS: Record<string, string> = {
+  hidden: '隐藏',
   restrained: '束缚',
-  hidden: '隐匿',
-  enchanted: '迷醉',
-  poisoned: '中毒',
-  stunned: '晕眩',
-  unconscious: '昏迷',
-  bleeding: '流血',
-  blinded: '失明',
-  deafened: '失聪',
-  silenced: '沉默',
-  paralyzed: '麻痹',
-  frozen: '冰冻',
-  burning: '燃烧',
+  vulnerable: '脆弱',
 };
 
-// Distance ranges (official terminology)
-export type Distance = 'melee' | 'nearby' | 'close' | 'far' | 'veryFar';
+// ===== 距离系统 =====
+
+export type Distance = 'melee' | 'nearby' | 'close' | 'far' | 'veryFar' | 'outOfRange';
 
 export const DISTANCE_LABELS: Record<Distance, string> = {
   melee: '近战',
@@ -56,9 +47,21 @@ export const DISTANCE_LABELS: Record<Distance, string> = {
   close: '近距离',
   far: '远距离',
   veryFar: '极远',
+  outOfRange: '超出范围',
 };
 
-// Difficulty levels
+// 格子距离映射（可选精确规则）
+export const DISTANCE_SQUARES: Record<Distance, number> = {
+  melee: 1,
+  nearby: 3,
+  close: 6,
+  far: 12,
+  veryFar: 13,
+  outOfRange: Infinity,
+};
+
+// ===== 难度系统 =====
+
 export interface DifficultyLevel {
   name: string;
   nameEn: string;
@@ -74,13 +77,14 @@ export const DIFFICULTY_LEVELS: DifficultyLevel[] = [
   { name: '几乎不可能', nameEn: 'nearlyImpossible', value: 30 },
 ];
 
-// Dice roll result types
+// ===== 二元骰系统 =====
+
 export type RollResultType =
-  | 'criticalSuccess'
-  | 'hopeSuccess'
-  | 'fearSuccess'
-  | 'hopeFailure'
-  | 'fearFailure';
+  | 'criticalSuccess'  // 关键成功：双骰相同且总和≥难度
+  | 'hopeSuccess'      // 希望成功：希望骰>恐惧骰，总和≥难度
+  | 'fearSuccess'      // 恐惧成功：恐惧骰>希望骰，总和≥难度
+  | 'hopeFailure'      // 希望失败：希望骰>恐惧骰，总和<难度
+  | 'fearFailure';     // 恐惧失败：恐惧骰>希望骰，总和<难度
 
 export interface RollResult {
   type: RollResultType;
@@ -90,6 +94,11 @@ export interface RollResult {
   total: number;
   difficulty: number;
   success: boolean;
+  hopeGained: number;   // 玩家获得的希望点（0或1）
+  fearGained: number;   // GM获得的恐惧点（0或1）
+  isCritical: boolean;  // 是否关键成功
+  advantageDice: number; // 优势骰数量
+  disadvantageDice: number; // 劣势骰数量
 }
 
 export const ROLL_RESULT_LABELS: Record<RollResultType, string> = {
@@ -100,72 +109,127 @@ export const ROLL_RESULT_LABELS: Record<RollResultType, string> = {
   fearFailure: '恐惧失败',
 };
 
-// Damage severity (official: minor/major/severe/massive)
-// 'critical' kept as deprecated alias for 'severe' during transition
-export type DamageSeverity = 'minor' | 'major' | 'severe' | 'massive' | 'critical';
+// ===== 伤害系统 =====
+
+// 伤害等级（官方术语：无伤/轻度/重度/严重）
+export type DamageSeverity = 'none' | 'minor' | 'major' | 'severe';
 
 export const DAMAGE_SEVERITY_LABELS: Record<DamageSeverity, string> = {
+  none: '无伤',
   minor: '轻度',
   major: '重度',
   severe: '严重',
-  massive: '巨额',
-  critical: '严重', // deprecated alias
 };
 
-// Rule system identifiers
-export type RuleSystemId = 'daggerheart' | 'coc' | 'custom';
+// 伤害等级对应的生命点损失
+export const DAMAGE_SEVERITY_HP: Record<DamageSeverity, number> = {
+  none: 0,
+  minor: 1,
+  major: 2,
+  severe: 3,
+};
 
-// Weapon load type (replaces WeaponHandedness)
+// ===== 位阶系统 =====
+
+export type Tier = 1 | 2 | 3 | 4;
+
+export const TIER_LEVELS: Record<Tier, [number, number]> = {
+  1: [1, 1],
+  2: [2, 4],
+  3: [5, 7],
+  4: [8, 10],
+};
+
+export function getTier(level: number): Tier {
+  if (level <= 1) return 1;
+  if (level <= 4) return 2;
+  if (level <= 7) return 3;
+  return 4;
+}
+
+// ===== 死亡行动 =====
+
+export type DeathMoveType = 'gloriousSacrifice' | 'avoidDeath' | 'desperateGamble';
+
+export interface DeathMoveResult {
+  type: DeathMoveType;
+  characterDied: boolean;
+  hpRestored: number;
+  stressCleared: number;
+  scarGained: boolean;
+  narrative: string;
+}
+
+export const DEATH_MOVE_LABELS: Record<DeathMoveType, string> = {
+  gloriousSacrifice: '光荣就义',
+  avoidDeath: '回避死亡',
+  desperateGamble: '孤注一掷',
+};
+
+// ===== 休整系统 =====
+
+export type RestType = 'short' | 'long';
+
+export type ShortRestAction =
+  | 'treatWounds'      // 处理伤口：恢复1d4+位阶生命点
+  | 'relieveStress'    // 缓解压力：清除1d4+位阶压力点
+  | 'repairArmor'      // 修理护甲：清除1d4+位阶护甲槽
+  | 'prepare';         // 做好准备：获得1希望点（与队友一起则2点）
+
+export type LongRestAction =
+  | 'treatAllWounds'   // 处理所有伤口
+  | 'relieveAllStress' // 缓解所有压力
+  | 'repairAllArmor'   // 修理所有护甲
+  | 'prepareFully'     // 做好充分准备
+  | 'advanceProject';  // 推进长期项目
+
+export interface RestResult {
+  type: RestType;
+  actions: (ShortRestAction | LongRestAction)[];
+  hpRestored: number;
+  stressCleared: number;
+  armorSlotsCleared: number;
+  hopeGained: number;
+  fearGainedByGM: number; // 短休1d4，长休1d4+玩家数
+  domainCardsSwapped: boolean;
+}
+
+// ===== 武器系统 =====
+
 export type WeaponLoad = 'oneHanded' | 'twoHanded' | 'offHand';
 
-// Weapon handedness (deprecated, use WeaponLoad)
-export type WeaponHandedness = 'oneHanded' | 'twoHanded';
-
-// Weapon traits (official)
 export type WeaponTrait =
-  | 'reliable'    // 攻击掷骰+1
-  | 'massive'     // 巨型：闪避-1，额外伤害骰取最高
-  | 'heavy'       // 沉重：闪避-1
-  | 'swift'       // 迅捷：标记1压力可攻击额外目标
-  | 'cumbersome'  // 笨重：灵巧-1
-  | 'nimble'      // 灵巧：闪避+1
-  | 'versatile'   // 多用：可单手或双手使用不同伤害骰
-  | 'fearsome'    // 可怖：攻击时目标标记1压力
-  | 'pierce'      // 穿刺：忽略1点护甲阈值
-  | 'sentinel'    // 哨卫：近战范围内盟友获得掩护
-  | 'dual'        // 双持：主武器近战伤害+2
-  | 'protect'     // 防御：护甲值+1
-  | 'barricade'   // 屏障：护甲值+2，闪避-1
-  | 'lash'        // 鞭挞：标记1压力，将近战敌人推至近距离
-  | 'hook'        // 抓钩：成功攻击可将目标拉至近战范围
-  | 'spellcasting'// 施法：可用于施法
-  | 'returning'   // 回旋：投掷后自动返回
-  | 'powerful'    // 强力：额外伤害骰取最高
-  | 'parry';      // 招架：可用于格挡
+  | 'reliable' | 'massive' | 'heavy' | 'swift' | 'cumbersome'
+  | 'nimble' | 'versatile' | 'fearsome' | 'pierce' | 'sentinel'
+  | 'dual' | 'protect' | 'barricade' | 'lash' | 'hook'
+  | 'spellcasting' | 'returning' | 'powerful' | 'parry';
 
 export const WEAPON_TRAIT_LABELS: Record<WeaponTrait, string> = {
-  reliable: '可靠',
-  massive: '巨型',
-  heavy: '沉重',
-  swift: '迅捷',
-  cumbersome: '笨重',
-  nimble: '灵巧',
-  versatile: '多用',
-  fearsome: '可怖',
-  pierce: '穿刺',
-  sentinel: '哨卫',
-  dual: '双持',
-  protect: '防御',
-  barricade: '屏障',
-  lash: '鞭挞',
-  hook: '抓钩',
-  spellcasting: '施法',
-  returning: '回旋',
-  powerful: '强力',
-  parry: '招架',
+  reliable: '可靠', massive: '巨型', heavy: '沉重', swift: '迅捷',
+  cumbersome: '笨重', nimble: '灵巧', versatile: '多用', fearsome: '可怖',
+  pierce: '穿刺', sentinel: '哨卫', dual: '双持', protect: '防御',
+  barricade: '屏障', lash: '鞭挞', hook: '抓钩', spellcasting: '施法',
+  returning: '回旋', powerful: '强力', parry: '招架',
 };
 
-// Armor traits (official)
+export type DamageDie = 'd4' | 'd6' | 'd8' | 'd10' | 'd12';
+
+export interface WeaponData {
+  id: string;
+  name: string;
+  nameEn: string;
+  attribute: Attribute;
+  distance: Distance;
+  damageDie: DamageDie;
+  damageModifier: number;
+  load: WeaponLoad;
+  traits: WeaponTrait[];
+  weaponTier: number;
+  description?: string;
+}
+
+// ===== 护甲系统 =====
+
 export type ArmorTrait = 'nimble' | 'heavy' | 'veryHeavy';
 
 export const ARMOR_TRAIT_LABELS: Record<ArmorTrait, string> = {
@@ -174,65 +238,39 @@ export const ARMOR_TRAIT_LABELS: Record<ArmorTrait, string> = {
   veryHeavy: '极重',
 };
 
-// Weapon data (expanded with official fields)
-export interface WeaponData {
-  id: string;
-  name: string;
-  nameEn: string;
-  attribute: Attribute;
-  distance: Distance;
-  damageDie: 'd4' | 'd6' | 'd8' | 'd10' | 'd12';
-  damageModifier: number;
-  handedness: WeaponHandedness; // deprecated, use load
-  load: WeaponLoad;
-  traits: WeaponTrait[];
-  weaponTier?: number;
-  description?: string;
-}
-
-// Armor data (expanded with official fields)
 export interface ArmorData {
   id: string;
   name: string;
   nameEn: string;
-  baseThreshold: number;       // 重度阈值基础
-  baseThresholdSevere: number;  // 严重阈值基础
+  baseThreshold: number;        // 轻度伤害阈值基础值
+  baseThresholdSevere: number;  // 重度伤害阈值基础值
   armorSlots: number;
-  evasionPenalty: number;       // 0, -1, or -2
+  evasionPenalty: number;       // 闪避值惩罚 (0, -1, -2)
   traits: ArmorTrait[];
-  armorTier?: number;
+  armorTier: number;
   description?: string;
 }
 
-// Domain (magic school) types (expanded with song and nature)
+// ===== 领域系统 =====
+
 export type DomainType =
-  | 'arcane'
-  | 'blade'
-  | 'bone'
-  | 'codex'
-  | 'elegance'
-  | 'midnight'
-  | 'sage'
-  | 'splendor'
-  | 'valor'
-  | 'song'
-  | 'nature';
+  | 'arcane'    // 奥术
+  | 'blade'     // 利刃
+  | 'bone'      // 骸骨
+  | 'codex'     // 典籍
+  | 'elegance'  // 优雅
+  | 'midnight'  // 午夜
+  | 'sage'      // 贤者
+  | 'splendor'  // 辉耀
+  | 'valor';    // 勇气
 
 export const DOMAIN_LABELS: Record<DomainType, string> = {
-  arcane: '奥术',
-  blade: '利刃',
-  bone: '骸骨',
-  codex: '典籍',
-  elegance: '优雅',
-  midnight: '午夜',
-  sage: '贤者',
-  splendor: '辉耀',
-  valor: '勇气',
-  song: '歌谣',
-  nature: '自然',
+  arcane: '奥术', blade: '利刃', bone: '骸骨', codex: '典籍',
+  elegance: '优雅', midnight: '午夜', sage: '贤者', splendor: '辉耀', valor: '勇气',
 };
 
-// Class data (expanded with official fields)
+// ===== 职业系统 =====
+
 export interface ClassData {
   id: string;
   name: string;
@@ -241,21 +279,101 @@ export interface ClassData {
   baseEvasion: number;
   baseHp: number;
   baseStress: number;
-  baseHope: number;
-  hopeFeature: string;
-  hopeFeatureCost: number;
-  primaryAttribute: Attribute;
+  hopeFeature: {
+    name: string;
+    nameEn: string;
+    description: string;
+    cost: number; // 通常为3希望点
+  };
+  classFeature: {
+    name: string;
+    nameEn: string;
+    description: string;
+    usesPerRest?: 'shortRest' | 'longRest' | 'session';
+  };
+  recommendedAttributes: Partial<Record<Attribute, number>>;
+  recommendedWeapon: string;
+  recommendedArmor: string;
+  classItem: string;
   subclassIds: [string, string];
 }
 
-// Subclass data
 export interface SubclassData {
   id: string;
   name: string;
   nameEn: string;
   classId: string;
-  level: number;
   castingAttribute: Attribute | null;
   description: string;
-  feature?: string; // Subclass feature description
+  backgroundQuestions: string[];
+  relationshipQuestions: string[];
+  features: {
+    base: SubclassFeature;
+    advanced: SubclassFeature;
+    mastery: SubclassFeature;
+  };
+}
+
+export interface SubclassFeature {
+  name: string;
+  nameEn: string;
+  description: string;
+  level: number;
+  isCard: boolean; // 是否为卡牌形式
+}
+
+// ===== 种族系统 =====
+
+export interface AncestryData {
+  id: string;
+  name: string;
+  nameEn: string;
+  description: string;
+  features: AncestryFeature[];
+}
+
+export interface AncestryFeature {
+  name: string;
+  nameEn: string;
+  description: string;
+  type: 'trait' | 'action' | 'passive';
+  hopeCost?: number;
+  stressCost?: number;
+}
+
+// ===== 社群系统 =====
+
+export interface CommunityData {
+  id: string;
+  name: string;
+  nameEn: string;
+  description: string;
+  feature: CommunityFeature;
+}
+
+export interface CommunityFeature {
+  name: string;
+  nameEn: string;
+  description: string;
+  type: 'passive' | 'action';
+  hopeCost?: number;
+  stressCost?: number;
+}
+
+// ===== 反应掷骰 =====
+
+export interface ReactionRoll {
+  attribute: Attribute;
+  difficulty: number;
+  result?: RollResult;
+  success: boolean;
+  description: string;
+}
+
+// ===== 优势/劣势 =====
+
+export interface AdvantageState {
+  advantageSources: string[];
+  disadvantageSources: string[];
+  get net(): number; // >0 = 优势, <0 = 劣势
 }
