@@ -12,6 +12,7 @@ import type {
   AIChoice,
   Character,
   SessionState,
+  SessionZeroPhase,
   SceneState,
   CampaignState,
   CampaignChapter,
@@ -99,11 +100,13 @@ export class AIGameMaster {
     }
 
     // 添加玩家当前输入
+    // [STATE] marker instruction in user message for better model compliance
+    const stateReminder = "\n\n【输出要求】如果本回合角色受到了伤害、恢复了生命、获得了压力或消耗了希望，你必须在叙述结尾另起一行输出状态标记。示例：\n骨爪划过凯尔的肩膀，鲜血渗出。\n[STATE] hp:-2 stress:+1\n如果角色休息恢复了体力：\n[STATE] hp:+2 stress:-1\n如果没有状态变化则不输出。";
     if (context.activePlayerName && context.characters && context.characters.length > 1) {
       // Multi-player: prefix with player/character name
-      messages.push({ role: 'user', content: `[${context.activePlayerName}/${context.character.name}]: ${playerInput}` });
+      messages.push({ role: 'user', content: `[${context.activePlayerName}/${context.character.name}]: ${playerInput}${stateReminder}` });
     } else {
-      messages.push({ role: 'user', content: playerInput });
+      messages.push({ role: 'user', content: `${playerInput}${stateReminder}` });
     }
 
     // 调用AI
@@ -279,24 +282,185 @@ ${npc.name}当前压力：${npc.currentStress}/${npc.stressSlots}
   // ===== 第零场（Session Zero） =====
 
   /**
-   * 运行第零场 — 安全工具和世界设定讨论
+   * 运行第零场 — 多阶段共创叙事准备
+   * 阶段：safety → worldbuilding → connections → expectations → narrativePact
    */
-  async runSessionZero(context: AIGMContext): Promise<AIGMResponse> {
-    const prompt = `这是第零场（Session Zero）。
+  async runSessionZero(context: AIGMContext, playerInput?: string): Promise<AIGMResponse> {
+    const phase = context.sessionState?.sessionZeroPhase || 'safety';
+    const phasePrompt = this.buildSessionZeroPrompt(context, phase);
 
-角色：${context.character.name}
-职业：${context.character.classId}
-种族：${context.character.ancestryId}
+    return this.callAI(phasePrompt, context, playerInput);
+  }
 
-请与玩家讨论以下内容：
-1. 安全工具：确认游戏中的舒适度边界（暴力、恐怖、社交等）
-2. 世界观概述：简要介绍德拉肯海姆的背景
-3. 角色动机：为什么你的角色会来到余烬村？
-4. 游戏期望：你希望什么样的游戏体验？
+  /**
+   * 使用自定义系统提示调用AI（供Session Zero等特殊场景使用）
+   */
+  private async callAI(customSystemPrompt: string, context: AIGMContext, playerInput?: string): Promise<AIGMResponse> {
+    const sessionId = context.sessionId;
+    const history = this.getHistory(sessionId);
 
-保持友好和开放的态度，确保玩家感到舒适。`;
+    const stateSummary = this.buildStateSummary(context);
+    const memorySummary = this.buildMemorySummary(sessionId);
 
-    return this.processPlayerAction(context, prompt);
+    const messages: GatewayMessage[] = [
+      { role: 'system', content: customSystemPrompt },
+      { role: 'system', content: stateSummary },
+    ];
+
+    if (memorySummary) {
+      messages.push({ role: 'system', content: memorySummary });
+    }
+
+    // Add conversation history (last 20)
+    const recentHistory = history.slice(-20);
+    for (const msg of recentHistory) {
+      if (msg.role === 'narrator' || msg.role === 'system') {
+        messages.push({ role: 'assistant', content: msg.content });
+      } else if (msg.role === 'npc') {
+        messages.push({ role: 'assistant', content: `[${msg.npcName || 'NPC'}] ${msg.content}` });
+      }
+    }
+
+    // Add user message: player input or S0 initial prompt
+    if (playerInput) {
+      if (context.activePlayerName && context.characters && context.characters.length > 1) {
+        messages.push({ role: 'user', content: `[${context.activePlayerName}/${context.character.name}]: ${playerInput}` });
+      } else {
+        messages.push({ role: 'user', content: playerInput });
+      }
+    } else {
+      const phase = context.sessionState?.sessionZeroPhase || 'safety';
+      messages.push({
+        role: 'user',
+        content: `[Session Zero · ${phase}] 请开始与我们的对话。`,
+      });
+    }
+
+    const response = await this.gateway.sendRequest({
+      model: this.config.narratorModel,
+      messages,
+      temperature: this.config.temperature,
+      maxTokens: this.config.maxTokensPerResponse,
+      agentType: 'aigm',
+    });
+
+    const aiMessage: AIMessage = {
+      id: `msg_${Date.now()}`,
+      role: 'narrator',
+      content: response.content,
+      timestamp: Date.now(),
+    };
+
+    const events = this.generateEventsFromResponse(response.content, context);
+    this.addMemoryEntry(sessionId, 'Session Zero', response.content);
+    this.addHistoryEntry(sessionId, aiMessage);
+
+    return {
+      message: aiMessage,
+      events,
+      tokenUsage: response.tokenUsage.totalTokens,
+    };
+  }
+
+  private buildSessionZeroPrompt(context: AIGMContext, phase: SessionZeroPhase): string {
+    const characterList = context.characters!.map(c =>
+      `  - ${c.name}（${c.classId} ${c.ancestryId}）`
+    ).join('\n');
+
+    const basePrompt = `你是匕首之心（Daggerheart）的AI游戏主持人，正在进行 Session Zero（第零次会议）。
+这是游戏正式开始前的共创环节，目的是让所有玩家共同建立这场战役的基础。
+
+当前参与的角色：
+${characterList}
+
+## Session Zero 核心原则
+- 你不是在"教"玩家规则，而是在与他们"共同创造"世界
+- 每个问题都应该邀请玩家贡献自己的创意
+- 认真倾听每个回答，将它们编织进世界
+- 当玩家的创意与你预想的不同，跟随玩家的方向
+- 这个阶段建立的一切都将成为后续冒险的正典（canon）
+
+## 输出格式
+使用模式 A（开放式提问）。每次只聚焦一个主题，提出1-2个开放式问题。
+不要使用编号选项（模式 D）。玩家用自由文字回答。`;
+
+    const phasePrompts: Record<SessionZeroPhase, string> = {
+      safety: `${basePrompt}
+
+## 阶段 1/5：安全工具与边界
+
+目标：建立一张安全的游戏桌。
+
+请做以下事情：
+1. 简短介绍 X-Card 机制：任何人可以随时打出 X-Card 来跳过不适的内容，无需解释
+2. 介绍 Lines & Veils：
+   - Lines（红线）：完全不出现在游戏中的内容
+   - Veils（帷幕）：可以暗示但不详细描述的内容
+3. 然后询问每位玩家：有什么内容是你不想在游戏中出现的？
+
+语气：温暖、包容。强调这是为了让所有人都能享受游戏。`,
+
+      worldbuilding: `${basePrompt}
+
+## 阶段 2/5：世界观共创
+
+目标：让玩家共同塑造德拉肯海姆的细节。
+
+德拉肯海姆是坐落在灰烬荒原边缘的废墟城市，被神秘的陨石雨摧毁。幸存者们在残骸中搜寻，而各种势力争夺着陨石碎片的秘密。
+
+请提出2-3个开放式问题，邀请玩家创造这个世界的细节。例如：
+- "你们在来德拉肯海姆的路上，看到了什么令人印象深刻的景象？"
+- "这座城市中有一个你们都知道的传闻——那是什么？"
+- "有一处地方让你感到不安，但你又忍不住想去——那是哪里？"
+
+将玩家的回答融入世界描述。他们的创意是正典。`,
+
+      connections: `${basePrompt}
+
+## 阶段 3/5：角色联系
+
+目标：建立角色之间在冒险开始前就存在的关系。
+
+请为每对相邻的角色提出关于他们关系的问题。例如：
+- "你们两个是如何认识的？是一场酒馆斗殴，还是一次共同的逃亡？"
+- "在你们一起旅行的日子里，有一件事让你们从陌生人变成了同伴——那是什么事？"
+- "你们之间有一个未说出口的默契——那是什么？"
+
+让每位玩家都有机会描述自己的角色如何与至少一名其他角色相连。
+如果玩家不确定，提供几个引导性的选项，但鼓励他们自己创造。`,
+
+      expectations: `${basePrompt}
+
+## 阶段 4/5：战役期望
+
+目标：了解每位玩家想要的体验。
+
+请询问每位玩家以下问题（用轻松的方式）：
+1. 你更期待什么类型的场景？（战斗/探索/社交/政治阴谋）
+2. 你希望这场战役的基调是怎样的？（英雄史诗/暗黑生存/悬疑推理/轻松冒险）
+3. 你希望你的角色面对什么样的挑战？（内心挣扎/外部敌人/道德抉择）
+
+根据他们的回答，总结出这场战役的核心主题。`,
+
+      narrativePact: `${basePrompt}
+
+## 阶段 5/5：共创叙事契约
+
+目标：明确建立协作叙事的框架。
+
+请做以下事情：
+1. 简要总结前四个阶段中玩家建立的所有内容（安全边界、世界细节、角色关系、战役期望）
+2. 明确说出"共创叙事契约"——在这场游戏中：
+   - 玩家不仅仅是选择选项，而是世界的共同创造者
+   - 当你描述场景时，你会提出问题，邀请他们发明细节
+   - 他们说的关于自己角色和世界的内容将成为故事的一部分
+   - 你会基于他们的创意来构建后续叙事
+3. 询问："你们准备好一起创造这个故事了吗？"
+
+当所有玩家确认后，冒险正式开始。`,
+    };
+
+    return phasePrompts[phase];
   }
 
   // ===== 私有方法 =====
@@ -316,12 +480,29 @@ ${npc.name}当前压力：${npc.currentStress}/${npc.stressSlots}
 - **战役推进**：推进个人任务、派系任务、主线剧情
 
 ## 核心规则
-- 二元骰系统：2d12（希望骰+恐惧骰），5种结果类型
-- 伤害阈值：轻度/重度/严重，护甲槽可降低伤害等级
-- 希望点/恐惧点：资源经济系统
+- 二元骰系统：2d12（希望骰+恐惧骰），5种结果类型：
+  - 关键成功（双骰相同且≥6）：大成功，GM不得花恐惧点
+  - 希望成功（希望骰>恐惧骰）：成功，玩家获得1希望点
+  - 恐惧成功（恐惧骰>希望骰）：成功但代价，GM获得1恐惧点
+  - 希望失败（希望骰>恐惧骰但未达难度）：失败但希望，玩家获得1希望点
+  - 恐惧失败（恐惧骰>希望骰且未达难度）：失败且恶化，GM获得1恐惧点
+- 伤害计算：轻度=1HP，重度=2HP，严重=3HP；护甲槽可降低伤害等级（消耗1护甲槽降1级）
 - 压力点：压力满时自动变为脆弱状态，溢出标记生命点
-- 短休（选2项）/长休（选2项）
 - 死亡行动：光荣就义/回避死亡/孤注一掷
+
+## 恐惧点经济（GM资源）
+你作为GM拥有恐惧点池（当前数量见状态摘要）。
+### 获取恐惧点
+- 恐惧骰>希望骰时（恐惧成功/恐惧失败）：+1恐惧点
+- 玩家短休时：+1d4恐惧点
+- 玩家长休时：+1d4恐惧点
+### 花费恐惧点
+- 1点：打断玩家行动，执行敌人行动
+- 1点：执行额外GM行动（场景效果等）
+- 1点：聚焦另一个敌人（切换当前聚焦目标）
+- 1点：使用敌人的恐惧特性
+- 1点：使用环境的恐惧效果
+- 花费恐惧点时在[STATE]中标记：fearPoints:-1
 
 ## 德拉肯海姆设定
 - 5派系：提灯团、女王之仆、白银骑士团、陨火信徒、紫晶学院
@@ -333,25 +514,90 @@ ${npc.name}当前压力：${npc.currentStress}/${npc.stressSlots}
 ## 叙事风格
 - 沉浸式描述，注重感官细节
 - 保持德拉肯海姆的暗黑奇幻氛围
-- 给玩家有意义的选择
 - 失败也是有趣的故事
 - 不要过度解释规则，让叙事驱动
 
-## 输出格式
-- 每次响应结尾必须列出2-4个玩家可选择的行动，用编号格式：1) xxx  2) xxx  3) xxx
-- 不要用括号【】或圆圈①②③，只用 数字) 的格式
-- 选项应简洁明确，如：1) 检查井里的声音  2) 取走铜牌  3) 呼叫同伴`;
+## 叙事模式与输出格式
+
+你遵循匕首之心"共创世界"的哲学——你带来问题，而非预设的故事。玩家的回答塑造世界。
+
+每次响应使用以下模式之一（根据情境选择最合适的）：
+
+### 模式 A：开放式提问（最常用，约50%时间）
+描述场景或情境，然后提出开放式问题，邀请玩家创造性地描述行动或感知。
+示例："你推开旧图书馆的门，尘埃在阳光中飞舞。书架延伸到天花板，但有一本书似乎被最近翻阅过——你注意到了什么？"
+
+### 模式 B：情境提示（约25%时间）
+将玩家置于需要回应的情境中，提出"如何"或"为何"的问题。
+示例："守卫挡住了你的去路，手按在剑柄上。'没人能未经许可进入。' 你如何应对这种情况？"
+
+### 模式 C：邀请世界构建（约15%时间）
+请求玩家发明关于世界、背景或NPC的细节。
+示例："你认出了这个徽章——它属于你过去打过交道的派系。告诉我，你对这个组织了解什么？"
+
+### 模式 D：选择选项（约10%时间，仅在需要果断行动时使用）
+当玩家必须做出明确的战术选择时（战斗行动、休息选择、明确岔路口），使用编号选项。
+格式：1) xxx  2) xxx  3) xxx
+仅在真正需要离散选择时使用此模式。不要用括号【】或圆圈①②③。
+
+### 模式选择指南：
+- 探索、社交和叙事 → 模式 A 或 B
+- 战斗、休息和明确岔路口 → 模式 D
+- 玩家提到背景、文化或过去 → 模式 C
+- 玩家用创意细节回答时，将其纳入世界！他们的描述成为正典
+- 永远不要连续两次使用模式 D。至少每隔一次使用模式 A 或 B
+
+## 整合玩家创意
+当玩家描述你未预见的细节时（新NPC特征、地点细节、文化习俗），将其纳入世界。
+在后续叙事中基于此构建。
+示例：如果玩家说"我认出这个符号——我师父教过我这个"，那么该符号现在与他们的师父有关。
+
+## 状态变更输出（极其重要！）
+
+当叙事中角色受到伤害、恢复、获得压力、消耗希望等状态变化时，你必须在叙述文本的最后一行输出状态变更标记。
+
+### 格式规则
+- 在叙述文本之后，另起一行输出：[STATE] 属性:变化值
+- 仅在实际发生状态变化时输出
+- 多个变化用空格分隔
+- 对特定角色：[STATE:角色名] 属性:变化值
+- 可用的属性：hp（生命）, stress（压力）, hope（希望）, fearPoints（恐惧点池）
+
+### 完整示例
+
+示例1 - 角色受伤：
+你举起匕首，但骷髅的骨爪划过你的肩膀，皮甲被撕裂，鲜血渗出。疼痛让你咬牙，但你没有退后。
+[STATE] hp:-2 stress:+1
+
+示例2 - 角色战斗胜利后：
+随着最后一击，骷髅倒在你脚下，骨头散落一地。你喘着粗气，感到一丝胜利的希望。
+[STATE] hp:-1 hope:+1 fearPoints:+2
+
+示例3 - 角色休息恢复：
+你在安全的角落坐下，伤口得到处理，精神也恢复了一些。
+[STATE] hp:+2 stress:-1
+
+示例4 - 多人模式特定角色受伤：
+凯尔被迷雾中的利爪击中，鲜血飞溅。莉娅在后方向他喊道："坚持住！"
+[STATE:灰烬行者·凯尔] hp:-3 stress:+1
+
+### 重要提醒
+- 每次角色受伤、休息恢复、受到精神压力、获得希望时，都必须输出[STATE]行
+- 如果没有状态变化，不要输出[STATE]行
+- [STATE]行必须是响应的最后一行`;
 
     if (isMultiplayer) {
       prompt += `
 
-## 多人模式规则
+## 多人协作叙事
 - 当前会话有${context.characters!.length}名玩家，各自扮演不同角色
 - 叙事时要关注所有玩家的角色状态
-- 当某个玩家行动时，其他角色的状态也要考虑
+- 向特定角色提问："战士，当巨魔冲锋时，你站在哪里？"
+- 创造需要多个角色输入的情境
+- 询问角色之间关于他们共同历史的问题
+- 当一名玩家描述某事时，询问另一名玩家他们的角色如何反应
 - 战斗中管理所有角色的行动顺序
 - 使用角色名而非"你"来避免混淆
-- 鼓励玩家之间的互动和合作
 - 当前行动的玩家是：${context.activePlayerName || '未知'}`;
     }
 
@@ -365,38 +611,84 @@ ${npc.name}当前压力：${npc.currentStress}/${npc.stressSlots}
     const combat = context.sessionState.activeCombat;
     const isMultiplayer = context.characters && context.characters.length > 1;
 
+    // Build a single character's full status string
+    const buildCharStatus = (c: Character, isActive: boolean) => {
+      const attrs = c.attributes
+        ? `敏捷:${c.attributes.agility ?? 0} 力量:${c.attributes.strength ?? 0} 灵巧:${c.attributes.finesse ?? 0} 本能:${c.attributes.instinct ?? 0} 风度:${c.attributes.presence ?? 0} 知识:${c.attributes.knowledge ?? 0}`
+        : '属性未设置';
+
+      const weaponStr = c.mainWeapon
+        ? `主武器:${c.mainWeapon.name || c.mainWeapon.weaponId}${c.offWeapon ? ` 副武器:${c.offWeapon.name || c.offWeapon.weaponId}` : ''}`
+        : '武器未装备';
+
+      const domainCards = c.domainCardConfig?.loadout?.length
+        ? c.domainCardConfig.loadout.map(dc => dc.name).join('、')
+        : '无';
+
+      const conditionsStr = c.conditions?.length
+        ? c.conditions.map(cond => cond.condition).join('、')
+        : '无';
+
+      const experiencesStr = c.experiences?.length
+        ? c.experiences.map(e => `${e.name}(+${e.modifier})`).join('、')
+        : '无';
+
+      const inventoryStr = c.inventory?.length
+        ? c.inventory.slice(0, 10).map(i => i.name).join('、') + (c.inventory.length > 10 ? ` 等${c.inventory.length}件` : '')
+        : '空';
+
+      const scarsStr = c.scars?.length
+        ? c.scars.map(s => s.name).join('、')
+        : '无';
+
+      const backstoryStr = c.backstory ? `\n背景: ${c.backstory.substring(0, 100)}` : '';
+      const questStr = c.personalQuest ? `\n个人任务: ${c.personalQuest.substring(0, 80)}` : '';
+
+      return `${isActive ? '▶ ' : '  '}${c.name}（${c.classId}${c.subclassId ? '/' + c.subclassId : ''} ${c.ancestryId} Lv.${c.level}）
+  HP:${c.hp}/${c.maxHp} 压力:${c.stress}/${c.maxStress} 希望:${c.hope}/${c.maxHope} 护甲槽:${c.armorSlots}/${c.maxArmorSlots}
+  闪避:${c.evasion} 阈值:轻度${c.minorThreshold}/重度${c.majorThreshold}/严重${c.severeThreshold}
+  属性: ${attrs}
+  状态: ${conditionsStr} | 伤痕: ${scarsStr}
+  ${weaponStr} | 护甲:${c.armor?.name || c.armor?.armorId || '无'}
+  领域卡: ${domainCards}
+  经历: ${experiencesStr}
+  物品: ${inventoryStr} | 金币:${c.gold ?? 0}${backstoryStr}${questStr}`;
+    };
+
     let summary: string;
 
     if (isMultiplayer) {
-      // Multi-player: show full party status
-      const partyDesc = context.characters!.map((c, i) => {
-        return `${i + 1}. ${c.name}（${c.classId} Lv.${c.level}）HP:${c.hp}/${c.maxHp} 压力:${c.stress}/${c.maxStress} 希望:${c.hope}/${c.maxHope} 护甲:${c.armorSlots}/${c.maxArmorSlots}`;
-      }).join('\n');
+      // Multi-player: show full party status, filter to connected players
+      const connectedChars = context.characters!.filter((c, i) => {
+        const player = context.sessionState.players[i];
+        return !player || player.isConnected;
+      });
+
+      const partyDesc = connectedChars.map((c, i) => {
+        const isActive = c.id === char.id;
+        return buildCharStatus(c, isActive);
+      }).join('\n\n');
 
       const activeChar = context.activePlayerName
         ? `当前行动：${context.activePlayerName}（${char.name}）`
         : `当前行动：${char.name}`;
 
-      summary = `## 队伍状态（${context.characters!.length}人）
+      summary = `## 队伍状态（${connectedChars.length}人）
 ${partyDesc}
 
 ${activeChar}
 
-场景：${scene.name} - ${scene.description.substring(0, 100)}
+场景：${scene.name} - ${scene.description.substring(0, 200)}
 在场NPC: ${scene.npcPresent.join(', ') || '无'}
-恐惧点池: ${context.sessionState.fearPoints}`;
+恐惧点池: ${context.sessionState.fearPoints}（GM资源，见核心规则中恐惧点经济）`;
     } else {
-      // Single-player: original format
+      // Single-player: full status
       summary = `## 当前状态
-角色：${char.name}（${char.level}级）
-HP: ${char.hp}/${char.maxHp} | 压力: ${char.stress}/${char.maxStress} | 希望: ${char.hope}/${char.maxHope}
-护甲槽: ${char.armorSlots}/${char.maxArmorSlots} | 闪避值: ${char.evasion}
-伤害阈值: 轻度${char.minorThreshold}/重度${char.majorThreshold}/严重${char.severeThreshold}
-状态: ${char.conditions.map(c => c.condition).join(', ') || '无'}
+${buildCharStatus(char, true)}
 
-场景：${scene.name} - ${scene.description.substring(0, 100)}
+场景：${scene.name} - ${scene.description.substring(0, 200)}
 在场NPC: ${scene.npcPresent.join(', ') || '无'}
-恐惧点池: ${context.sessionState.fearPoints}`;
+恐惧点池: ${context.sessionState.fearPoints}（GM资源，见核心规则中恐惧点经济）`;
     }
 
     summary += `

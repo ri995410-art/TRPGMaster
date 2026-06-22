@@ -1,5 +1,7 @@
 import type {
   SessionState,
+  SessionZeroData,
+  SessionZeroPhase,
   SceneState,
   CombatState,
   CombatEnemy,
@@ -152,7 +154,30 @@ export class StateManager {
   // ===== Session Management =====
 
   startSession(): void {
+    const connectedPlayers = this.state.players.filter(p => p.isConnected);
+    if (connectedPlayers.length > 1) {
+      this.state.status = 'sessionZero';
+      this.state.sessionZeroPhase = 'safety';
+      this.state.sessionZeroData = {};
+    } else {
+      this.state.status = 'active';
+    }
+    this.markDirty('session');
+  }
+
+  completeSessionZero(): void {
     this.state.status = 'active';
+    this.state.sessionZeroPhase = undefined;
+    this.markDirty('session');
+  }
+
+  setSessionZeroPhase(phase: SessionZeroPhase): void {
+    this.state.sessionZeroPhase = phase;
+    this.markDirty('session');
+  }
+
+  updateSessionZeroData(data: Partial<SessionZeroData>): void {
+    this.state.sessionZeroData = { ...this.state.sessionZeroData, ...data };
     this.markDirty('session');
   }
 

@@ -106,6 +106,9 @@ interface GameStore {
     isConnected: boolean;
   }>;
 
+  // Session Zero info
+  sessionZeroPhase: string | null;    // Current S0 phase (safety/worldbuilding/connections/expectations/narrativePact)
+
   // AI config (fetched from server)
   aiConfig: {
     apiKey: string;           // 脱敏显示（如 ••••a1b2）
@@ -147,6 +150,8 @@ interface GameStore {
   setSessionCode: (code: string | null) => void;
   setIsHost: (isHost: boolean) => void;
   setPlayers: (players: Array<{ id: string; name: string; characterName?: string; isConnected: boolean }>) => void;
+  // Session Zero actions
+  setSessionZeroPhase: (phase: string | null) => void;
   // AI config actions
   setAiConfig: (config: GameStore['aiConfig']) => void;
   setAiConnected: (connected: boolean) => void;
@@ -175,6 +180,7 @@ const initialState = {
   sessionCode: null,
   isHost: false,
   players: [],
+  sessionZeroPhase: null,
   aiConfig: null,
 };
 
@@ -329,6 +335,9 @@ export const useGameStore = create<GameStore>()(
       setSessionCode: (code) => set({ sessionCode: code }),
       setIsHost: (isHost) => set({ isHost }),
       setPlayers: (players) => set({ players }),
+
+      // Session Zero actions
+      setSessionZeroPhase: (phase) => set({ sessionZeroPhase: phase }),
 
       // AI config actions
       setAiConfig: (config) => set({ aiConfig: config }),

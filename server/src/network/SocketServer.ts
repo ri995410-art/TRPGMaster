@@ -507,16 +507,74 @@ export class SocketServer {
     const state = stateManager.getState();
     const sessionId = client.sessionId;
 
-    this.io.to(sessionId).emit('session:started', {
-      type: 'session:started',
-      sessionId,
-      senderId: 'system',
-      payload: { status: state.status },
-      timestamp: Date.now(),
-    });
+    if (state.status === 'sessionZero') {
+      // Multi-player: enter Session Zero instead of active gameplay
+      this.io.to(sessionId).emit('session:sessionZeroStarted', {
+        type: 'session:sessionZeroStarted',
+        sessionId,
+        senderId: 'system',
+        payload: { phase: state.sessionZeroPhase },
+        timestamp: Date.now(),
+      });
 
-    this.broadcastState(state);
-    console.log(`Session ${sessionId} started by ${client.name}`);
+      // Start the S0 conversation with AI GM
+      if (this.aiGM) {
+        const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
+        if (character) {
+          const context = {
+            sessionId,
+            character,
+            characters: state.characters.length > 0 ? state.characters : [character],
+            activePlayerId: client.playerId,
+            activePlayerName: client.name,
+            sessionState: state,
+            recentHistory: [],
+            worldLore: null as any,
+          };
+
+          this.aiGM.runSessionZero(context).then(response => {
+            const { cleanContent } = this.extractStateChanges(response.message.content);
+            const choices = this.extractChoices(cleanContent);
+            this.io.to(sessionId).emit('gm:narrate', {
+              type: 'gm:narrate',
+              sessionId,
+              senderId: 'system',
+              payload: {
+                content: cleanContent,
+                choices,
+              },
+              timestamp: Date.now(),
+            });
+
+            const gmMsg: PersistedAdventureMessage = {
+              id: `msg_${Date.now()}_gm`,
+              role: 'narrator',
+              content: cleanContent,
+              timestamp: Date.now(),
+              choices: choices?.map(c => ({ id: c.id, text: c.label, action: c.action })),
+            };
+            stateManager.addAdventureMessage(gmMsg);
+          }).catch(err => {
+            console.error('S0 AI GM error:', err);
+          });
+        }
+      }
+
+      this.broadcastState(state);
+      console.log(`Session ${sessionId} entering Session Zero (${state.characters.length} players)`);
+    } else {
+      // Single-player: go directly to active
+      this.io.to(sessionId).emit('session:started', {
+        type: 'session:started',
+        sessionId,
+        senderId: 'system',
+        payload: { status: state.status },
+        timestamp: Date.now(),
+      });
+
+      this.broadcastState(state);
+      console.log(`Session ${sessionId} started by ${client.name}`);
+    }
   }
 
   private handleSessionEnd(socket: Socket): void {
@@ -726,8 +784,22 @@ export class SocketServer {
           worldLore: null as any,
         };
 
-        const response = await this.aiGM.processPlayerAction(context, playerAction);
-        const choices = this.extractChoices(response.message.content);
+        // Route to Session Zero or normal gameplay
+        const isSessionZero = state.status === 'sessionZero';
+        const response = isSessionZero
+          ? await this.aiGM.runSessionZero(context, playerAction)
+          : await this.aiGM.processPlayerAction(context, playerAction);
+
+        // Extract state changes from AI response
+        const { cleanContent, stateChanges } = this.extractStateChanges(response.message.content);
+
+        // Apply state changes to StateManager
+        if (stateChanges.length > 0) {
+          this.applyStateChanges(stateManager, client.playerId, stateChanges);
+        }
+
+        // Extract choices from cleaned content (without [STATE] lines)
+        const choices = this.extractChoices(cleanContent);
 
         // Emit GM narration to all clients in the session
         this.io.to(sessionId).emit('gm:narrate', {
@@ -735,7 +807,7 @@ export class SocketServer {
           sessionId,
           senderId: 'system',
           payload: {
-            content: response.message.content,
+            content: cleanContent,
             choices,
             npcName: response.message.npcName,
             npcId: response.message.npcId,
@@ -749,7 +821,7 @@ export class SocketServer {
         const gmMsg: PersistedAdventureMessage = {
           id: `msg_${Date.now()}_gm`,
           role: response.message.npcName ? 'npc' : 'narrator',
-          content: response.message.content,
+          content: cleanContent,
           timestamp: Date.now(),
           npcName: response.message.npcName,
           npcId: response.message.npcId,
@@ -767,6 +839,39 @@ export class SocketServer {
               payload: event,
               timestamp: Date.now(),
             });
+          }
+        }
+
+        // Session Zero phase advancement
+        if (isSessionZero) {
+          const S0_PHASES: Array<import('@trpgmaster/shared').SessionZeroPhase> = ['safety', 'worldbuilding', 'connections', 'expectations', 'narrativePact'];
+          const currentPhase = state.sessionZeroPhase;
+          const currentIndex = S0_PHASES.indexOf(currentPhase!);
+
+          if (currentIndex >= 0 && currentIndex < S0_PHASES.length - 1) {
+            // Advance to next phase
+            const nextPhase = S0_PHASES[currentIndex + 1];
+            stateManager.setSessionZeroPhase(nextPhase);
+            console.log(`Session Zero advanced to phase: ${nextPhase}`);
+          } else if (currentIndex === S0_PHASES.length - 1) {
+            // Final phase (narrativePact) completed — transition to active gameplay
+            stateManager.completeSessionZero();
+            this.io.to(sessionId).emit('session:completeSessionZero', {
+              type: 'session:completeSessionZero',
+              sessionId,
+              senderId: 'system',
+              payload: {},
+              timestamp: Date.now(),
+            });
+            this.io.to(sessionId).emit('session:started', {
+              type: 'session:started',
+              sessionId,
+              senderId: 'system',
+              payload: { status: 'active' },
+              timestamp: Date.now(),
+            });
+            this.broadcastState(stateManager.getState());
+            console.log(`Session Zero completed, game is now active`);
           }
         }
 
@@ -917,6 +1022,95 @@ export class SocketServer {
     }
 
     return undefined;
+  }
+
+  /**
+   * Extract state changes from AI response [STATE] lines
+   * Returns clean content (without [STATE] lines) and parsed state changes
+   */
+  private extractStateChanges(content: string): { cleanContent: string; stateChanges: Array<{ characterName?: string; changes: Record<string, number> }> } {
+    const stateChanges: Array<{ characterName?: string; changes: Record<string, number> }> = [];
+    const lines = content.split('\n');
+    const cleanLines: string[] = [];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+
+      // Match [STATE:CharacterName] key:value key:value or [STATE] key:value
+      const namedMatch = trimmed.match(/^\[STATE:(.+?)\]\s*(.+)$/);
+      const unnamedMatch = trimmed.match(/^\[STATE\]\s*(.+)$/);
+
+      if (namedMatch) {
+        const characterName = namedMatch[1].trim();
+        const changes = this.parseStateKeyValue(namedMatch[2]);
+        if (Object.keys(changes).length > 0) {
+          stateChanges.push({ characterName, changes });
+        }
+      } else if (unnamedMatch) {
+        const changes = this.parseStateKeyValue(unnamedMatch[1]);
+        if (Object.keys(changes).length > 0) {
+          stateChanges.push({ changes });
+        }
+      } else {
+        cleanLines.push(line);
+      }
+    }
+
+    return { cleanContent: cleanLines.join('\n').trim(), stateChanges };
+  }
+
+  private parseStateKeyValue(text: string): Record<string, number> {
+    const changes: Record<string, number> = {};
+    const pairs = text.trim().split(/\s+/);
+    for (const pair of pairs) {
+      const match = pair.match(/^(\w+):([+-]?\d+)$/);
+      if (match) {
+        changes[match[1]] = parseInt(match[2], 10);
+      }
+    }
+    return changes;
+  }
+
+  private applyStateChanges(stateManager: StateManager, playerId: string, stateChanges: Array<{ characterName?: string; changes: Record<string, number> }>): void {
+    for (const sc of stateChanges) {
+      // Find the target character — by name if specified, else use current player
+      let targetPlayerId = playerId;
+      if (sc.characterName) {
+        const players = stateManager.getPlayers();
+        const found = players.find(p => p.character?.name === sc.characterName);
+        if (found) targetPlayerId = found.id;
+      }
+
+      const char = stateManager.getPlayerCharacter(targetPlayerId);
+      if (!char) continue;
+
+      const updates: Partial<Character> = {};
+
+      for (const [key, delta] of Object.entries(sc.changes)) {
+        switch (key) {
+          case 'hp':
+            updates.hp = Math.max(0, Math.min(char.maxHp, char.hp + delta));
+            break;
+          case 'stress':
+            updates.stress = Math.max(0, Math.min(char.maxStress, char.stress + delta));
+            break;
+          case 'hope':
+            updates.hope = Math.max(0, Math.min(char.maxHope, char.hope + delta));
+            break;
+          case 'fearPoints':
+            if (delta > 0) {
+              stateManager.addFearPoints(delta);
+            } else if (delta < 0) {
+              stateManager.spendFearPoints(Math.abs(delta));
+            }
+            break;
+        }
+      }
+
+      if (Object.keys(updates).length > 0) {
+        stateManager.updatePlayerCharacter(targetPlayerId, updates);
+      }
+    }
   }
 
   /**

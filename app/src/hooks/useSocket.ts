@@ -290,6 +290,34 @@ export function connectToServer(serverUrl: string): Promise<string> {
       console.log('[useSocket] Rejoined session:', msg.payload.sessionId);
     });
 
+    // ===== Session Zero Events =====
+
+    socket.on('session:sessionZeroStarted', (msg: SocketMessage<{ phase: string }>) => {
+      const store = useGameStore.getState();
+      const sysMsg: AdventureMessage = {
+        id: `msg_${Date.now()}_s0start`,
+        role: 'system',
+        content: '🎉 Session Zero 开始——让我们共同设定这场战役！',
+        timestamp: Date.now(),
+      };
+      store.addAdventureMessage(sysMsg);
+      store.setSessionZeroPhase(msg.payload.phase as any);
+      console.log('[useSocket] Session Zero started, phase:', msg.payload.phase);
+    });
+
+    socket.on('session:completeSessionZero', () => {
+      const store = useGameStore.getState();
+      const sysMsg: AdventureMessage = {
+        id: `msg_${Date.now()}_s0end`,
+        role: 'system',
+        content: '🎉 Session Zero 完成——冒险正式开始！',
+        timestamp: Date.now(),
+      };
+      store.addAdventureMessage(sysMsg);
+      store.setSessionZeroPhase(null);
+      console.log('[useSocket] Session Zero completed');
+    });
+
     socket.on('session:error', (msg: SocketMessage<{ error: string; code?: string }>) => {
       const store = useGameStore.getState();
       const sysMsg: AdventureMessage = {

@@ -21,6 +21,14 @@ import { sendPlayerAction, sendPlayerChoice } from '../hooks/useSocket';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
+const S0_PHASE_LABELS: Record<string, string> = {
+  safety: '安全工具',
+  worldbuilding: '世界观共创',
+  connections: '角色联系',
+  expectations: '战役期望',
+  narrativePact: '共创契约',
+};
+
 export function AdventureScreen() {
   const navigation = useNavigation<NavigationProp>();
   const character = useGameStore((s) => s.character);
@@ -28,11 +36,36 @@ export function AdventureScreen() {
   const aiProcessing = useGameStore((s) => s.aiProcessing);
   const currentLocationName = useGameStore((s) => s.currentLocationName);
   const fearPoints = useGameStore((s) => s.fearPoints);
+  const sessionZeroPhase = useGameStore((s) => s.sessionZeroPhase);
   const addAdventureMessage = useGameStore((s) => s.addAdventureMessage);
   const isConnected = useGameStore((s) => s.isConnected);
 
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef<FlatList>(null);
+
+  // Compute dynamic placeholder based on latest narrator message
+  const getInputPlaceholder = (): string => {
+    if (sessionZeroPhase) {
+      const phaseLabels: Record<string, string> = {
+        safety: '分享你的边界和舒适度...',
+        worldbuilding: '描述你想象中的世界细节...',
+        connections: '讲述你们之间的故事...',
+        expectations: '告诉我你期待的体验...',
+        narrativePact: '确认你准备好共创了吗...',
+      };
+      return phaseLabels[sessionZeroPhase] || '你的回答...';
+    }
+
+    // Check if the last narrator message ends with a question
+    const lastNarratorMsg = [...adventureMessages].reverse().find(m => m.role === 'narrator' || m.role === 'npc');
+    if (lastNarratorMsg?.content.endsWith('？') || lastNarratorMsg?.content.endsWith('?')) {
+      return '你的回答...';
+    }
+
+    return '描述你的行动...';
+  };
+
+  const inputPlaceholder = getInputPlaceholder();
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -150,14 +183,26 @@ export function AdventureScreen() {
     );
   };
 
-  const renderLocationBar = () => (
-    <View style={styles.locationBar}>
-      <Ionicons name="location" size={14} color="#2ecc71" />
-      <Text style={styles.locationText}>
-        {currentLocationName || '余烬村'}
-      </Text>
-    </View>
-  );
+  const renderLocationBar = () => {
+    if (sessionZeroPhase) {
+      return (
+        <View style={[styles.locationBar, styles.s0LocationBar]}>
+          <Ionicons name="people" size={14} color="#e67e22" />
+          <Text style={styles.s0LocationText}>
+            Session Zero · {S0_PHASE_LABELS[sessionZeroPhase] || sessionZeroPhase}
+          </Text>
+        </View>
+      );
+    }
+    return (
+      <View style={styles.locationBar}>
+        <Ionicons name="location" size={14} color="#2ecc71" />
+        <Text style={styles.locationText}>
+          {currentLocationName || '余烬村'}
+        </Text>
+      </View>
+    );
+  };
 
   const renderQuickActions = () => (
     <View style={styles.quickActions}>
@@ -231,10 +276,10 @@ export function AdventureScreen() {
         {renderQuickActions()}
         <View style={styles.inputContainer}>
           <TextInput
-            style={styles.textInput}
+            style={[styles.textInput, sessionZeroPhase ? styles.s0TextInput : undefined]}
             value={inputText}
             onChangeText={setInputText}
-            placeholder="描述你的行动..."
+            placeholder={inputPlaceholder}
             placeholderTextColor="#7f8c8d"
             multiline
             maxLength={500}
@@ -277,6 +322,16 @@ const styles = StyleSheet.create({
     color: '#2ecc71',
     fontSize: 13,
     marginLeft: 4,
+  },
+  s0LocationBar: {
+    backgroundColor: '#1a1a2e',
+    borderBottomColor: '#e67e22',
+  },
+  s0LocationText: {
+    color: '#e67e22',
+    fontSize: 13,
+    marginLeft: 4,
+    fontWeight: 'bold',
   },
   // Resource bar
   resourceBar: {
@@ -456,6 +511,10 @@ const styles = StyleSheet.create({
     maxHeight: 100,
     borderWidth: 1,
     borderColor: '#2c3e50',
+  },
+  s0TextInput: {
+    borderColor: '#e67e22',
+    borderWidth: 2,
   },
   sendButton: {
     width: 40,

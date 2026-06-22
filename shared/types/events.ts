@@ -146,6 +146,16 @@ export interface Player {
 
 export type SessionStatus = 'setup' | 'characterCreation' | 'sessionZero' | 'active' | 'resting' | 'combat' | 'paused' | 'ended';
 
+export type SessionZeroPhase = 'safety' | 'worldbuilding' | 'connections' | 'expectations' | 'narrativePact';
+
+export interface SessionZeroData {
+  safetyTools?: { lines: string[]; veils: string[]; xCard: boolean };
+  worldbuildingAnswers?: Record<string, string>;
+  characterConnections?: string[];
+  tonePreferences?: string[];
+  narrativePactConfirmed?: boolean;
+}
+
 export interface SessionState {
   sessionId: string;
   sessionCode?: string;          // 6位房间码，多人模式使用
@@ -162,6 +172,8 @@ export interface SessionState {
   shortRestsSinceLong: number;     // 两次长休间最多3次短休
   campaignState: CampaignState;
   characterCreationStep?: number;
+  sessionZeroPhase?: SessionZeroPhase;  // S0阶段，仅在status==='sessionZero'时存在
+  sessionZeroData?: SessionZeroData;    // S0收集的数据
 }
 
 export interface SceneState {
