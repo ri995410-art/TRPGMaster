@@ -10,6 +10,8 @@ import type {
   GameEventType,
   CampaignState,
   Player,
+  SpotlightState,
+  SafetyState,
 } from '@trpgmaster/shared';
 import { getTier } from '@trpgmaster/shared';
 import type { Character } from '@trpgmaster/shared';
@@ -159,6 +161,14 @@ export class StateManager {
       this.state.status = 'sessionZero';
       this.state.sessionZeroPhase = 'safety';
       this.state.sessionZeroData = {};
+      // Initialize spotlight for multi-player
+      if (!this.state.spotlightState) {
+        this.state.spotlightState = { mode: 'freeform', current: null, queue: [] };
+      }
+      // Initialize safety state for multi-player
+      if (!this.state.safetyState) {
+        this.state.safetyState = { phase: 's0', lines: [], veils: [], toneFlags: [], xcardActive: false };
+      }
     } else {
       this.state.status = 'active';
     }
@@ -267,6 +277,28 @@ export class StateManager {
     Object.assign(char, updates);
     this.markDirty('character');
     return true;
+  }
+
+  // ===== Spotlight / Turn Management =====
+
+  getSpotlightState(): SpotlightState | undefined {
+    return this.state.spotlightState;
+  }
+
+  setSpotlightState(spotlight: SpotlightState): void {
+    this.state.spotlightState = spotlight;
+    this.markDirty('spotlight');
+  }
+
+  // ===== Safety Tools =====
+
+  getSafetyState(): SafetyState | undefined {
+    return this.state.safetyState;
+  }
+
+  setSafetyState(safety: SafetyState): void {
+    this.state.safetyState = safety;
+    this.markDirty('safety');
   }
 
   // ===== GM Resources =====
@@ -479,6 +511,8 @@ export class StateManager {
       campaignState: this.state.campaignState,
       adventureMessages: this.adventureMessages,
       shortRestsSinceLong: this.state.shortRestsSinceLong,
+      spotlightState: this.state.spotlightState,
+      safetyState: this.state.safetyState,
       createdAt: Date.now(),
     };
   }
@@ -495,6 +529,16 @@ export class StateManager {
     this.state.totalFearGained = data.totalFearGained || 0;
     this.state.totalFearSpent = data.totalFearSpent || 0;
     this.state.shortRestsSinceLong = data.shortRestsSinceLong || 0;
+
+    // Restore spotlight state
+    if (data.spotlightState) {
+      this.state.spotlightState = data.spotlightState;
+    }
+
+    // Restore safety state
+    if (data.safetyState) {
+      this.state.safetyState = data.safetyState;
+    }
 
     // Restore character
     if (data.character) {

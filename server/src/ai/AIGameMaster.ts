@@ -6,7 +6,6 @@
 import type {
   AIGMContext,
   AIGMResponse,
-  AIGMGeneratedEvent,
   WorldLore,
   AIMessage,
   AIChoice,
@@ -22,6 +21,8 @@ import type {
 } from '@trpgmaster/shared';
 import { AIGateway } from './AIGateway';
 import type { AIConfig, AIMessage as GatewayMessage } from './AIGateway';
+import type { DualityDiceResult } from '../rules/systems/DaggerHeartRules';
+import type { SessionStore, HistoryEntry } from '../core/SessionStore';
 
 // ===== AI 管家配置 =====
 
@@ -50,19 +51,91 @@ export interface SceneAnalysis {
 export class AIGameMaster {
   private gateway: AIGateway;
   private config: AIGMConfig;
-  private conversationHistory: Map<string, AIMessage[]>; // sessionId → history
-  private narrativeMemory: Map<string, string[]>; // sessionId → key events
+  private sessionStore: SessionStore;
   private worldLore: WorldLore | null;
 
-  constructor(config: AIGMConfig) {
+  constructor(config: AIGMConfig, sessionStore: SessionStore) {
     this.config = config;
     this.gateway = new AIGateway(config.gateway);
-    this.conversationHistory = new Map();
-    this.narrativeMemory = new Map();
+    this.sessionStore = sessionStore;
     this.worldLore = null;
   }
 
   // ===== 核心方法 =====
+
+  private readonly stateReminder = "\n\n【输出要求】如果本回合角色受到了伤害、恢复了生命、获得了压力或消耗了希望，你必须在叙述结尾另起一行输出状态标记。示例：\n骨爪划过凯尔的肩膀，鲜血渗出。\n[STATE] hp:-2 stress:+1\n如果角色休息恢复了体力：\n[STATE] hp:+2 stress:-1\n如果没有状态变化则不输出。";
+
+  /**
+   * 处理玩家行动 — 流式版本，逐 token 回调
+   * 用于多人场景下 GM "正在落笔" 的实时体验
+   */
+  async processPlayerActionStream(
+    context: AIGMContext,
+    playerInput: string,
+    onToken: (delta: string) => void,
+    diceResult?: DualityDiceResult,
+    signal?: AbortSignal,
+  ): Promise<AIGMResponse> {
+    const sessionId = context.sessionId;
+
+    // Same prompt construction as non-streaming
+    const systemPrompt = this.buildSystemPrompt(context);
+    const stateSummary = this.buildStateSummary(context);
+
+    const messages: GatewayMessage[] = [
+      { role: 'system', content: systemPrompt },
+      { role: 'system', content: stateSummary },
+    ];
+
+    if (diceResult) {
+      messages.push({ role: 'system', content: this.formatDiceResultSummary(diceResult) });
+    }
+
+    const playerHistoryEntry: HistoryEntry = {
+      id: `msg_${Date.now()}_player`,
+      role: 'player',
+      content: this.formatPlayerContent(context, playerInput),
+      timestamp: Date.now(),
+    };
+    await this.sessionStore.appendHistory(sessionId, playerHistoryEntry);
+
+    const history = await this.sessionStore.getHistory(sessionId);
+    const conversationMessages = this.buildConversationMessages(
+      history,
+      playerInput,
+      context,
+      true,
+    );
+    messages.push(...conversationMessages);
+
+    // Stream the request
+    const { fullText } = await this.gateway.sendStreamRequest(
+      {
+        model: this.config.narratorModel,
+        messages,
+        temperature: this.config.temperature,
+        maxTokens: this.config.maxTokensPerResponse,
+        agentType: 'aigm',
+      },
+      onToken,
+      signal,
+    );
+
+    const aiMessage: HistoryEntry = {
+      id: `msg_${Date.now()}`,
+      role: 'narrator',
+      content: fullText,
+      timestamp: Date.now(),
+    };
+
+    await this.sessionStore.appendHistory(sessionId, aiMessage);
+
+    return {
+      message: aiMessage,
+      events: [],
+      tokenUsage: 0, // Stream mode doesn't return usage stats
+    };
+  }
 
   /**
    * 处理玩家行动 — AI管家的核心入口
@@ -71,43 +144,42 @@ export class AIGameMaster {
   async processPlayerAction(
     context: AIGMContext,
     playerInput: string,
+    diceResult?: DualityDiceResult,
   ): Promise<AIGMResponse> {
     const sessionId = context.sessionId;
-    const history = this.getHistory(sessionId);
 
     // 构建AI请求
     const systemPrompt = this.buildSystemPrompt(context);
     const stateSummary = this.buildStateSummary(context);
-    const memorySummary = this.buildMemorySummary(sessionId);
 
     const messages: GatewayMessage[] = [
       { role: 'system', content: systemPrompt },
       { role: 'system', content: stateSummary },
     ];
 
-    if (memorySummary) {
-      messages.push({ role: 'system', content: memorySummary });
+    // Inject dice result as a factual system message (already resolved by backend)
+    if (diceResult) {
+      messages.push({ role: 'system', content: this.formatDiceResultSummary(diceResult) });
     }
 
-    // 添加对话历史（最近20条）
-    const recentHistory = history.slice(-20);
-    for (const msg of recentHistory) {
-      if (msg.role === 'narrator' || msg.role === 'system') {
-        messages.push({ role: 'assistant', content: msg.content });
-      } else if (msg.role === 'npc') {
-        messages.push({ role: 'assistant', content: `[${msg.npcName || 'NPC'}] ${msg.content}` });
-      }
-    }
+    // Add player input to history BEFORE reconstruction so it appears in conversation
+    const playerHistoryEntry: HistoryEntry = {
+      id: `msg_${Date.now()}_player`,
+      role: 'player',
+      content: this.formatPlayerContent(context, playerInput),
+      timestamp: Date.now(),
+    };
+    await this.sessionStore.appendHistory(sessionId, playerHistoryEntry);
 
-    // 添加玩家当前输入
-    // [STATE] marker instruction in user message for better model compliance
-    const stateReminder = "\n\n【输出要求】如果本回合角色受到了伤害、恢复了生命、获得了压力或消耗了希望，你必须在叙述结尾另起一行输出状态标记。示例：\n骨爪划过凯尔的肩膀，鲜血渗出。\n[STATE] hp:-2 stress:+1\n如果角色休息恢复了体力：\n[STATE] hp:+2 stress:-1\n如果没有状态变化则不输出。";
-    if (context.activePlayerName && context.characters && context.characters.length > 1) {
-      // Multi-player: prefix with player/character name
-      messages.push({ role: 'user', content: `[${context.activePlayerName}/${context.character.name}]: ${playerInput}${stateReminder}` });
-    } else {
-      messages.push({ role: 'user', content: `${playerInput}${stateReminder}` });
-    }
+    // Build conversation messages from history + current input
+    const history = await this.sessionStore.getHistory(sessionId);
+    const conversationMessages = this.buildConversationMessages(
+      history,
+      playerInput,
+      context,
+      true,
+    );
+    messages.push(...conversationMessages);
 
     // 调用AI
     const response = await this.gateway.sendRequest({
@@ -126,18 +198,17 @@ export class AIGameMaster {
       timestamp: Date.now(),
     };
 
-    // 生成事件
-    const events = this.generateEventsFromResponse(response.content, context);
-
-    // 更新记忆
-    this.addMemoryEntry(sessionId, playerInput, response.content);
-
     // 更新对话历史
-    this.addHistoryEntry(sessionId, aiMessage);
+    await this.sessionStore.appendHistory(sessionId, {
+      id: aiMessage.id,
+      role: aiMessage.role,
+      content: aiMessage.content,
+      timestamp: aiMessage.timestamp,
+    });
 
     return {
       message: aiMessage,
-      events,
+      events: [],
       tokenUsage: response.tokenUsage.totalTokens,
     };
   }
@@ -297,38 +368,38 @@ ${npc.name}当前压力：${npc.currentStress}/${npc.stressSlots}
    */
   private async callAI(customSystemPrompt: string, context: AIGMContext, playerInput?: string): Promise<AIGMResponse> {
     const sessionId = context.sessionId;
-    const history = this.getHistory(sessionId);
 
     const stateSummary = this.buildStateSummary(context);
-    const memorySummary = this.buildMemorySummary(sessionId);
 
     const messages: GatewayMessage[] = [
       { role: 'system', content: customSystemPrompt },
       { role: 'system', content: stateSummary },
     ];
 
-    if (memorySummary) {
-      messages.push({ role: 'system', content: memorySummary });
-    }
-
-    // Add conversation history (last 20)
-    const recentHistory = history.slice(-20);
-    for (const msg of recentHistory) {
-      if (msg.role === 'narrator' || msg.role === 'system') {
-        messages.push({ role: 'assistant', content: msg.content });
-      } else if (msg.role === 'npc') {
-        messages.push({ role: 'assistant', content: `[${msg.npcName || 'NPC'}] ${msg.content}` });
-      }
-    }
-
-    // Add user message: player input or S0 initial prompt
+    // Add player input to history if present
     if (playerInput) {
-      if (context.activePlayerName && context.characters && context.characters.length > 1) {
-        messages.push({ role: 'user', content: `[${context.activePlayerName}/${context.character.name}]: ${playerInput}` });
-      } else {
-        messages.push({ role: 'user', content: playerInput });
-      }
-    } else {
+      const playerHistoryEntry: HistoryEntry = {
+        id: `msg_${Date.now()}_player`,
+        role: 'player',
+        content: this.formatPlayerContent(context, playerInput),
+        timestamp: Date.now(),
+      };
+      await this.sessionStore.appendHistory(sessionId, playerHistoryEntry);
+    }
+
+    // Build conversation messages from history + current input
+    // Session Zero does NOT include stateReminder
+    const history = await this.sessionStore.getHistory(sessionId);
+    const conversationMessages = this.buildConversationMessages(
+      history,
+      playerInput,
+      context,
+      false,
+    );
+    messages.push(...conversationMessages);
+
+    // If no player input and no history, add S0 initial prompt
+    if (!playerInput && conversationMessages.length === 0) {
       const phase = context.sessionState?.sessionZeroPhase || 'safety';
       messages.push({
         role: 'user',
@@ -351,13 +422,16 @@ ${npc.name}当前压力：${npc.currentStress}/${npc.stressSlots}
       timestamp: Date.now(),
     };
 
-    const events = this.generateEventsFromResponse(response.content, context);
-    this.addMemoryEntry(sessionId, 'Session Zero', response.content);
-    this.addHistoryEntry(sessionId, aiMessage);
+    await this.sessionStore.appendHistory(sessionId, {
+      id: aiMessage.id,
+      role: aiMessage.role,
+      content: aiMessage.content,
+      timestamp: aiMessage.timestamp,
+    });
 
     return {
       message: aiMessage,
-      events,
+      events: [],
       tokenUsage: response.tokenUsage.totalTokens,
     };
   }
@@ -601,6 +675,20 @@ ${characterList}
 - 当前行动的玩家是：${context.activePlayerName || '未知'}`;
     }
 
+    // Inject safety boundaries (Lines/Veils) if present
+    const safety = context.sessionState.safetyState;
+    if (safety && (safety.lines.length > 0 || safety.veils.length > 0)) {
+      prompt += `
+
+## 安全边界（绝对遵守，高于一切叙事需求）
+- 以下内容绝不出现（Lines）：${safety.lines.join('、')}
+- 以下内容只暗示、不描写（Veils）：${safety.veils.join('、')}`;
+      if (safety.toneFlags.length > 0) {
+        prompt += `
+- 叙事基调偏好：${safety.toneFlags.join('、')}`;
+      }
+    }
+
     return prompt;
   }
 
@@ -618,7 +706,7 @@ ${characterList}
         : '属性未设置';
 
       const weaponStr = c.mainWeapon
-        ? `主武器:${c.mainWeapon.name || c.mainWeapon.weaponId}${c.offWeapon ? ` 副武器:${c.offWeapon.name || c.offWeapon.weaponId}` : ''}`
+        ? `主武器:${c.mainWeapon.name || c.mainWeapon.id}${c.offWeapon ? ` 副武器:${c.offWeapon.name || c.offWeapon.id}` : ''}`
         : '武器未装备';
 
       const domainCards = c.domainCardConfig?.loadout?.length
@@ -649,7 +737,7 @@ ${characterList}
   闪避:${c.evasion} 阈值:轻度${c.minorThreshold}/重度${c.majorThreshold}/严重${c.severeThreshold}
   属性: ${attrs}
   状态: ${conditionsStr} | 伤痕: ${scarsStr}
-  ${weaponStr} | 护甲:${c.armor?.name || c.armor?.armorId || '无'}
+  ${weaponStr} | 护甲:${c.armor?.name || c.armor?.id || '无'}
   领域卡: ${domainCards}
   经历: ${experiencesStr}
   物品: ${inventoryStr} | 金币:${c.gold ?? 0}${backstoryStr}${questStr}`;
@@ -696,10 +784,45 @@ ${buildCharStatus(char, true)}
 战役进度：
 当前章节: ${campaign.currentChapter}
 当前位置: ${campaign.currentLocation}
-已访问地点: ${campaign.visitedLocations.length}处
+已访问地点: ${campaign.visitedLocations.length > 0 ? campaign.visitedLocations.join('、') : '无'}
 污染等级: ${campaign.contaminationLevel}/6
 翠晶收集: ${campaign.deleriumCollected}
-封印已发现: ${campaign.sealsFound.length}个`;
+迷雾扩展: ${campaign.hazeExpansion}
+封印已发现: ${campaign.sealsFound.length > 0 ? campaign.sealsFound.join('、') : '无'}`;
+
+    // 叙事标记
+    const activeFlags = Object.entries(campaign.narrativeFlags)
+      .filter(([, v]) => v)
+      .map(([k]) => k);
+    if (activeFlags.length > 0) {
+      summary += `\n叙事标记: ${activeFlags.join('、')}`;
+    }
+
+    // 个人任务进度
+    const personalQuests = Object.values(campaign.personalQuestProgress)
+      .filter(q => q.status !== 'notStarted');
+    if (personalQuests.length > 0) {
+      const questDesc = personalQuests.map(q => {
+        const statusLabel: Record<string, string> = { inProgress: '进行中', completed: '已完成', failed: '失败' };
+        let desc = `${q.questId} [${statusLabel[q.status] || q.status}]`;
+        if (q.currentObjective) desc += ` 当前: ${q.currentObjective}`;
+        return desc;
+      }).join('；');
+      summary += `\n个人任务: ${questDesc}`;
+    }
+
+    // 派系任务进度
+    const factionQuests = Object.values(campaign.factionQuestProgress)
+      .filter(q => q.status !== 'notStarted');
+    if (factionQuests.length > 0) {
+      const questDesc = factionQuests.map(q => {
+        const statusLabel: Record<string, string> = { inProgress: '进行中', completed: '已完成', failed: '失败' };
+        let desc = `${q.questId} [${statusLabel[q.status] || q.status}]`;
+        if (q.currentObjective) desc += ` 当前: ${q.currentObjective}`;
+        return desc;
+      }).join('；');
+      summary += `\n派系任务: ${questDesc}`;
+    }
 
     // 派系关系
     const factionRelations = Object.entries(campaign.factionRelations)
@@ -728,103 +851,99 @@ ${buildCharStatus(char, true)}
       }
     }
 
+    // 世界观数据
+    if (this.worldLore) {
+      const factionSummary = this.worldLore.factions
+        .map(f => `${f.name}(${f.nameEn}): ${f.ideology.substring(0, 40)}`)
+        .join('；');
+      if (factionSummary) {
+        summary += `\n派系详情: ${factionSummary}`;
+      }
+
+      const sceneNpcs = this.worldLore.npcs
+        .filter(n => n.locationId === campaign.currentLocation)
+        .map(n => `${n.name}(${n.role}, ${n.personality.substring(0, 30)})`)
+        .join('；');
+      if (sceneNpcs) {
+        summary += `\n本地NPC: ${sceneNpcs}`;
+      }
+    }
+
     return summary;
   }
 
-  private buildMemorySummary(sessionId: string): string {
-    const memories = this.narrativeMemory.get(sessionId);
-    if (!memories || memories.length === 0) return '';
-
-    const recent = memories.slice(-10);
-    return `## 关键事件记忆\n${recent.join('\n')}`;
+  private formatPlayerContent(context: AIGMContext, playerInput: string): string {
+    if (context.activePlayerName && context.characters && context.characters.length > 1) {
+      return `[${context.activePlayerName}/${context.character.name}]: ${playerInput}`;
+    }
+    return playerInput;
   }
 
-  private generateEventsFromResponse(
-    responseContent: string,
+  private formatDiceResultSummary(result: DualityDiceResult): string {
+    const outcomeLabels: Record<string, string> = {
+      criticalSuccess: '暴击成功',
+      hopeSuccess: '希望成功',
+      fearSuccess: '恐惧成功',
+      hopeFailure: '希望失败',
+      fearFailure: '恐惧失败',
+    };
+    const label = outcomeLabels[result.outcome] || result.outcome;
+    let summary = `【骰子判定结果（已结算）】${label}：希望骰${result.hopeDie} 恐惧骰${result.fearDie} 总计${result.total} vs 难度${result.difficulty}`;
+    if (result.hopeGain > 0) summary += `，角色希望+${result.hopeGain}`;
+    if (result.fearGain > 0) summary += `，GM恐惧+${result.fearGain}`;
+    if (result.isCritical) summary += '（暴击：双骰相同，自动成功）';
+    summary += '。请基于此既定结果进行叙事。';
+    return summary;
+  }
+
+  private buildConversationMessages(
+    history: HistoryEntry[],
+    currentPlayerInput: string | undefined,
     context: AIGMContext,
-  ): AIGMGeneratedEvent[] {
-    const events: AIGMGeneratedEvent[] = [];
+    includeStateReminder: boolean,
+    maxHistoryTokens: number = 100000,
+  ): GatewayMessage[] {
+    const MAX_ENTRIES = 50;
+    let recentHistory = history.slice(-MAX_ENTRIES);
 
-    // 简单的关键词检测来生成事件
-    // 在生产环境中，应该使用结构化输出或更复杂的NLP
-    const content = responseContent.toLowerCase();
-
-    if (content.includes('污染') || content.includes('翠晶')) {
-      events.push({
-        type: 'drakkenheim:contamination',
-        payload: { description: '角色接触了污染源' },
-        priority: 'high',
-      });
+    // Token budget safety: trim from the front if estimated tokens exceed limit
+    let estimatedTokens = this.estimateHistoryTokens(recentHistory);
+    while (estimatedTokens > maxHistoryTokens && recentHistory.length > 2) {
+      recentHistory = recentHistory.slice(2);
+      estimatedTokens = this.estimateHistoryTokens(recentHistory);
     }
 
-    if (content.includes('迷雾') && content.includes('反应')) {
-      events.push({
-        type: 'drakkenheim:hazeEffect',
-        payload: { description: '迷雾暴露反应' },
-        priority: 'normal',
-      });
+    const messages: GatewayMessage[] = [];
+
+    for (const msg of recentHistory) {
+      if (msg.role === 'player') {
+        messages.push({ role: 'user', content: msg.content });
+      } else if (msg.role === 'narrator' || msg.role === 'system' || msg.role === 'combat') {
+        messages.push({ role: 'assistant', content: msg.content });
+      } else if (msg.role === 'npc') {
+        messages.push({ role: 'assistant', content: `[${msg.npcName || 'NPC'}] ${msg.content}` });
+      }
     }
 
-    if (content.includes('翠晶') && content.includes('发现')) {
-      events.push({
-        type: 'drakkenheim:deleriumFound',
-        payload: { description: '发现翠晶' },
-        priority: 'normal',
-      });
+    // Append current player input as the final user message
+    if (currentPlayerInput) {
+      let userContent = this.formatPlayerContent(context, currentPlayerInput);
+      if (includeStateReminder) {
+        userContent += this.stateReminder;
+      }
+      messages.push({ role: 'user', content: userContent });
     }
 
-    if (content.includes('封印') && content.includes('发现')) {
-      events.push({
-        type: 'drakkenheim:sealFound',
-        payload: { description: '发现德拉肯海姆封印' },
-        priority: 'critical',
-      });
-    }
-
-    if (content.includes('战斗') || content.includes('攻击') || content.includes('敌人')) {
-      events.push({
-        type: 'combat:start',
-        payload: { description: '进入战斗' },
-        priority: 'high',
-      });
-    }
-
-    if (content.includes('派系') && (content.includes('关系') || content.includes('声望'))) {
-      events.push({
-        type: 'faction:relationChange',
-        payload: { description: '派系关系变化' },
-        priority: 'normal',
-      });
-    }
-
-    return events;
+    return messages;
   }
 
-  private getHistory(sessionId: string): AIMessage[] {
-    return this.conversationHistory.get(sessionId) || [];
-  }
-
-  private addHistoryEntry(sessionId: string, message: AIMessage): void {
-    const history = this.getHistory(sessionId);
-    history.push(message);
-    // Keep last 100 messages
-    if (history.length > 100) {
-      this.conversationHistory.set(sessionId, history.slice(-100));
-    } else {
-      this.conversationHistory.set(sessionId, history);
-    }
-  }
-
-  private addMemoryEntry(sessionId: string, playerInput: string, aiResponse: string): void {
-    const memories = this.narrativeMemory.get(sessionId) || [];
-    const summary = `玩家: ${playerInput.substring(0, 50)} → GM: ${aiResponse.substring(0, 100)}`;
-    memories.push(summary);
-    // Keep last 50 memories
-    if (memories.length > 50) {
-      this.narrativeMemory.set(sessionId, memories.slice(-50));
-    } else {
-      this.narrativeMemory.set(sessionId, memories);
-    }
+  private estimateHistoryTokens(history: HistoryEntry[]): number {
+    return history.reduce((total, msg) => {
+      const content = msg.content;
+      const chineseChars = (content.match(/[一-鿿㐀-䶿]/g) || []).length;
+      const otherChars = content.length - chineseChars;
+      return total + chineseChars * 2 + Math.ceil(otherChars / 4);
+    }, 0);
   }
 
   private getRelationLabel(relation: number): string {
@@ -839,6 +958,10 @@ ${buildCharStatus(char, true)}
 
   setWorldLore(lore: WorldLore): void {
     this.worldLore = lore;
+  }
+
+  getWorldLore(): WorldLore | undefined {
+    return this.worldLore ?? undefined;
   }
 
   getConfig(): AIGMConfig {

@@ -7,6 +7,7 @@ import type {
   DeathMoveType,
 } from './rules';
 import type { Character, EnemyStatBlock, Faction, NPC, Gold } from './character';
+import type { SpotlightState, SafetyState } from './safety';
 
 // ===== 游戏事件类型 =====
 
@@ -30,6 +31,9 @@ export type GameEventType =
   | 'player:swapDomainCard'
   // AI GM 行动
   | 'gm:narrate'
+  | 'gm:narrate:start'
+  | 'gm:narrate:delta'
+  | 'gm:narrate:end'
   | 'gm:sceneChange'
   | 'gm:useFear'
   | 'gm:enemyAction'
@@ -65,7 +69,20 @@ export type GameEventType =
   | 'drakkenheim:contamination'
   | 'drakkenheim:hazeEffect'
   | 'drakkenheim:deleriumFound'
-  | 'drakkenheim:sealFound';
+  | 'drakkenheim:sealFound'
+  // 聚光灯 / 回合管理
+  | 'spotlight:request'
+  | 'spotlight:state'
+  | 'action:queued'
+  // 安全工具
+  | 's0:submit'
+  | 's0:ready'
+  | 's0:complete'
+  | 'safety:xcard'
+  | 'safety:paused'
+  | 'safety:resume'
+  | 'safety:resumed'
+  | 'safety:update';
 
 // ===== 具体事件载荷 =====
 
@@ -174,6 +191,8 @@ export interface SessionState {
   characterCreationStep?: number;
   sessionZeroPhase?: SessionZeroPhase;  // S0阶段，仅在status==='sessionZero'时存在
   sessionZeroData?: SessionZeroData;    // S0收集的数据
+  spotlightState?: SpotlightState;      // 聚光灯/回合管理
+  safetyState?: SafetyState;           // 安全工具状态
 }
 
 export interface SceneState {
@@ -276,7 +295,7 @@ export interface QuestProgress {
 
 // ===== AI GM 消息 =====
 
-export type AIMessageRole = 'narrator' | 'npc' | 'system' | 'combat';
+export type AIMessageRole = 'narrator' | 'npc' | 'system' | 'combat' | 'player';
 
 export interface AIMessage {
   id: string;

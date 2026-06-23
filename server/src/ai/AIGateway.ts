@@ -81,11 +81,12 @@ export class HttpClient {
     };
   }
 
-  async *postStream(url: string, options: HttpPostOptions): AsyncGenerator<string> {
+  async *postStream(url: string, options: HttpPostOptions, signal?: AbortSignal): AsyncGenerator<string> {
     const response = await fetch(url, {
       method: 'POST',
       headers: options.headers,
       body: options.body,
+      signal,
     });
 
     if (!response.body) return;
@@ -202,12 +203,13 @@ export class AIGateway {
   }
 
   /**
-   * 流式请求
+   * 流式请求 — 逐 token 回调，结束后返回完整文本
    */
   async sendStreamRequest(
     request: AIRequest,
     onChunk: (chunk: string) => void,
-  ): Promise<void> {
+    signal?: AbortSignal,
+  ): Promise<{ fullText: string }> {
     await this.acquireSlot();
 
     try {
@@ -221,9 +223,14 @@ export class AIGateway {
         stream: true,
       });
 
-      for await (const chunk of this.httpClient.postStream(url, { headers, body, timeout: 60000 })) {
+      let fullText = '';
+
+      for await (const chunk of this.httpClient.postStream(url, { headers, body, timeout: 0 }, signal)) {
+        fullText += chunk;
         onChunk(chunk);
       }
+
+      return { fullText };
     } finally {
       this.releaseSlot();
     }

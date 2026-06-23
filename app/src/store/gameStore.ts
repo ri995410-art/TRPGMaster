@@ -12,6 +12,8 @@ import type {
   AncestryData,
   CommunityData,
   SubclassData,
+  SpotlightState,
+  SafetyState,
 } from '@trpgmaster/shared';
 import { mmkvStorage } from './mmkvStorage';
 
@@ -84,6 +86,11 @@ interface GameStore {
   // AI is processing
   aiProcessing: boolean;
 
+  // Streaming narration state
+  streamingTurnId: string | null;
+  streamingText: string;
+  gmTyping: boolean;
+
   // Journal entries
   journalEntries: JournalEntry[];
 
@@ -109,6 +116,13 @@ interface GameStore {
   // Session Zero info
   sessionZeroPhase: string | null;    // Current S0 phase (safety/worldbuilding/connections/expectations/narrativePact)
 
+  // Spotlight / turn management
+  spotlightState: SpotlightState | null;
+
+  // Safety tools
+  safetyState: SafetyState | null;
+  xcardPaused: boolean;
+
   // AI config (fetched from server)
   aiConfig: {
     apiKey: string;           // 脱敏显示（如 ••••a1b2）
@@ -131,6 +145,9 @@ interface GameStore {
   setAdventureMessages: (msgs: AdventureMessage[]) => void;
   clearAdventureMessages: () => void;
   setAiProcessing: (processing: boolean) => void;
+  setStreamingTurnId: (turnId: string | null) => void;
+  appendStreamingText: (delta: string) => void;
+  setGmTyping: (typing: boolean) => void;
   addJournalEntry: (entry: JournalEntry) => void;
   updateJournalEntry: (id: string, updates: Partial<JournalEntry>) => void;
   addEvent: (event: GameEvent) => void;
@@ -152,6 +169,11 @@ interface GameStore {
   setPlayers: (players: Array<{ id: string; name: string; characterName?: string; isConnected: boolean }>) => void;
   // Session Zero actions
   setSessionZeroPhase: (phase: string | null) => void;
+  // Spotlight actions
+  setSpotlightState: (state: SpotlightState | null) => void;
+  // Safety actions
+  setSafetyState: (state: SafetyState | null) => void;
+  setXcardPaused: (paused: boolean) => void;
   // AI config actions
   setAiConfig: (config: GameStore['aiConfig']) => void;
   setAiConnected: (connected: boolean) => void;
@@ -171,6 +193,9 @@ const initialState = {
   gameData: { classes: [], subclasses: [], weapons: [], armor: [], domainCards: [], ancestries: [], communities: [], loaded: false },
   adventureMessages: [],
   aiProcessing: false,
+  streamingTurnId: null,
+  streamingText: '',
+  gmTyping: false,
   journalEntries: [],
   recentEvents: [],
   currentLocationName: '',
@@ -181,6 +206,9 @@ const initialState = {
   isHost: false,
   players: [],
   sessionZeroPhase: null,
+  spotlightState: null,
+  safetyState: null,
+  xcardPaused: false,
   aiConfig: null,
 };
 
@@ -218,6 +246,17 @@ export const useGameStore = create<GameStore>()(
       clearAdventureMessages: () => set({ adventureMessages: [] }),
 
       setAiProcessing: (processing) => set({ aiProcessing: processing }),
+
+      setStreamingTurnId: (turnId) => set({
+        streamingTurnId: turnId,
+        streamingText: turnId ? '' : '', // Clear text when setting new turnId
+      }),
+
+      appendStreamingText: (delta) => set((state) =>
+        state.streamingTurnId ? { streamingText: state.streamingText + delta } : {}
+      ),
+
+      setGmTyping: (typing) => set({ gmTyping: typing }),
 
       addJournalEntry: (entry) => set((state) => ({
         journalEntries: [...state.journalEntries, entry],
@@ -338,6 +377,9 @@ export const useGameStore = create<GameStore>()(
 
       // Session Zero actions
       setSessionZeroPhase: (phase) => set({ sessionZeroPhase: phase }),
+  setSpotlightState: (state) => set({ spotlightState: state }),
+  setSafetyState: (state) => set({ safetyState: state }),
+  setXcardPaused: (paused) => set({ xcardPaused: paused }),
 
       // AI config actions
       setAiConfig: (config) => set({ aiConfig: config }),

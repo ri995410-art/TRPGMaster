@@ -52,6 +52,7 @@ import {
   rollDice,
   rollDamageString,
   attributeToModifier,
+  resolveDualityDice,
 } from '../../rules/systems/DaggerHeartRules';
 import type {
   ConditionInstance,
@@ -898,6 +899,76 @@ describe('Utility Functions', () => {
       expect(attributeToModifier(14)).toBe(1);
       expect(attributeToModifier(18)).toBe(2);
       expect(attributeToModifier(22)).toBe(3);
+    });
+  });
+
+  // ===== 骰子结算（任务 1.2） =====
+
+  describe('resolveDualityDice — 服务端结算入口', () => {
+    it('希望成功：hopeDie>fearDie, total>=difficulty → hopeGain=1, fearGain=0', () => {
+      const result = resolveDualityDice(10, 5, 0, 12);
+      expect(result.outcome).toBe('hopeSuccess');
+      expect(result.withHope).toBe(true);
+      expect(result.withFear).toBe(false);
+      expect(result.hopeGain).toBe(1);
+      expect(result.fearGain).toBe(0);
+      expect(result.success).toBe(true);
+      expect(result.isCritical).toBe(false);
+      expect(result.total).toBe(15);
+    });
+
+    it('恐惧成功：fearDie>hopeDie, total>=difficulty → hopeGain=0, fearGain=1', () => {
+      const result = resolveDualityDice(3, 10, 0, 12);
+      expect(result.outcome).toBe('fearSuccess');
+      expect(result.withHope).toBe(false);
+      expect(result.withFear).toBe(true);
+      expect(result.hopeGain).toBe(0);
+      expect(result.fearGain).toBe(1);
+      expect(result.success).toBe(true);
+      expect(result.total).toBe(13);
+    });
+
+    it('希望失败：hopeDie>fearDie, total<difficulty → hopeGain=1, fearGain=0', () => {
+      const result = resolveDualityDice(5, 3, 0, 12);
+      expect(result.outcome).toBe('hopeFailure');
+      expect(result.withHope).toBe(true);
+      expect(result.hopeGain).toBe(1);
+      expect(result.fearGain).toBe(0);
+      expect(result.success).toBe(false);
+    });
+
+    it('恐惧失败：fearDie>hopeDie, total<difficulty → hopeGain=0, fearGain=1', () => {
+      const result = resolveDualityDice(2, 5, 0, 12);
+      expect(result.outcome).toBe('fearFailure');
+      expect(result.withHope).toBe(false);
+      expect(result.withFear).toBe(true);
+      expect(result.hopeGain).toBe(0);
+      expect(result.fearGain).toBe(1);
+      expect(result.success).toBe(false);
+    });
+
+    it('暴击：hopeDie===fearDie → criticalSuccess, hopeGain=1, fearGain=0, auto-success', () => {
+      const result = resolveDualityDice(3, 3, 0, 12);
+      expect(result.outcome).toBe('criticalSuccess');
+      expect(result.isCritical).toBe(true);
+      expect(result.hopeGain).toBe(1);
+      expect(result.fearGain).toBe(0);
+      expect(result.success).toBe(true);
+      expect(result.total).toBe(6);
+    });
+
+    it('刚好达到难度：total === difficulty → success', () => {
+      const result = resolveDualityDice(7, 5, 0, 12);
+      expect(result.outcome).toBe('hopeSuccess');
+      expect(result.success).toBe(true);
+      expect(result.total).toBe(12);
+    });
+
+    it('带 modifier 的判定', () => {
+      const result = resolveDualityDice(5, 3, 5, 12);
+      expect(result.outcome).toBe('hopeSuccess');
+      expect(result.total).toBe(13);
+      expect(result.success).toBe(true);
     });
   });
 });

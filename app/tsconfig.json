@@ -22,8 +22,7 @@
     "App.tsx"
   ],
   "exclude": [
-    "node_modules",
-    "src/_deprecated"
+    "node_modules"
   ],
   "extends": "expo/tsconfig.base"
 }

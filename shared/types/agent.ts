@@ -1,5 +1,5 @@
 import type { Character, EnemyStatBlock, Faction, NPC } from './character';
-import type { SessionState, TimelineEntry, CampaignState, AIMessage } from './events';
+import type { SessionState, CampaignState, AIMessage } from './events';
 import type { WeaponData, ArmorData, ClassData, SubclassData, AncestryData, CommunityData, DomainType } from './rules';
 
 // ===== AI 管家类型 =====
@@ -8,8 +8,7 @@ import type { WeaponData, ArmorData, ClassData, SubclassData, AncestryData, Comm
 export interface AIGMContext {
   sessionId: string;
   sessionState: SessionState;
-  recentHistory: TimelineEntry[];
-  worldLore: WorldLore;
+  worldLore?: WorldLore;
   character: Character;          // 保留向后兼容（单人模式）
   characters?: Character[];      // 多人模式：队伍所有角色
   activePlayerId?: string;       // 当前行动玩家ID

@@ -3,7 +3,6 @@ module.exports = {
   testEnvironment: 'node',
   roots: ['<rootDir>/src', '<rootDir>'],
   testMatch: ['**/__tests__/**/*.test.ts'],
-  testPathIgnorePatterns: ['_deprecated'],
   moduleNameMapper: {
     '^@trpgmaster/shared$': '<rootDir>/../shared',
   },
