@@ -6,6 +6,8 @@ import type {
   Character,
   GameEventType,
   Player,
+  SpotlightState,
+  SafetyState,
 } from '@trpgmaster/shared';
 
 // Local SocketMessage interface for wire format
@@ -186,6 +188,7 @@ export function connectToServer(serverUrl: string): Promise<string> {
 
     // ===== AI GM Narration =====
 
+    // Legacy non-streaming event (fallback when no AI GM configured)
     socket.on('gm:narrate', (msg: SocketMessage<{ content: string; choices?: Array<{ id: string; label: string; action?: string }>; npcName?: string; npcId?: string; playerName?: string; characterName?: string }>) => {
       const store = useGameStore.getState();
       const adventureMsg: AdventureMessage = {
@@ -203,6 +206,47 @@ export function connectToServer(serverUrl: string): Promise<string> {
       };
       store.addAdventureMessage(adventureMsg);
       store.setAiProcessing(false);
+    });
+
+    // Streaming: start
+    socket.on('gm:narrate:start', (msg: SocketMessage<{ turnId: string; activePlayerId?: string; characterName?: string; playerName?: string }>) => {
+      const store = useGameStore.getState();
+      store.setStreamingTurnId(msg.payload.turnId);
+      store.setGmTyping(true);
+    });
+
+    // Streaming: delta
+    socket.on('gm:narrate:delta', (msg: SocketMessage<{ turnId: string; text: string }>) => {
+      const store = useGameStore.getState();
+      // Only append if this delta belongs to the current stream
+      if (store.streamingTurnId === msg.payload.turnId) {
+        store.appendStreamingText(msg.payload.text);
+      }
+    });
+
+    // Streaming: end
+    socket.on('gm:narrate:end', (msg: SocketMessage<{ turnId: string; fullText: string; choices?: Array<{ id: string; label: string; action?: string }>; npcName?: string; npcId?: string; playerName?: string; characterName?: string; error?: boolean }>) => {
+      const store = useGameStore.getState();
+      // Only finalize if this end belongs to the current stream
+      if (store.streamingTurnId === msg.payload.turnId) {
+        const adventureMsg: AdventureMessage = {
+          id: `msg_${Date.now()}_gm`,
+          role: msg.payload.npcName ? 'npc' : 'narrator',
+          content: msg.payload.fullText,
+          timestamp: Date.now(),
+          npcName: msg.payload.npcName,
+          npcId: msg.payload.npcId,
+          choices: msg.payload.choices?.map(c => ({
+            id: c.id,
+            text: c.label,
+            action: c.action,
+          })),
+        };
+        store.addAdventureMessage(adventureMsg);
+        store.setStreamingTurnId(null);
+        store.setGmTyping(false);
+        store.setAiProcessing(false);
+      }
     });
 
     // ===== Character Updates =====
@@ -328,6 +372,59 @@ export function connectToServer(serverUrl: string): Promise<string> {
       };
       store.addAdventureMessage(sysMsg);
     });
+
+    // ===== Spotlight Events =====
+
+    socket.on('spotlight:state', (msg: SocketMessage<{ spotlight: SpotlightState }>) => {
+      useGameStore.getState().setSpotlightState(msg.payload.spotlight);
+    });
+
+    socket.on('action:queued', (msg: SocketMessage<{ queuePosition: number }>) => {
+      const store = useGameStore.getState();
+      const sysMsg: AdventureMessage = {
+        id: `msg_${Date.now()}_queued`,
+        role: 'system',
+        content: `你的行动已排队，前方还有 ${msg.payload.queuePosition} 人`,
+        timestamp: Date.now(),
+      };
+      store.addAdventureMessage(sysMsg);
+    });
+
+    // ===== Safety Events =====
+
+    socket.on('safety:update', (msg: SocketMessage<{ safety: SafetyState }>) => {
+      useGameStore.getState().setSafetyState(msg.payload.safety);
+    });
+
+    socket.on('safety:paused', () => {
+      useGameStore.getState().setXcardPaused(true);
+    });
+
+    socket.on('safety:resumed', () => {
+      useGameStore.getState().setXcardPaused(false);
+    });
+
+    socket.on('s0:ready', (msg: SocketMessage<{ playerId: string }>) => {
+      const store = useGameStore.getState();
+      const sysMsg: AdventureMessage = {
+        id: `msg_${Date.now()}_s0ready`,
+        role: 'system',
+        content: 'Lines/Veils 已提交',
+        timestamp: Date.now(),
+      };
+      store.addAdventureMessage(sysMsg);
+    });
+
+    socket.on('s0:complete', () => {
+      const store = useGameStore.getState();
+      const sysMsg: AdventureMessage = {
+        id: `msg_${Date.now()}_s0complete`,
+        role: 'system',
+        content: '安全工具设定完成，进入世界观共创阶段',
+        timestamp: Date.now(),
+      };
+      store.addAdventureMessage(sysMsg);
+    });
   });
 }
 
@@ -354,19 +451,6 @@ export function sendPlayerAction(action: string): void {
     payload: { action },
     timestamp: Date.now(),
   } as SocketMessage<{ action: string }>);
-
-  // Safety timeout: clear aiProcessing after 120s if no response (AI GM with large context can take 30-90s)
-  setTimeout(() => {
-    if (useGameStore.getState().aiProcessing) {
-      useGameStore.getState().setAiProcessing(false);
-      useGameStore.getState().addAdventureMessage({
-        id: `msg_${Date.now()}_timeout`,
-        role: 'system',
-        content: 'AI管家响应超时，请检查服务器连接或重试。',
-        timestamp: Date.now(),
-      });
-    }
-  }, 120000);
 }
 
 /** Send player choice to AI GM */
@@ -524,6 +608,54 @@ export function joinSessionByCode(code: string, character: Character): Promise<{
       reject(new Error('加入会话超时'));
     }, 10000);
   });
+}
+
+/** Request spotlight (enqueue to act) */
+export function requestSpotlight(): void {
+  if (!socket) return;
+  socket.emit('spotlight:request', {
+    type: 'spotlight:request',
+    sessionId: useGameStore.getState().campaignId || '',
+    senderId: useGameStore.getState().playerId,
+    payload: {},
+    timestamp: Date.now(),
+  } as SocketMessage);
+}
+
+/** Submit Lines/Veils during Session Zero */
+export function submitS0(lines: string[], veils: string[], toneFlags: string[]): void {
+  if (!socket) return;
+  socket.emit('s0:submit', {
+    type: 's0:submit',
+    sessionId: useGameStore.getState().campaignId || '',
+    senderId: useGameStore.getState().playerId,
+    payload: { lines, veils, toneFlags },
+    timestamp: Date.now(),
+  } as SocketMessage<{ lines: string[]; veils: string[]; toneFlags: string[] }>);
+}
+
+/** Activate X-Card (anonymous pause) */
+export function activateXCard(): void {
+  if (!socket) return;
+  socket.emit('safety:xcard', {
+    type: 'safety:xcard',
+    sessionId: useGameStore.getState().campaignId || '',
+    senderId: useGameStore.getState().playerId,
+    payload: {},
+    timestamp: Date.now(),
+  } as SocketMessage);
+}
+
+/** Resume game after X-Card (host only) */
+export function resumeSafety(): void {
+  if (!socket) return;
+  socket.emit('safety:resume', {
+    type: 'safety:resume',
+    sessionId: useGameStore.getState().campaignId || '',
+    senderId: useGameStore.getState().playerId,
+    payload: {},
+    timestamp: Date.now(),
+  } as SocketMessage);
 }
 
 /** Disconnect from server */

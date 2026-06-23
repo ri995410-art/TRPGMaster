@@ -1,8 +1,11 @@
 import { Server as IOServer, Socket } from 'socket.io';
 import { Server as HttpServer } from 'http';
+import { v4 as uuidv4 } from 'uuid';
 import type { StateManager } from '../core/StateManager';
 import type { SessionRegistry } from '../core/SessionRegistry';
 import type { AIGameMaster } from '../ai/AIGameMaster';
+import { resolveDualityDice, gainFearOnRest } from '../rules/systems/DaggerHeartRules';
+import { extractStateChanges, parseStateKeyValue, extractChoices, applyStateChanges } from './stateChangeParser';
 import type {
   GameEvent,
   GameEventType,
@@ -11,6 +14,9 @@ import type {
   Character,
 } from '@trpgmaster/shared';
 import type { PersistedAdventureMessage } from '../core/SessionPersistence';
+import type { SessionStore } from '../core/SessionStore';
+import { SpotlightManager } from '../core/SpotlightManager';
+import { SafetyManager } from '../core/SafetyManager';
 
 interface ConnectedClient {
   socketId: string;
@@ -35,11 +41,19 @@ export class SocketServer {
   private sessionRegistry: SessionRegistry;
   private aiGM: AIGameMaster | undefined;
   private clients: Map<string, ConnectedClient>;
+  private activeStreams: Map<string, AbortController>; // sessionId → active stream controller (for X-Card abort)
+  private sessionStore: SessionStore | null;
+  private spotlightManager: SpotlightManager;
+  private safetyManager: SafetyManager;
 
   constructor(httpServer: HttpServer, sessionRegistry: SessionRegistry, aiGM?: AIGameMaster) {
     this.sessionRegistry = sessionRegistry;
     this.aiGM = aiGM;
     this.clients = new Map();
+    this.activeStreams = new Map();
+    this.sessionStore = null;
+    this.spotlightManager = new SpotlightManager();
+    this.safetyManager = new SafetyManager();
 
     this.io = new IOServer(httpServer, {
       cors: { origin: '*' },
@@ -107,7 +121,43 @@ export class SocketServer {
         const client = this.clients.get(socket.id);
         if (!client) return;
         const sessionId = client.sessionId;
-        this.io.to(sessionId).emit('dice:roll', msg);
+        const stateManager = this.sessionRegistry.findById(sessionId);
+        if (!stateManager) {
+          this.io.to(sessionId).emit('dice:roll', msg);
+          return;
+        }
+
+        const { hopeDie, fearDie, modifier, difficulty } = msg.payload;
+        const result = resolveDualityDice(hopeDie, fearDie, modifier, difficulty);
+
+        // Apply hope gain to character
+        if (result.hopeGain > 0) {
+          const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
+          if (character) {
+            stateManager.updateCharacterHope(result.hopeGain);
+          }
+        }
+
+        // Apply fear gain to GM pool
+        if (result.fearGain > 0) {
+          stateManager.addFearPoints(result.fearGain);
+        }
+
+        // Broadcast enriched result (original fields + resolution)
+        this.io.to(sessionId).emit('dice:roll', {
+          ...msg,
+          payload: {
+            ...msg.payload,
+            outcome: result.outcome,
+            isCritical: result.isCritical,
+            withHope: result.withHope,
+            withFear: result.withFear,
+            hopeGain: result.hopeGain,
+            fearGain: result.fearGain,
+            success: result.success,
+            total: result.total,
+          },
+        });
       });
 
       socket.on('input:text', (msg: SocketMessage<{ text: string }>) => {
@@ -124,7 +174,35 @@ export class SocketServer {
         this.handlePlayerChoice(socket, msg);
       });
 
+      socket.on('spotlight:request', () => {
+        this.handleSpotlightRequest(socket);
+      });
+
+      socket.on('s0:submit', (msg: SocketMessage<{ lines: string[]; veils: string[]; toneFlags: string[] }>) => {
+        this.handleS0Submit(socket, msg);
+      });
+
+      socket.on('safety:xcard', () => {
+        this.handleXCard(socket);
+      });
+
+      socket.on('safety:resume', () => {
+        this.handleSafetyResume(socket);
+      });
+
       socket.on('player:rest', (msg: SocketMessage<{ restType: string; actions: string[] }>) => {
+        const client = this.clients.get(socket.id);
+        const sessionId = client?.sessionId || msg.sessionId;
+        const stateManager = this.sessionRegistry.findById(sessionId);
+
+        // Apply fear gain on rest (server-side, deterministic)
+        if (stateManager) {
+          const restType: 'short' | 'long' = msg.payload.restType === 'long' ? 'long' : 'short';
+          const fearGain = gainFearOnRest(restType);
+          stateManager.addFearPoints(fearGain);
+        }
+
+        // Still forward to AI GM for narrative
         this.handlePlayerAction(socket, {
           type: 'player:action',
           sessionId: msg.sessionId,
@@ -528,13 +606,12 @@ export class SocketServer {
             activePlayerId: client.playerId,
             activePlayerName: client.name,
             sessionState: state,
-            recentHistory: [],
-            worldLore: null as any,
+            worldLore: this.aiGM?.getWorldLore(),
           };
 
           this.aiGM.runSessionZero(context).then(response => {
-            const { cleanContent } = this.extractStateChanges(response.message.content);
-            const choices = this.extractChoices(cleanContent);
+            const { cleanContent } = extractStateChanges(response.message.content);
+            const choices = extractChoices(cleanContent);
             this.io.to(sessionId).emit('gm:narrate', {
               type: 'gm:narrate',
               sessionId,
@@ -614,6 +691,13 @@ export class SocketServer {
     // Mark player as disconnected (but keep their data)
     if (stateManager) {
       stateManager.removePlayer(client.playerId);
+      // Remove from spotlight if holding or in queue
+      const spotlight = stateManager.getSpotlightState();
+      if (spotlight) {
+        const newSpotlight = this.spotlightManager.removePlayer(spotlight, client.playerId);
+        stateManager.setSpotlightState(newSpotlight);
+        this.broadcastSpotlightState(sessionId, newSpotlight);
+      }
       // Update player list silently — don't broadcast playerLeft
       // (player may just be reconnecting, we don't want the "left" spam)
       this.broadcastPlayerList(sessionId, stateManager);
@@ -754,7 +838,50 @@ export class SocketServer {
       timestamp: msg.timestamp,
     });
 
+    // === Safety gate: reject if S0 not complete or X-Card active ===
+    const safety = stateManager.getSafetyState();
+    if (!this.safetyManager.canPlay(safety)) {
+      if (safety?.phase === 's0') {
+        socket.emit('session:error', {
+          type: 'session:error',
+          sessionId,
+          senderId: 'system',
+          payload: { error: '请先完成 Session Zero（提交 Lines/Veils）再开始游戏' },
+          timestamp: Date.now(),
+        });
+      } else if (safety?.xcardActive) {
+        socket.emit('session:error', {
+          type: 'session:error',
+          sessionId,
+          senderId: 'system',
+          payload: { error: '游戏已暂停（X-Card 已激活），等待主持人恢复' },
+          timestamp: Date.now(),
+        });
+      }
+      return;
+    }
+
+    // === Spotlight gate: reject if player cannot act ===
+    const spotlight = stateManager.getSpotlightState();
+    if (!this.spotlightManager.canAct(spotlight, client.playerId)) {
+      // Auto-request spotlight (enqueue) and notify
+      if (spotlight) {
+        const newSpotlight = this.spotlightManager.request(spotlight, client.playerId);
+        stateManager.setSpotlightState(newSpotlight);
+        this.broadcastSpotlightState(sessionId, newSpotlight);
+      }
+      socket.emit('action:queued', {
+        type: 'action:queued',
+        sessionId,
+        senderId: 'system',
+        payload: { queuePosition: spotlight?.queue.length ?? 0 },
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
     if (this.aiGM) {
+      const turnId = uuidv4();
       try {
         const state = stateManager.getState();
         const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
@@ -780,116 +907,162 @@ export class SocketServer {
           activePlayerId: client.playerId,
           activePlayerName: client.name,
           sessionState: state,
-          recentHistory: [],
-          worldLore: null as any,
+          worldLore: this.aiGM?.getWorldLore(),
         };
 
-        // Route to Session Zero or normal gameplay
         const isSessionZero = state.status === 'sessionZero';
-        const response = isSessionZero
-          ? await this.aiGM.runSessionZero(context, playerAction)
-          : await this.aiGM.processPlayerAction(context, playerAction);
 
-        // Extract state changes from AI response
-        const { cleanContent, stateChanges } = this.extractStateChanges(response.message.content);
-
-        // Apply state changes to StateManager
-        if (stateChanges.length > 0) {
-          this.applyStateChanges(stateManager, client.playerId, stateChanges);
+        // === Acquire turn lock (multi-player concurrent safety) ===
+        if (this.sessionStore) {
+          await this.sessionStore.acquireTurnLock(sessionId, 90000);
         }
 
-        // Extract choices from cleaned content (without [STATE] lines)
-        const choices = this.extractChoices(cleanContent);
-
-        // Emit GM narration to all clients in the session
-        this.io.to(sessionId).emit('gm:narrate', {
-          type: 'gm:narrate',
+        // === Streaming path ===
+        const abortController = new AbortController();
+        this.activeStreams.set(sessionId, abortController);
+        this.io.to(sessionId).emit('gm:narrate:start', {
+          type: 'gm:narrate:start',
           sessionId,
           senderId: 'system',
           payload: {
-            content: cleanContent,
-            choices,
-            npcName: response.message.npcName,
-            npcId: response.message.npcId,
-            playerName: client.name,
+            turnId,
+            activePlayerId: client.playerId,
             characterName: character.name,
+            playerName: client.name,
           },
           timestamp: Date.now(),
         });
 
-        // Store GM narration on server for persistence
-        const gmMsg: PersistedAdventureMessage = {
-          id: `msg_${Date.now()}_gm`,
-          role: response.message.npcName ? 'npc' : 'narrator',
-          content: cleanContent,
-          timestamp: Date.now(),
-          npcName: response.message.npcName,
-          npcId: response.message.npcId,
-          choices: choices?.map(c => ({ id: c.id, text: c.label, action: c.action })),
-        };
-        stateManager.addAdventureMessage(gmMsg);
+        let fullText = '';
 
-        // Process generated events
-        if (response.events && response.events.length > 0) {
-          for (const event of response.events) {
-            this.io.to(sessionId).emit('game:event', {
-              type: 'game:event',
+        try {
+          const onToken = (delta: string) => {
+            fullText += delta;
+            this.io.to(sessionId).emit('gm:narrate:delta', {
+              type: 'gm:narrate:delta',
               sessionId,
               senderId: 'system',
-              payload: event,
+              payload: { turnId, text: delta },
               timestamp: Date.now(),
             });
+          };
+
+          const response = isSessionZero
+            ? await this.aiGM.runSessionZero(context, playerAction)
+            : await this.aiGM.processPlayerActionStream(context, playerAction, onToken, undefined, abortController.signal);
+
+          // Use fullText from stream (for streaming path) or response content (for S0 non-stream)
+          const rawContent = isSessionZero ? response.message.content : fullText;
+
+          // Extract state changes from AI response
+          const { cleanContent, stateChanges: parsedStateChanges } = extractStateChanges(rawContent);
+
+          // Apply state changes to StateManager
+          if (parsedStateChanges.length > 0) {
+            applyStateChanges(stateManager, client.playerId, parsedStateChanges);
+          }
+
+          // Extract choices from cleaned content
+          const choices = extractChoices(cleanContent);
+
+          // Emit stream end
+          this.io.to(sessionId).emit('gm:narrate:end', {
+            type: 'gm:narrate:end',
+            sessionId,
+            senderId: 'system',
+            payload: {
+              turnId,
+              fullText: cleanContent,
+              choices,
+              npcName: response.message.npcName,
+              npcId: response.message.npcId,
+              playerName: client.name,
+              characterName: character.name,
+            },
+            timestamp: Date.now(),
+          });
+
+          // Store GM narration on server for persistence
+          const gmMsg: PersistedAdventureMessage = {
+            id: `msg_${Date.now()}_gm`,
+            role: response.message.npcName ? 'npc' : 'narrator',
+            content: cleanContent,
+            timestamp: Date.now(),
+            npcName: response.message.npcName,
+            npcId: response.message.npcId,
+            choices: choices?.map(c => ({ id: c.id, text: c.label, action: c.action })),
+          };
+          stateManager.addAdventureMessage(gmMsg);
+
+          // Session Zero phase advancement (skip 'safety' — advanced by s0:submit)
+          if (isSessionZero) {
+            const S0_PHASES: Array<import('@trpgmaster/shared').SessionZeroPhase> = ['safety', 'worldbuilding', 'connections', 'expectations', 'narrativePact'];
+            const currentPhase = state.sessionZeroPhase;
+            const currentIndex = S0_PHASES.indexOf(currentPhase!);
+
+            // 'safety' phase is advanced by s0:submit, not auto-advance
+            if (currentPhase !== 'safety' && currentIndex >= 0 && currentIndex < S0_PHASES.length - 1) {
+              const nextPhase = S0_PHASES[currentIndex + 1];
+              stateManager.setSessionZeroPhase(nextPhase);
+              console.log(`Session Zero advanced to phase: ${nextPhase}`);
+            } else if (currentPhase !== 'safety' && currentIndex === S0_PHASES.length - 1) {
+              stateManager.completeSessionZero();
+              this.io.to(sessionId).emit('session:completeSessionZero', {
+                type: 'session:completeSessionZero',
+                sessionId,
+                senderId: 'system',
+                payload: {},
+                timestamp: Date.now(),
+              });
+              this.io.to(sessionId).emit('session:started', {
+                type: 'session:started',
+                sessionId,
+                senderId: 'system',
+                payload: { status: 'active' },
+                timestamp: Date.now(),
+              });
+              this.broadcastState(stateManager.getState());
+              console.log(`Session Zero completed, game is now active`);
+            }
+          }
+
+          // === Pass spotlight after turn completes ===
+          const currentSpotlight = stateManager.getSpotlightState();
+          if (currentSpotlight) {
+            const newSpotlight = this.spotlightManager.pass(currentSpotlight);
+            stateManager.setSpotlightState(newSpotlight);
+            this.broadcastSpotlightState(sessionId, newSpotlight);
+          }
+
+          console.log(`AI GM responded to ${client.name} (streaming, ${fullText.length} chars)`);
+        } finally {
+          this.activeStreams.delete(sessionId);
+          if (this.sessionStore) {
+            await this.sessionStore.releaseTurnLock(sessionId);
           }
         }
-
-        // Session Zero phase advancement
-        if (isSessionZero) {
-          const S0_PHASES: Array<import('@trpgmaster/shared').SessionZeroPhase> = ['safety', 'worldbuilding', 'connections', 'expectations', 'narrativePact'];
-          const currentPhase = state.sessionZeroPhase;
-          const currentIndex = S0_PHASES.indexOf(currentPhase!);
-
-          if (currentIndex >= 0 && currentIndex < S0_PHASES.length - 1) {
-            // Advance to next phase
-            const nextPhase = S0_PHASES[currentIndex + 1];
-            stateManager.setSessionZeroPhase(nextPhase);
-            console.log(`Session Zero advanced to phase: ${nextPhase}`);
-          } else if (currentIndex === S0_PHASES.length - 1) {
-            // Final phase (narrativePact) completed — transition to active gameplay
-            stateManager.completeSessionZero();
-            this.io.to(sessionId).emit('session:completeSessionZero', {
-              type: 'session:completeSessionZero',
-              sessionId,
-              senderId: 'system',
-              payload: {},
-              timestamp: Date.now(),
-            });
-            this.io.to(sessionId).emit('session:started', {
-              type: 'session:started',
-              sessionId,
-              senderId: 'system',
-              payload: { status: 'active' },
-              timestamp: Date.now(),
-            });
-            this.broadcastState(stateManager.getState());
-            console.log(`Session Zero completed, game is now active`);
-          }
-        }
-
-        console.log(`AI GM responded to ${client.name} (${response.tokenUsage} tokens)`);
       } catch (err) {
+        this.activeStreams.delete(sessionId);
+        if (this.sessionStore) {
+          await this.sessionStore.releaseTurnLock(sessionId);
+        }
         console.error('AI GM error:', err);
-        socket.emit('gm:narrate', {
-          type: 'gm:narrate',
+        // On stream error, emit as gm:narrate:end with error flag for compatibility
+        this.io.to(sessionId).emit('gm:narrate:end', {
+          type: 'gm:narrate:end',
           sessionId,
           senderId: 'system',
           payload: {
-            content: `（AI管家暂时无法响应，请稍后重试。错误：${(err as Error).message}）`,
+            turnId,
+            fullText: `（AI管家暂时无法响应，请稍后重试。错误：${(err as Error).message}）`,
+            choices: [],
+            error: true,
           },
           timestamp: Date.now(),
         });
       }
     } else {
-      // No AI GM configured — fallback response
+      // No AI GM configured — fallback response (non-streaming)
       socket.emit('gm:narrate', {
         type: 'gm:narrate',
         sessionId,
@@ -950,12 +1123,11 @@ export class SocketServer {
           activePlayerId: client.playerId,
           activePlayerName: client.name,
           sessionState: state,
-          recentHistory: [],
-          worldLore: null as any,
+          worldLore: this.aiGM?.getWorldLore(),
         };
 
         const response = await this.aiGM.narrateScene(context);
-        const choices = this.extractChoices(response.message.content);
+        const choices = extractChoices(response.message.content);
 
         this.io.to(sessionId).emit('gm:narrate', {
           type: 'gm:narrate',
@@ -996,124 +1168,6 @@ export class SocketServer {
   }
 
   /**
-   * Extract choice options from AI response text
-   */
-  private extractChoices(content: string): Array<{ id: string; label: string; action?: string }> | undefined {
-    const choices: Array<{ id: string; label: string; action?: string }> = [];
-
-    // Match numbered options: 1) xxx, 1. xxx, ① xxx
-    const numberedMatch = content.match(/(?:\d+[.)]|[①②③④⑤⑥⑦⑧⑨])\s*.+/g);
-    if (numberedMatch && numberedMatch.length >= 2) {
-      for (let i = 0; i < Math.min(numberedMatch.length, 4); i++) {
-        const label = numberedMatch[i].replace(/^(?:\d+[.)]|[①②③④⑤⑥⑦⑧⑨])\s*/, '').trim();
-        choices.push({ id: `choice_${i + 1}`, label, action: label });
-      }
-      return choices;
-    }
-
-    // Match bracketed options: 【xxx】 or [xxx]
-    const bracketMatch = content.match(/[【\[][^】\]]+[】\]]/g);
-    if (bracketMatch && bracketMatch.length >= 2) {
-      for (let i = 0; i < Math.min(bracketMatch.length, 4); i++) {
-        const label = bracketMatch[i].replace(/[【\[】\]]/g, '').trim();
-        choices.push({ id: `choice_${i + 1}`, label, action: label });
-      }
-      return choices;
-    }
-
-    return undefined;
-  }
-
-  /**
-   * Extract state changes from AI response [STATE] lines
-   * Returns clean content (without [STATE] lines) and parsed state changes
-   */
-  private extractStateChanges(content: string): { cleanContent: string; stateChanges: Array<{ characterName?: string; changes: Record<string, number> }> } {
-    const stateChanges: Array<{ characterName?: string; changes: Record<string, number> }> = [];
-    const lines = content.split('\n');
-    const cleanLines: string[] = [];
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-
-      // Match [STATE:CharacterName] key:value key:value or [STATE] key:value
-      const namedMatch = trimmed.match(/^\[STATE:(.+?)\]\s*(.+)$/);
-      const unnamedMatch = trimmed.match(/^\[STATE\]\s*(.+)$/);
-
-      if (namedMatch) {
-        const characterName = namedMatch[1].trim();
-        const changes = this.parseStateKeyValue(namedMatch[2]);
-        if (Object.keys(changes).length > 0) {
-          stateChanges.push({ characterName, changes });
-        }
-      } else if (unnamedMatch) {
-        const changes = this.parseStateKeyValue(unnamedMatch[1]);
-        if (Object.keys(changes).length > 0) {
-          stateChanges.push({ changes });
-        }
-      } else {
-        cleanLines.push(line);
-      }
-    }
-
-    return { cleanContent: cleanLines.join('\n').trim(), stateChanges };
-  }
-
-  private parseStateKeyValue(text: string): Record<string, number> {
-    const changes: Record<string, number> = {};
-    const pairs = text.trim().split(/\s+/);
-    for (const pair of pairs) {
-      const match = pair.match(/^(\w+):([+-]?\d+)$/);
-      if (match) {
-        changes[match[1]] = parseInt(match[2], 10);
-      }
-    }
-    return changes;
-  }
-
-  private applyStateChanges(stateManager: StateManager, playerId: string, stateChanges: Array<{ characterName?: string; changes: Record<string, number> }>): void {
-    for (const sc of stateChanges) {
-      // Find the target character — by name if specified, else use current player
-      let targetPlayerId = playerId;
-      if (sc.characterName) {
-        const players = stateManager.getPlayers();
-        const found = players.find(p => p.character?.name === sc.characterName);
-        if (found) targetPlayerId = found.id;
-      }
-
-      const char = stateManager.getPlayerCharacter(targetPlayerId);
-      if (!char) continue;
-
-      const updates: Partial<Character> = {};
-
-      for (const [key, delta] of Object.entries(sc.changes)) {
-        switch (key) {
-          case 'hp':
-            updates.hp = Math.max(0, Math.min(char.maxHp, char.hp + delta));
-            break;
-          case 'stress':
-            updates.stress = Math.max(0, Math.min(char.maxStress, char.stress + delta));
-            break;
-          case 'hope':
-            updates.hope = Math.max(0, Math.min(char.maxHope, char.hope + delta));
-            break;
-          case 'fearPoints':
-            if (delta > 0) {
-              stateManager.addFearPoints(delta);
-            } else if (delta < 0) {
-              stateManager.spendFearPoints(Math.abs(delta));
-            }
-            break;
-        }
-      }
-
-      if (Object.keys(updates).length > 0) {
-        stateManager.updatePlayerCharacter(targetPlayerId, updates);
-      }
-    }
-  }
-
-  /**
    * Fallback response when AI GM is not configured
    */
   private getFallbackResponse(action: string): string {
@@ -1136,6 +1190,155 @@ export class SocketServer {
     }
 
     return `你${action}。环境依然阴沉而神秘，迷雾在不远处缓缓流动。你需要决定下一步行动。`;
+  }
+
+  // ===== Spotlight Request =====
+
+  private handleSpotlightRequest(socket: Socket): void {
+    const client = this.clients.get(socket.id);
+    if (!client) return;
+
+    const sessionId = client.sessionId;
+    const stateManager = this.sessionRegistry.findById(sessionId);
+    if (!stateManager) return;
+
+    const spotlight = stateManager.getSpotlightState();
+    if (!spotlight) return; // Single-player — no spotlight
+
+    const newSpotlight = this.spotlightManager.request(spotlight, client.playerId);
+    stateManager.setSpotlightState(newSpotlight);
+    this.broadcastSpotlightState(sessionId, newSpotlight);
+  }
+
+  // ===== Safety Event Handlers =====
+
+  private handleS0Submit(socket: Socket, msg: SocketMessage<{ lines: string[]; veils: string[]; toneFlags: string[] }>): void {
+    const client = this.clients.get(socket.id);
+    if (!client) return;
+
+    const sessionId = client.sessionId;
+    const stateManager = this.sessionRegistry.findById(sessionId);
+    if (!stateManager) return;
+
+    const safety = stateManager.getSafetyState();
+    if (!safety) return; // Single-player — no safety
+
+    const { lines, veils, toneFlags } = msg.payload;
+    const newSafety = this.safetyManager.submitLinesVeils(safety, client.playerId, lines, veils, toneFlags);
+    stateManager.setSafetyState(newSafety);
+
+    // Notify all clients of updated safety state
+    this.broadcastSafetyState(sessionId, newSafety);
+
+    // Confirm submission to sender
+    socket.emit('s0:ready', {
+      type: 's0:ready',
+      sessionId,
+      senderId: 'system',
+      payload: { playerId: client.playerId },
+      timestamp: Date.now(),
+    });
+
+    // Check if all connected players have submitted — if so, advance from 'safety' to 'worldbuilding'
+    const state = stateManager.getState();
+    if (state.sessionZeroPhase === 'safety') {
+      const connectedPlayers = state.players.filter(p => p.isConnected);
+      const submittedCount = newSafety.lines.length + newSafety.veils.length;
+      // Simple heuristic: if any lines/veils exist from >0 players, the safety phase has started.
+      // We consider it done when all connected players have emitted s0:ready at least once.
+      // For now: advance when at least one player has submitted, allowing others to submit later.
+      // The AI GM conversation for 'safety' phase happens normally, and the first submission transitions.
+      if (submittedCount > 0 && connectedPlayers.length > 0) {
+        // Advance to worldbuilding phase
+        stateManager.setSessionZeroPhase('worldbuilding');
+        const updatedSafety = this.safetyManager.completeS0(newSafety);
+        // Don't set phase to 'play' yet — we're still in Session Zero, just past the safety gate
+        stateManager.setSafetyState(updatedSafety);
+        this.broadcastSafetyState(sessionId, updatedSafety);
+
+        this.io.to(sessionId).emit('s0:complete', {
+          type: 's0:complete',
+          sessionId,
+          senderId: 'system',
+          payload: {},
+          timestamp: Date.now(),
+        });
+
+        console.log(`S0 safety phase complete in session ${sessionId}, advancing to worldbuilding`);
+      }
+    }
+
+    console.log(`S0 submit from ${client.name}: ${lines.length} lines, ${veils.length} veils`);
+  }
+
+  private handleXCard(socket: Socket): void {
+    const client = this.clients.get(socket.id);
+    if (!client) return;
+
+    const sessionId = client.sessionId;
+    const stateManager = this.sessionRegistry.findById(sessionId);
+    if (!stateManager) return;
+
+    const safety = stateManager.getSafetyState();
+    if (!safety) return;
+
+    // Anonymous — activate X-Card, abort any active AI stream, broadcast pause
+    const newSafety = this.safetyManager.activateXCard(safety);
+    stateManager.setSafetyState(newSafety);
+
+    this.abortStream(sessionId);
+
+    this.io.to(sessionId).emit('safety:paused', {
+      type: 'safety:paused',
+      sessionId,
+      senderId: 'system',
+      payload: {},
+      timestamp: Date.now(),
+    });
+
+    this.broadcastSafetyState(sessionId, newSafety);
+
+    console.log(`X-Card activated in session ${sessionId}`);
+  }
+
+  private handleSafetyResume(socket: Socket): void {
+    const client = this.clients.get(socket.id);
+    if (!client) return;
+
+    const sessionId = client.sessionId;
+    const stateManager = this.sessionRegistry.findById(sessionId);
+    if (!stateManager) return;
+
+    // Only host can resume
+    const hostId = this.sessionRegistry.getHostId(sessionId);
+    if (hostId && hostId !== client.playerId) {
+      socket.emit('session:error', {
+        type: 'session:error',
+        sessionId,
+        senderId: 'system',
+        payload: { error: '只有主持人可以恢复游戏' },
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
+    const safety = stateManager.getSafetyState();
+    if (!safety) return;
+
+    const newSafety = this.safetyManager.deactivateXCard(safety);
+    stateManager.setSafetyState(newSafety);
+
+    this.io.to(sessionId).emit('safety:resumed', {
+      type: 'safety:resumed',
+      sessionId,
+      senderId: 'system',
+      payload: {},
+      timestamp: Date.now(),
+    });
+
+    this.broadcastSafetyState(sessionId, newSafety);
+
+    console.log(`Game resumed by host ${client.name} in session ${sessionId}`);
   }
 
   // ===== Broadcast Helpers =====
@@ -1174,6 +1377,26 @@ export class SocketServer {
     });
   }
 
+  private broadcastSpotlightState(sessionId: string, spotlight: import('@trpgmaster/shared').SpotlightState): void {
+    this.io.to(sessionId).emit('spotlight:state', {
+      type: 'spotlight:state',
+      sessionId,
+      senderId: 'system',
+      payload: { spotlight },
+      timestamp: Date.now(),
+    });
+  }
+
+  private broadcastSafetyState(sessionId: string, safety: import('@trpgmaster/shared').SafetyState): void {
+    this.io.to(sessionId).emit('safety:update', {
+      type: 'safety:update',
+      sessionId,
+      senderId: 'system',
+      payload: { safety },
+      timestamp: Date.now(),
+    });
+  }
+
   // ===== Lifecycle =====
 
   getConnectedClients(): ConnectedClient[] {
@@ -1182,6 +1405,24 @@ export class SocketServer {
 
   getClientCount(): number {
     return this.clients.size;
+  }
+
+  /**
+   * Abort the active AI stream for a session (for X-Card / safety pause)
+   */
+  abortStream(sessionId: string): void {
+    const controller = this.activeStreams.get(sessionId);
+    if (controller) {
+      controller.abort();
+      this.activeStreams.delete(sessionId);
+    }
+  }
+
+  /**
+   * Set the SessionStore instance (for turn locking)
+   */
+  setSessionStore(store: SessionStore): void {
+    this.sessionStore = store;
   }
 
   /**

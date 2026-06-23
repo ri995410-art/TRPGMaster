@@ -17,7 +17,12 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import { useGameStore, type AdventureMessage, type AdventureChoice } from '../store/gameStore';
-import { sendPlayerAction, sendPlayerChoice } from '../hooks/useSocket';
+import { sendPlayerAction, sendPlayerChoice, requestSpotlight, submitS0, activateXCard, resumeSafety } from '../hooks/useSocket';
+import { theme } from '../theme/theme';
+import { NarrativeCard } from '../components/NarrativeCard';
+import { ResourceGauge } from '../components/ResourceGauge';
+import { SpotlightIndicator } from '../components/SpotlightIndicator';
+import { SafetyOverlay } from '../components/SafetyOverlay';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -34,13 +39,33 @@ export function AdventureScreen() {
   const character = useGameStore((s) => s.character);
   const adventureMessages = useGameStore((s) => s.adventureMessages);
   const aiProcessing = useGameStore((s) => s.aiProcessing);
+  const gmTyping = useGameStore((s) => s.gmTyping);
+  const streamingText = useGameStore((s) => s.streamingText);
   const currentLocationName = useGameStore((s) => s.currentLocationName);
   const fearPoints = useGameStore((s) => s.fearPoints);
   const sessionZeroPhase = useGameStore((s) => s.sessionZeroPhase);
   const addAdventureMessage = useGameStore((s) => s.addAdventureMessage);
   const isConnected = useGameStore((s) => s.isConnected);
+  const spotlightState = useGameStore((s) => s.spotlightState);
+  const playerId = useGameStore((s) => s.playerId);
+  const players = useGameStore((s) => s.players);
+  const safetyState = useGameStore((s) => s.safetyState);
+  const xcardPaused = useGameStore((s) => s.xcardPaused);
+  const isHost = useGameStore((s) => s.isHost);
+
+  // Spotlight: can this player act?
+  const canAct = (!spotlightState || spotlightState.current === null || spotlightState.current === playerId)
+    && (!safetyState || (safetyState.phase === 'play' && !safetyState.xcardActive));
+  const isHoldingSpotlight = spotlightState?.current === playerId;
+  const queuePosition = spotlightState?.queue.indexOf(playerId) ?? -1;
+  const currentSpotlightPlayer = spotlightState?.current
+    ? players.find(p => p.id === spotlightState.current)
+    : null;
 
   const [inputText, setInputText] = useState('');
+  const [s0Lines, setS0Lines] = useState('');
+  const [s0Veils, setS0Veils] = useState('');
+  const [s0Tone, setS0Tone] = useState('');
   const flatListRef = useRef<FlatList>(null);
 
   // Compute dynamic placeholder based on latest narrator message
@@ -69,15 +94,15 @@ export function AdventureScreen() {
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
-    if (adventureMessages.length > 0) {
+    if (adventureMessages.length > 0 || streamingText.length > 0) {
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
     }
-  }, [adventureMessages.length]);
+  }, [adventureMessages.length, streamingText.length]);
 
   const handleSend = () => {
-    if (!inputText.trim() || aiProcessing) return;
+    if (!inputText.trim() || aiProcessing || !canAct) return;
 
     const playerMsg: AdventureMessage = {
       id: `msg_${Date.now()}_player`,
@@ -159,26 +184,11 @@ export function AdventureScreen() {
     if (!character) return null;
     return (
       <View style={styles.resourceBar}>
-        <View style={styles.resourceItem}>
-          <Ionicons name="heart" size={14} color="#e74c3c" />
-          <Text style={styles.resourceText}>{character.hp}/{character.maxHp}</Text>
-        </View>
-        <View style={styles.resourceItem}>
-          <Ionicons name="flash" size={14} color="#e67e22" />
-          <Text style={styles.resourceText}>{character.stress}/{character.maxStress}</Text>
-        </View>
-        <View style={styles.resourceItem}>
-          <Ionicons name="sunny" size={14} color="#3498db" />
-          <Text style={styles.resourceText}>{character.hope}/{character.maxHope}</Text>
-        </View>
-        <View style={styles.resourceItem}>
-          <Ionicons name="shield" size={14} color="#95a5a6" />
-          <Text style={styles.resourceText}>{character.armorSlots}/{character.maxArmorSlots}</Text>
-        </View>
-        <View style={styles.resourceItem}>
-          <Ionicons name="skull" size={14} color="#9b59b6" />
-          <Text style={styles.resourceText}>{fearPoints}</Text>
-        </View>
+        <ResourceGauge label="HP" current={character.hp} max={character.maxHp} icon="heart" color={theme.color.danger} />
+        <ResourceGauge label="压力" current={character.stress} max={character.maxStress} icon="flash" color={theme.color.warning} />
+        <ResourceGauge label="希望" current={character.hope} max={character.maxHope} icon="sunny" color={theme.color.emerald} />
+        <ResourceGauge label="护甲" current={character.armorSlots} max={character.maxArmorSlots} icon="shield" color={theme.color.fog} />
+        <ResourceGauge label="恐惧" current={fearPoints} max={99} icon="skull" color={theme.color.blood} />
       </View>
     );
   };
@@ -187,7 +197,7 @@ export function AdventureScreen() {
     if (sessionZeroPhase) {
       return (
         <View style={[styles.locationBar, styles.s0LocationBar]}>
-          <Ionicons name="people" size={14} color="#e67e22" />
+          <Ionicons name="people" size={14} color={theme.color.warning} />
           <Text style={styles.s0LocationText}>
             Session Zero · {S0_PHASE_LABELS[sessionZeroPhase] || sessionZeroPhase}
           </Text>
@@ -196,7 +206,7 @@ export function AdventureScreen() {
     }
     return (
       <View style={styles.locationBar}>
-        <Ionicons name="location" size={14} color="#2ecc71" />
+        <Ionicons name="location" size={14} color={theme.color.emerald} />
         <Text style={styles.locationText}>
           {currentLocationName || '余烬村'}
         </Text>
@@ -210,14 +220,14 @@ export function AdventureScreen() {
         style={styles.quickActionButton}
         onPress={() => navigation.navigate('Combat')}
       >
-        <Ionicons name="cut" size={16} color="#e74c3c" />
+        <Ionicons name="cut" size={16} color={theme.color.danger} />
         <Text style={styles.quickActionText}>战斗</Text>
       </TouchableOpacity>
       <TouchableOpacity
         style={styles.quickActionButton}
         onPress={() => navigation.navigate('Rest')}
       >
-        <Ionicons name="cafe" size={16} color="#2ecc71" />
+        <Ionicons name="cafe" size={16} color={theme.color.emerald} />
         <Text style={styles.quickActionText}>休整</Text>
       </TouchableOpacity>
       <TouchableOpacity
@@ -226,7 +236,7 @@ export function AdventureScreen() {
           // TODO: Open dice roller
         }}
       >
-        <Ionicons name="dice-outline" size={16} color="#f39c12" />
+        <Ionicons name="dice-outline" size={16} color={theme.color.warning} />
         <Text style={styles.quickActionText}>掷骰</Text>
       </TouchableOpacity>
       <TouchableOpacity
@@ -235,9 +245,18 @@ export function AdventureScreen() {
           // TODO: Open inventory
         }}
       >
-        <Ionicons name="bag-handle" size={16} color="#9b59b6" />
+        <Ionicons name="bag-handle" size={16} color={theme.color.accent} />
         <Text style={styles.quickActionText}>物品</Text>
       </TouchableOpacity>
+      {safetyState && (
+        <TouchableOpacity
+          style={styles.quickActionButton}
+          onPress={activateXCard}
+        >
+          <Ionicons name="hand-left" size={16} color={theme.color.danger} />
+          <Text style={styles.quickActionText}>X-Card</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 
@@ -259,43 +278,104 @@ export function AdventureScreen() {
           contentContainerStyle={styles.messageList}
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Ionicons name="book" size={48} color="#34495e" />
+              <Ionicons name="book" size={48} color={theme.color.fog} />
               <Text style={styles.emptyTitle}>你的冒险即将开始</Text>
               <Text style={styles.emptySubtitle}>
                 在下方输入你的行动，AI管家将引导你的德拉肯海姆之旅
               </Text>
             </View>
           }
+          ListFooterComponent={
+            gmTyping ? (
+              streamingText.length > 0 ? (
+                <NarrativeCard content={streamingText} isStreaming />
+              ) : (
+                <View style={styles.processingIndicator}>
+                  <ActivityIndicator size="small" color={theme.color.accent} />
+                  <Text style={styles.processingText}>GM正在落笔…</Text>
+                </View>
+              )
+            ) : null
+          }
         />
-        {aiProcessing && (
-          <View style={styles.processingIndicator}>
-            <ActivityIndicator size="small" color="#3498db" />
-            <Text style={styles.processingText}>AI管家思考中...</Text>
-          </View>
-        )}
         {renderQuickActions()}
+        <SpotlightIndicator
+          spotlight={spotlightState}
+          playerId={playerId}
+          players={players}
+          onRequestSpotlight={requestSpotlight}
+        />
+        {/* S0 Safety submission form */}
+        {safetyState && sessionZeroPhase === 'safety' ? (
+          <View style={styles.s0Form}>
+            <Text style={styles.s0FormTitle}>安全工具设定</Text>
+            <Text style={styles.s0FormHint}>设定你的边界，确保所有人都能享受游戏</Text>
+            <TextInput
+              style={styles.s0Input}
+              value={s0Lines}
+              onChangeText={setS0Lines}
+              placeholder="Lines（绝不出现的内容，逗号分隔）"
+              placeholderTextColor={theme.color.muted}
+            />
+            <TextInput
+              style={styles.s0Input}
+              value={s0Veils}
+              onChangeText={setS0Veils}
+              placeholder="Veils（只暗示不描写的内容，逗号分隔）"
+              placeholderTextColor={theme.color.muted}
+            />
+            <TextInput
+              style={styles.s0Input}
+              value={s0Tone}
+              onChangeText={setS0Tone}
+              placeholder="基调偏好（如：严肃、幽默、史诗…逗号分隔）"
+              placeholderTextColor={theme.color.muted}
+            />
+            <TouchableOpacity
+              style={styles.s0SubmitButton}
+              onPress={() => {
+                const lines = s0Lines.split(/[,，]/).map(s => s.trim()).filter(Boolean);
+                const veils = s0Veils.split(/[,，]/).map(s => s.trim()).filter(Boolean);
+                const toneFlags = s0Tone.split(/[,，]/).map(s => s.trim()).filter(Boolean);
+                if (lines.length > 0 || veils.length > 0 || toneFlags.length > 0) {
+                  submitS0(lines, veils, toneFlags);
+                  setS0Lines('');
+                  setS0Veils('');
+                  setS0Tone('');
+                }
+              }}
+            >
+              <Text style={styles.s0SubmitText}>提交</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
         <View style={styles.inputContainer}>
           <TextInput
             style={[styles.textInput, sessionZeroPhase ? styles.s0TextInput : undefined]}
             value={inputText}
             onChangeText={setInputText}
             placeholder={inputPlaceholder}
-            placeholderTextColor="#7f8c8d"
+            placeholderTextColor={theme.color.muted}
             multiline
             maxLength={500}
-            editable={!aiProcessing}
+            editable={!aiProcessing && canAct}
             onSubmitEditing={handleSend}
             returnKeyType="send"
           />
           <TouchableOpacity
-            style={[styles.sendButton, (!inputText.trim() || aiProcessing) && styles.sendButtonDisabled]}
+            style={[styles.sendButton, (!inputText.trim() || aiProcessing || !canAct) && styles.sendButtonDisabled]}
             onPress={handleSend}
-            disabled={!inputText.trim() || aiProcessing}
+            disabled={!inputText.trim() || aiProcessing || !canAct}
           >
-            <Ionicons name="send" size={20} color="#ecf0f1" />
+            <Ionicons name="send" size={20} color={theme.color.parchment} />
           </TouchableOpacity>
         </View>
+        )}
       </KeyboardAvoidingView>
+      {/* X-Card pause overlay */}
+      {xcardPaused && (
+        <SafetyOverlay isHost={isHost} onResume={resumeSafety} />
+      )}
     </SafeAreaView>
   );
 }
@@ -303,7 +383,7 @@ export function AdventureScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f0f23',
+    backgroundColor: theme.color.ink,
   },
   flex: {
     flex: 1,
@@ -314,43 +394,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 6,
-    backgroundColor: '#16213e',
+    backgroundColor: theme.color.bgInput,
     borderBottomWidth: 1,
-    borderBottomColor: '#1a1a3e',
+    borderBottomColor: theme.color.fog,
   },
   locationText: {
-    color: '#2ecc71',
+    color: theme.color.emerald,
     fontSize: 13,
     marginLeft: 4,
+    fontFamily: theme.font.body,
   },
   s0LocationBar: {
-    backgroundColor: '#1a1a2e',
-    borderBottomColor: '#e67e22',
+    backgroundColor: theme.color.bgCard,
+    borderBottomColor: theme.color.warning,
   },
   s0LocationText: {
-    color: '#e67e22',
+    color: theme.color.warning,
     fontSize: 13,
     marginLeft: 4,
     fontWeight: 'bold',
+    fontFamily: theme.font.display,
   },
   // Resource bar
   resourceBar: {
     flexDirection: 'row',
     paddingHorizontal: 16,
     paddingVertical: 6,
-    backgroundColor: '#16213e',
+    backgroundColor: theme.color.bgInput,
     borderBottomWidth: 1,
-    borderBottomColor: '#1a1a3e',
+    borderBottomColor: theme.color.fog,
     gap: 12,
-  },
-  resourceItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-  },
-  resourceText: {
-    color: '#bdc3c7',
-    fontSize: 11,
   },
   // Message list
   messageList: {
@@ -361,7 +434,7 @@ const styles = StyleSheet.create({
   // Player message
   playerMessage: {
     alignSelf: 'flex-end',
-    backgroundColor: '#2980b9',
+    backgroundColor: theme.color.bgInput,
     borderRadius: 16,
     borderTopRightRadius: 4,
     paddingHorizontal: 14,
@@ -370,12 +443,13 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   playerMessageText: {
-    color: '#ecf0f1',
+    color: theme.color.parchment,
     fontSize: 15,
     lineHeight: 20,
+    fontFamily: theme.font.body,
   },
   messageTime: {
-    color: '#bdc3c7',
+    color: theme.color.textDim,
     fontSize: 10,
     marginTop: 4,
     textAlign: 'right',
@@ -383,7 +457,7 @@ const styles = StyleSheet.create({
   // Narrator message
   narratorMessage: {
     alignSelf: 'flex-start',
-    backgroundColor: '#1a1a2e',
+    backgroundColor: theme.color.bgCard,
     borderRadius: 16,
     borderTopLeftRadius: 4,
     paddingHorizontal: 14,
@@ -391,17 +465,18 @@ const styles = StyleSheet.create({
     maxWidth: '90%',
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#2c3e50',
+    borderColor: theme.color.gold,
   },
   narratorMessageText: {
-    color: '#ecf0f1',
+    color: theme.color.parchment,
     fontSize: 15,
     lineHeight: 22,
+    fontFamily: theme.font.body,
   },
   // NPC message
   npcMessage: {
     alignSelf: 'flex-start',
-    backgroundColor: '#1e1a2e',
+    backgroundColor: theme.color.bgCard,
     borderRadius: 16,
     borderTopLeftRadius: 4,
     paddingHorizontal: 14,
@@ -409,18 +484,20 @@ const styles = StyleSheet.create({
     maxWidth: '90%',
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#9b59b6',
+    borderColor: theme.color.accent,
   },
   npcName: {
-    color: '#9b59b6',
+    color: theme.color.accent,
     fontSize: 12,
     fontWeight: 'bold',
+    fontFamily: theme.font.display,
     marginBottom: 4,
   },
   npcMessageText: {
-    color: '#ecf0f1',
+    color: theme.color.parchment,
     fontSize: 15,
     lineHeight: 22,
+    fontFamily: theme.font.body,
   },
   // Choices
   choicesContainer: {
@@ -428,16 +505,17 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   choiceButton: {
-    backgroundColor: '#16213e',
-    borderRadius: 8,
+    backgroundColor: theme.color.bgInput,
+    borderRadius: theme.radius.button,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderWidth: 1,
-    borderColor: '#3498db',
+    borderColor: theme.color.emerald,
   },
   choiceText: {
-    color: '#3498db',
+    color: theme.color.emerald,
     fontSize: 14,
+    fontFamily: theme.font.body,
   },
   // Empty state
   emptyState: {
@@ -447,14 +525,16 @@ const styles = StyleSheet.create({
     paddingTop: 80,
   },
   emptyTitle: {
-    color: '#bdc3c7',
+    color: theme.color.textDim,
     fontSize: 18,
     fontWeight: 'bold',
+    fontFamily: theme.font.display,
     marginTop: 16,
   },
   emptySubtitle: {
-    color: '#7f8c8d',
+    color: theme.color.muted,
     fontSize: 14,
+    fontFamily: theme.font.body,
     textAlign: 'center',
     marginTop: 8,
     paddingHorizontal: 40,
@@ -469,8 +549,9 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   processingText: {
-    color: '#7f8c8d',
+    color: theme.color.textDim,
     fontSize: 12,
+    fontFamily: theme.font.body,
   },
   // Quick actions
   quickActions: {
@@ -482,15 +563,16 @@ const styles = StyleSheet.create({
   quickActionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#16213e',
+    backgroundColor: theme.color.bgInput,
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 6,
     gap: 4,
   },
   quickActionText: {
-    color: '#bdc3c7',
+    color: theme.color.textDim,
     fontSize: 12,
+    fontFamily: theme.font.body,
   },
   // Input container
   inputContainer: {
@@ -502,29 +584,71 @@ const styles = StyleSheet.create({
   },
   textInput: {
     flex: 1,
-    backgroundColor: '#16213e',
+    backgroundColor: theme.color.bgInput,
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 10,
-    color: '#ecf0f1',
+    color: theme.color.parchment,
     fontSize: 15,
+    fontFamily: theme.font.body,
     maxHeight: 100,
     borderWidth: 1,
-    borderColor: '#2c3e50',
+    borderColor: theme.color.fog,
   },
   s0TextInput: {
-    borderColor: '#e67e22',
+    borderColor: theme.color.warning,
     borderWidth: 2,
   },
   sendButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#2980b9',
+    backgroundColor: theme.color.emerald,
     justifyContent: 'center',
     alignItems: 'center',
   },
   sendButtonDisabled: {
-    backgroundColor: '#2c3e50',
+    backgroundColor: theme.color.fog,
+  },
+  // S0 Safety form
+  s0Form: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  s0FormTitle: {
+    color: theme.color.warning,
+    fontSize: 16,
+    fontWeight: 'bold',
+    fontFamily: theme.font.display,
+  },
+  s0FormHint: {
+    color: theme.color.textDim,
+    fontSize: 12,
+    fontFamily: theme.font.body,
+  },
+  s0Input: {
+    backgroundColor: theme.color.bgInput,
+    borderRadius: theme.radius.input,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    color: theme.color.parchment,
+    fontSize: 14,
+    fontFamily: theme.font.body,
+    borderWidth: 1,
+    borderColor: theme.color.warning,
+  },
+  s0SubmitButton: {
+    backgroundColor: theme.color.warning,
+    borderRadius: theme.radius.button,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    alignSelf: 'center',
+  },
+  s0SubmitText: {
+    color: theme.color.ink,
+    fontSize: 15,
+    fontWeight: 'bold',
+    fontFamily: theme.font.display,
   },
 });

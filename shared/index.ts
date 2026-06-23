@@ -6,6 +6,7 @@ export * from './types/rules';
 export * from './types/character';
 export * from './types/events';
 export * from './types/agent';
+export * from './types/safety';
 
 // Constants
 export { GAME_EVENTS, AIGM_EVENT_SUBSCRIPTIONS, RULE_ENGINE_SUBSCRIPTIONS } from './constants/gameEvents';

@@ -4,7 +4,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
-import type { Character, GameEvent, GameEventType, SessionStatus, CampaignChapter } from '@trpgmaster/shared';
+import type { Character, GameEvent, GameEventType, SessionStatus, CampaignChapter, SpotlightState, SafetyState } from '@trpgmaster/shared';
 
 const SESSION_DATA_FILE = 'session_data.json';
 
@@ -67,6 +67,8 @@ export interface PersistedSession {
   };
   adventureMessages: PersistedAdventureMessage[];
   shortRestsSinceLong: number;
+  spotlightState?: SpotlightState;
+  safetyState?: SafetyState;
   createdAt: number;
 }
 

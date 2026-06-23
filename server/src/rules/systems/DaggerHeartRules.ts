@@ -115,6 +115,50 @@ export function resolveRoll(
   };
 }
 
+// ===== 骰子结算（服务端调用入口） =====
+
+export interface DualityDiceResult {
+  hopeDie: number;
+  fearDie: number;
+  modifier: number;
+  total: number;
+  difficulty: number;
+  outcome: RollResultType;
+  isCritical: boolean;
+  withHope: boolean;
+  withFear: boolean;
+  hopeGain: number;
+  fearGain: number;
+  success: boolean;
+}
+
+/**
+ * 服务端骰子结算入口 — 包装 resolveRoll，返回结构化结果
+ * 用于 dice:roll handler 调用后写入 StateManager
+ */
+export function resolveDualityDice(
+  hopeDie: number,
+  fearDie: number,
+  modifier: number,
+  difficulty: number,
+): DualityDiceResult {
+  const roll = resolveRoll(hopeDie, fearDie, modifier, difficulty);
+  return {
+    hopeDie: roll.hopeDie,
+    fearDie: roll.fearDie,
+    modifier: roll.modifier,
+    total: roll.total,
+    difficulty: roll.difficulty,
+    outcome: roll.type,
+    isCritical: roll.isCritical,
+    withHope: roll.hopeGained > 0,
+    withFear: roll.fearGained > 0,
+    hopeGain: roll.hopeGained,
+    fearGain: roll.fearGained,
+    success: roll.success,
+  };
+}
+
 /**
  * 优势/劣势 d6 骰处理
  * 净优势 > 0：投1d6加到总数

@@ -12,3 +12,5 @@ coverage/
 .cache/
 package-lock.json
 .claude/
+evals/output/
+test-logs/
