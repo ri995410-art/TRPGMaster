@@ -16,13 +16,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
-import { useGameStore, type AdventureMessage, type AdventureChoice } from '../store/gameStore';
-import { sendPlayerAction, sendPlayerChoice, requestSpotlight, submitS0, activateXCard, resumeSafety } from '../hooks/useSocket';
+import { useGameStore, type AdventureMessage, type AdventureChoice, type DiceResult } from '../store/gameStore';
+import { sendPlayerAction, sendPlayerChoice, sendDiceRoll, requestSpotlight, submitS0, activateXCard, resumeSafety } from '../hooks/useSocket';
 import { theme } from '../theme/theme';
 import { NarrativeCard } from '../components/NarrativeCard';
 import { ResourceGauge } from '../components/ResourceGauge';
 import { SpotlightIndicator } from '../components/SpotlightIndicator';
 import { SafetyOverlay } from '../components/SafetyOverlay';
+import { DiceTray } from '../components/DiceTray/DiceTray';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -52,6 +53,9 @@ export function AdventureScreen() {
   const safetyState = useGameStore((s) => s.safetyState);
   const xcardPaused = useGameStore((s) => s.xcardPaused);
   const isHost = useGameStore((s) => s.isHost);
+  const combatState = useGameStore((s) => s.combatState);
+  const pendingDiceResult = useGameStore((s) => s.pendingDiceResult);
+  const clearPendingDiceResult = useGameStore((s) => s.clearPendingDiceResult);
 
   // Spotlight: can this player act?
   const canAct = (!spotlightState || spotlightState.current === null || spotlightState.current === playerId)
@@ -66,7 +70,15 @@ export function AdventureScreen() {
   const [s0Lines, setS0Lines] = useState('');
   const [s0Veils, setS0Veils] = useState('');
   const [s0Tone, setS0Tone] = useState('');
+  const [showDiceTray, setShowDiceTray] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+
+  // Auto-navigate to combat when combatState appears
+  useEffect(() => {
+    if (combatState && combatState.enemies.length > 0) {
+      navigation.navigate('Combat');
+    }
+  }, [combatState?.id]);
 
   // Compute dynamic placeholder based on latest narrator message
   const getInputPlaceholder = (): string => {
@@ -112,10 +124,11 @@ export function AdventureScreen() {
     };
 
     addAdventureMessage(playerMsg);
+    const text = inputText.trim();
     setInputText('');
 
-    // Send to AI GM via Socket
-    sendPlayerAction(inputText.trim());
+    // Send to AI GM via Socket (with dice context if pending)
+    sendPlayerAction(text);
   };
 
   const handleChoice = (choice: AdventureChoice) => {
@@ -232,9 +245,7 @@ export function AdventureScreen() {
       </TouchableOpacity>
       <TouchableOpacity
         style={styles.quickActionButton}
-        onPress={() => {
-          // TODO: Open dice roller
-        }}
+        onPress={() => setShowDiceTray(true)}
       >
         <Ionicons name="dice-outline" size={16} color={theme.color.warning} />
         <Text style={styles.quickActionText}>掷骰</Text>
@@ -372,6 +383,40 @@ export function AdventureScreen() {
         </View>
         )}
       </KeyboardAvoidingView>
+      {/* Dice tray overlay */}
+      {showDiceTray && (
+        <View style={styles.diceTrayOverlay}>
+          <View style={styles.diceTrayHeader}>
+            <Text style={styles.diceTrayTitle}>掷骰</Text>
+            <TouchableOpacity onPress={() => setShowDiceTray(false)}>
+              <Ionicons name="close" size={20} color={theme.color.parchment} />
+            </TouchableOpacity>
+          </View>
+          <DiceTray
+            onRoll={(hopeDie, fearDie, modifier, difficulty) => {
+              sendDiceRoll(hopeDie, fearDie, modifier, difficulty);
+              setShowDiceTray(false);
+            }}
+          />
+        </View>
+      )}
+      {/* Pending dice result banner */}
+      {pendingDiceResult && (
+        <View style={styles.diceBanner}>
+          <View style={styles.diceBannerContent}>
+            <Ionicons name="dice" size={16} color={pendingDiceResult.success ? theme.color.emerald : theme.color.danger} />
+            <Text style={styles.diceBannerText}>
+              {pendingDiceResult.withHope ? '希望' : pendingDiceResult.withFear ? '恐惧' : '中立'}
+              {pendingDiceResult.success ? '成功' : '失败'}
+              {' '}({pendingDiceResult.hopeDie}+{pendingDiceResult.fearDie}+{pendingDiceResult.modifier}={pendingDiceResult.total} vs {pendingDiceResult.difficulty})
+              {pendingDiceResult.isCritical ? ' 大成功!' : ''}
+            </Text>
+          </View>
+          <TouchableOpacity onPress={() => clearPendingDiceResult()}>
+            <Ionicons name="close-circle" size={16} color={theme.color.textDim} />
+          </TouchableOpacity>
+        </View>
+      )}
       {/* X-Card pause overlay */}
       {xcardPaused && (
         <SafetyOverlay isHost={isHost} onResume={resumeSafety} />
@@ -650,5 +695,53 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: 'bold',
     fontFamily: theme.font.display,
+  },
+  // Dice tray overlay
+  diceTrayOverlay: {
+    position: 'absolute',
+    top: 100,
+    left: 12,
+    right: 12,
+    backgroundColor: theme.color.bgCard,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: theme.color.warning,
+    zIndex: 100,
+    elevation: 10,
+  },
+  diceTrayHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  diceTrayTitle: {
+    color: theme.color.warning,
+    fontSize: 16,
+    fontWeight: 'bold',
+    fontFamily: theme.font.display,
+  },
+  // Dice result banner
+  diceBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: theme.color.bgCard,
+    borderTopWidth: 1,
+    borderColor: theme.color.warning,
+  },
+  diceBannerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+  },
+  diceBannerText: {
+    color: theme.color.parchment,
+    fontSize: 13,
+    fontFamily: theme.font.body,
   },
 });

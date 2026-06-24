@@ -8,7 +8,10 @@ import type {
   Player,
   SpotlightState,
   SafetyState,
+  CombatState,
 } from '@trpgmaster/shared';
+import type { ActionDeclaration } from '@trpgmaster/shared';
+import type { DiceResult } from '../store/gameStore';
 
 // Local SocketMessage interface for wire format
 interface SocketMessage<T = unknown> {
@@ -146,6 +149,9 @@ export function connectToServer(serverUrl: string): Promise<string> {
         store.updateFearPoints(fearDelta);
       }
 
+      // Update combat state from server
+      store.setCombatState(state.activeCombat || null);
+
       // Update session code if present
       if (state.sessionCode) {
         store.setSessionCode(state.sessionCode);
@@ -253,6 +259,29 @@ export function connectToServer(serverUrl: string): Promise<string> {
 
     socket.on('character:update', (msg: SocketMessage<{ character: Character }>) => {
       useGameStore.getState().updateCharacterFromServer(msg.payload.character);
+    });
+
+    // ===== Dice Results =====
+
+    socket.on('dice:roll', (msg: SocketMessage<{ hopeDie: number; fearDie: number; modifier: number; difficulty: number; outcome?: string; isCritical?: boolean; withHope?: boolean; withFear?: boolean; hopeGain?: number; fearGain?: number; success?: boolean; total?: number }>) => {
+      // Only set pendingDiceResult for this player's own rolls
+      if (msg.senderId === useGameStore.getState().playerId && msg.payload.outcome) {
+        const result: DiceResult = {
+          hopeDie: msg.payload.hopeDie,
+          fearDie: msg.payload.fearDie,
+          modifier: msg.payload.modifier,
+          difficulty: msg.payload.difficulty,
+          outcome: msg.payload.outcome,
+          isCritical: msg.payload.isCritical ?? false,
+          withHope: msg.payload.withHope ?? false,
+          withFear: msg.payload.withFear ?? false,
+          hopeGain: msg.payload.hopeGain ?? 0,
+          fearGain: msg.payload.fearGain ?? 0,
+          success: msg.payload.success ?? false,
+          total: msg.payload.total ?? 0,
+        };
+        useGameStore.getState().setPendingDiceResult(result);
+      }
     });
 
     // ===== Session Events =====
@@ -429,7 +458,7 @@ export function connectToServer(serverUrl: string): Promise<string> {
 }
 
 /** Send player action to AI GM */
-export function sendPlayerAction(action: string): void {
+export function sendPlayerAction(action: string, diceContext?: string): void {
   if (!socket) {
     const store = useGameStore.getState();
     store.addAdventureMessage({
@@ -444,11 +473,24 @@ export function sendPlayerAction(action: string): void {
   const store = useGameStore.getState();
   store.setAiProcessing(true);
 
+  // If no explicit diceContext, check for pendingDiceResult
+  let finalAction = action;
+  if (!diceContext && store.pendingDiceResult) {
+    const d = store.pendingDiceResult;
+    const outcomeLabel = d.success ? '成功' : '失败';
+    const typeLabel = d.withHope ? '希望' : d.withFear ? '恐惧' : '中立';
+    diceContext = `[骰子结果: ${typeLabel}${outcomeLabel} (${d.hopeDie}+${d.fearDie}+${d.modifier}=${d.total} vs ${d.difficulty})${d.isCritical ? ' 大成功!' : ''}]`;
+    store.clearPendingDiceResult();
+  }
+  if (diceContext) {
+    finalAction = `${diceContext} ${action}`;
+  }
+
   socket.emit('player:action', {
     type: 'player:action',
     sessionId: store.campaignId || '',
     senderId: useGameStore.getState().playerId,
-    payload: { action },
+    payload: { action: finalAction },
     timestamp: Date.now(),
   } as SocketMessage<{ action: string }>);
 }
@@ -492,19 +534,19 @@ export function requestNarration(): void {
 }
 
 /** Send rest request */
-export function sendRestRequest(restType: 'short' | 'long', actions: string[]): void {
+export function sendRestRequest(restType: 'short' | 'long', actions: string[], projectDescription?: string): void {
   if (!socket) return;
 
   socket.emit('player:rest', {
     type: 'player:rest',
     sessionId: useGameStore.getState().campaignId || '',
     senderId: useGameStore.getState().playerId,
-    payload: { restType, actions },
+    payload: { restType, actions, projectDescription },
     timestamp: Date.now(),
-  } as SocketMessage<{ restType: string; actions: string[] }>);
+  } as SocketMessage<{ restType: string; actions: string[]; projectDescription?: string }>);
 }
 
-/** Send combat action */
+/** Send combat action (legacy) */
 export function sendCombatAction(actionId: string, targetId?: string): void {
   if (!socket) return;
 
@@ -515,6 +557,35 @@ export function sendCombatAction(actionId: string, targetId?: string): void {
     payload: { actionId, targetId },
     timestamp: Date.now(),
   } as SocketMessage<{ actionId: string; targetId?: string }>);
+}
+
+/** Send structured attack action to server */
+export function sendAttackAction(decl: ActionDeclaration): void {
+  if (!socket) return;
+
+  const store = useGameStore.getState();
+  store.setAiProcessing(true);
+
+  socket.emit('action:attack', {
+    type: 'action:attack',
+    sessionId: store.campaignId || '',
+    senderId: store.playerId,
+    payload: decl,
+    timestamp: Date.now(),
+  } as SocketMessage<ActionDeclaration>);
+}
+
+/** Send dice roll to server for resolution */
+export function sendDiceRoll(hopeDie: number, fearDie: number, modifier: number, difficulty: number): void {
+  if (!socket) return;
+
+  socket.emit('dice:roll', {
+    type: 'dice:roll',
+    sessionId: useGameStore.getState().campaignId || '',
+    senderId: useGameStore.getState().playerId,
+    payload: { hopeDie, fearDie, modifier, difficulty },
+    timestamp: Date.now(),
+  } as SocketMessage<{ hopeDie: number; fearDie: number; modifier: number; difficulty: number }>);
 }
 
 /** Request session start */

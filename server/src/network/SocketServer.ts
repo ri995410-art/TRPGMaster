@@ -5,6 +5,9 @@ import type { StateManager } from '../core/StateManager';
 import type { SessionRegistry } from '../core/SessionRegistry';
 import type { AIGameMaster } from '../ai/AIGameMaster';
 import { resolveDualityDice, gainFearOnRest } from '../rules/systems/DaggerHeartRules';
+import { resolvePlayerAttack, resolveDamageToCharacter } from '../rules/combatResolver';
+import { applyPlayerAttack, applyDamageToCharacter } from './combatApply';
+import { extractGmEffects } from '../ai/extractGmEffects';
 import { extractStateChanges, parseStateKeyValue, extractChoices, applyStateChanges } from './stateChangeParser';
 import type {
   GameEvent,
@@ -12,7 +15,10 @@ import type {
   SessionState,
   Player,
   Character,
+  ActionDeclaration,
+  GmEffect,
 } from '@trpgmaster/shared';
+import type { AIGMContext } from '@trpgmaster/shared';
 import type { PersistedAdventureMessage } from '../core/SessionPersistence';
 import type { SessionStore } from '../core/SessionStore';
 import { SpotlightManager } from '../core/SpotlightManager';
@@ -190,7 +196,7 @@ export class SocketServer {
         this.handleSafetyResume(socket);
       });
 
-      socket.on('player:rest', (msg: SocketMessage<{ restType: string; actions: string[] }>) => {
+      socket.on('player:rest', (msg: SocketMessage<{ restType: string; actions: string[]; projectDescription?: string }>) => {
         const client = this.clients.get(socket.id);
         const sessionId = client?.sessionId || msg.sessionId;
         const stateManager = this.sessionRegistry.findById(sessionId);
@@ -202,16 +208,24 @@ export class SocketServer {
           stateManager.addFearPoints(fearGain);
         }
 
+        // Build action text
+        let actionText = `请求${msg.payload.restType === 'long' ? '长' : '短'}休，活动：${msg.payload.actions.join('、')}`;
+        if (msg.payload.projectDescription) {
+          actionText += `，推进项目：${msg.payload.projectDescription}`;
+        }
+
         // Still forward to AI GM for narrative
         this.handlePlayerAction(socket, {
           type: 'player:action',
           sessionId: msg.sessionId,
           senderId: msg.senderId,
-          payload: { action: `请求${msg.payload.restType === 'long' ? '长' : '短'}休，活动：${msg.payload.actions.join('、')}` },
+          payload: { action: actionText },
           timestamp: msg.timestamp,
         });
       });
 
+      // Legacy combat:action — routes as plain text narrative (no backend resolution)
+      // Front-end should migrate to action:attack for structured combat resolution
       socket.on('combat:action', (msg: SocketMessage<{ actionId: string; targetId?: string }>) => {
         this.handlePlayerAction(socket, {
           type: 'player:action',
@@ -220,6 +234,10 @@ export class SocketServer {
           payload: { action: `战斗行动：${msg.payload.actionId}${msg.payload.targetId ? `，目标：${msg.payload.targetId}` : ''}` },
           timestamp: msg.timestamp,
         });
+      });
+
+      socket.on('action:attack', (msg: SocketMessage<ActionDeclaration>) => {
+        this.handleAttack(socket, msg);
       });
 
       // ===== GM Narration =====
@@ -817,6 +835,64 @@ export class SocketServer {
     console.log(`${client.name} switched to character ${character.name}`);
   }
 
+  // ===== Turn guard (shared by handlePlayerAction and handleAttack) =====
+
+  private async guardTurn(
+    socket: Socket,
+    client: ConnectedClient,
+    stateManager: StateManager,
+  ): Promise<boolean> {
+    const sessionId = client.sessionId;
+
+    // Safety gate: reject if S0 not complete or X-Card active
+    const safety = stateManager.getSafetyState();
+    if (!this.safetyManager.canPlay(safety)) {
+      if (safety?.phase === 's0') {
+        socket.emit('session:error', {
+          type: 'session:error',
+          sessionId,
+          senderId: 'system',
+          payload: { error: '请先完成 Session Zero（提交 Lines/Veils）再开始游戏' },
+          timestamp: Date.now(),
+        });
+      } else if (safety?.xcardActive) {
+        socket.emit('session:error', {
+          type: 'session:error',
+          sessionId,
+          senderId: 'system',
+          payload: { error: '游戏已暂停（X-Card 已激活），等待主持人恢复' },
+          timestamp: Date.now(),
+        });
+      }
+      return false;
+    }
+
+    // Spotlight gate: reject if player cannot act
+    const spotlight = stateManager.getSpotlightState();
+    if (!this.spotlightManager.canAct(spotlight, client.playerId)) {
+      if (spotlight) {
+        const newSpotlight = this.spotlightManager.request(spotlight, client.playerId);
+        stateManager.setSpotlightState(newSpotlight);
+        this.broadcastSpotlightState(sessionId, newSpotlight);
+      }
+      socket.emit('action:queued', {
+        type: 'action:queued',
+        sessionId,
+        senderId: 'system',
+        payload: { queuePosition: spotlight?.queue.length ?? 0 },
+        timestamp: Date.now(),
+      });
+      return false;
+    }
+
+    // Acquire turn lock
+    if (this.sessionStore) {
+      await this.sessionStore.acquireTurnLock(sessionId, 90000);
+    }
+
+    return true;
+  }
+
   // ===== Player Action (AI GM) =====
 
   private async handlePlayerAction(socket: Socket, msg: SocketMessage<{ action: string }>): Promise<void> {
@@ -838,222 +914,58 @@ export class SocketServer {
       timestamp: msg.timestamp,
     });
 
-    // === Safety gate: reject if S0 not complete or X-Card active ===
-    const safety = stateManager.getSafetyState();
-    if (!this.safetyManager.canPlay(safety)) {
-      if (safety?.phase === 's0') {
-        socket.emit('session:error', {
-          type: 'session:error',
-          sessionId,
-          senderId: 'system',
-          payload: { error: '请先完成 Session Zero（提交 Lines/Veils）再开始游戏' },
-          timestamp: Date.now(),
-        });
-      } else if (safety?.xcardActive) {
-        socket.emit('session:error', {
-          type: 'session:error',
-          sessionId,
-          senderId: 'system',
-          payload: { error: '游戏已暂停（X-Card 已激活），等待主持人恢复' },
-          timestamp: Date.now(),
-        });
-      }
-      return;
-    }
-
-    // === Spotlight gate: reject if player cannot act ===
-    const spotlight = stateManager.getSpotlightState();
-    if (!this.spotlightManager.canAct(spotlight, client.playerId)) {
-      // Auto-request spotlight (enqueue) and notify
-      if (spotlight) {
-        const newSpotlight = this.spotlightManager.request(spotlight, client.playerId);
-        stateManager.setSpotlightState(newSpotlight);
-        this.broadcastSpotlightState(sessionId, newSpotlight);
-      }
-      socket.emit('action:queued', {
-        type: 'action:queued',
-        sessionId,
-        senderId: 'system',
-        payload: { queuePosition: spotlight?.queue.length ?? 0 },
-        timestamp: Date.now(),
-      });
-      return;
-    }
+    // === Guard: safety + spotlight + turn lock ===
+    if (!(await this.guardTurn(socket, client, stateManager))) return;
 
     if (this.aiGM) {
-      const turnId = uuidv4();
-      try {
-        const state = stateManager.getState();
-        const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
+      const state = stateManager.getState();
+      const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
 
-        if (!character) {
-          socket.emit('gm:narrate', {
-            type: 'gm:narrate',
-            sessionId,
-            senderId: 'system',
-            payload: {
-              content: '请先创建角色，然后开始冒险。在首页点击"新建战役"来创建你的角色。',
-            },
-            timestamp: Date.now(),
-          });
-          return;
-        }
-
-        // Build AI GM context with party awareness
-        const context = {
-          sessionId,
-          character,
-          characters: state.characters.length > 0 ? state.characters : [character],
-          activePlayerId: client.playerId,
-          activePlayerName: client.name,
-          sessionState: state,
-          worldLore: this.aiGM?.getWorldLore(),
-        };
-
-        const isSessionZero = state.status === 'sessionZero';
-
-        // === Acquire turn lock (multi-player concurrent safety) ===
-        if (this.sessionStore) {
-          await this.sessionStore.acquireTurnLock(sessionId, 90000);
-        }
-
-        // === Streaming path ===
-        const abortController = new AbortController();
-        this.activeStreams.set(sessionId, abortController);
-        this.io.to(sessionId).emit('gm:narrate:start', {
-          type: 'gm:narrate:start',
+      if (!character) {
+        socket.emit('gm:narrate', {
+          type: 'gm:narrate',
           sessionId,
           senderId: 'system',
           payload: {
-            turnId,
-            activePlayerId: client.playerId,
-            characterName: character.name,
-            playerName: client.name,
+            content: '请先创建角色，然后开始冒险。在首页点击"新建战役"来创建你的角色。',
           },
           timestamp: Date.now(),
         });
-
-        let fullText = '';
-
-        try {
-          const onToken = (delta: string) => {
-            fullText += delta;
-            this.io.to(sessionId).emit('gm:narrate:delta', {
-              type: 'gm:narrate:delta',
-              sessionId,
-              senderId: 'system',
-              payload: { turnId, text: delta },
-              timestamp: Date.now(),
-            });
-          };
-
-          const response = isSessionZero
-            ? await this.aiGM.runSessionZero(context, playerAction)
-            : await this.aiGM.processPlayerActionStream(context, playerAction, onToken, undefined, abortController.signal);
-
-          // Use fullText from stream (for streaming path) or response content (for S0 non-stream)
-          const rawContent = isSessionZero ? response.message.content : fullText;
-
-          // Extract state changes from AI response
-          const { cleanContent, stateChanges: parsedStateChanges } = extractStateChanges(rawContent);
-
-          // Apply state changes to StateManager
-          if (parsedStateChanges.length > 0) {
-            applyStateChanges(stateManager, client.playerId, parsedStateChanges);
-          }
-
-          // Extract choices from cleaned content
-          const choices = extractChoices(cleanContent);
-
-          // Emit stream end
-          this.io.to(sessionId).emit('gm:narrate:end', {
-            type: 'gm:narrate:end',
-            sessionId,
-            senderId: 'system',
-            payload: {
-              turnId,
-              fullText: cleanContent,
-              choices,
-              npcName: response.message.npcName,
-              npcId: response.message.npcId,
-              playerName: client.name,
-              characterName: character.name,
-            },
-            timestamp: Date.now(),
-          });
-
-          // Store GM narration on server for persistence
-          const gmMsg: PersistedAdventureMessage = {
-            id: `msg_${Date.now()}_gm`,
-            role: response.message.npcName ? 'npc' : 'narrator',
-            content: cleanContent,
-            timestamp: Date.now(),
-            npcName: response.message.npcName,
-            npcId: response.message.npcId,
-            choices: choices?.map(c => ({ id: c.id, text: c.label, action: c.action })),
-          };
-          stateManager.addAdventureMessage(gmMsg);
-
-          // Session Zero phase advancement (skip 'safety' — advanced by s0:submit)
-          if (isSessionZero) {
-            const S0_PHASES: Array<import('@trpgmaster/shared').SessionZeroPhase> = ['safety', 'worldbuilding', 'connections', 'expectations', 'narrativePact'];
-            const currentPhase = state.sessionZeroPhase;
-            const currentIndex = S0_PHASES.indexOf(currentPhase!);
-
-            // 'safety' phase is advanced by s0:submit, not auto-advance
-            if (currentPhase !== 'safety' && currentIndex >= 0 && currentIndex < S0_PHASES.length - 1) {
-              const nextPhase = S0_PHASES[currentIndex + 1];
-              stateManager.setSessionZeroPhase(nextPhase);
-              console.log(`Session Zero advanced to phase: ${nextPhase}`);
-            } else if (currentPhase !== 'safety' && currentIndex === S0_PHASES.length - 1) {
-              stateManager.completeSessionZero();
-              this.io.to(sessionId).emit('session:completeSessionZero', {
-                type: 'session:completeSessionZero',
-                sessionId,
-                senderId: 'system',
-                payload: {},
-                timestamp: Date.now(),
-              });
-              this.io.to(sessionId).emit('session:started', {
-                type: 'session:started',
-                sessionId,
-                senderId: 'system',
-                payload: { status: 'active' },
-                timestamp: Date.now(),
-              });
-              this.broadcastState(stateManager.getState());
-              console.log(`Session Zero completed, game is now active`);
-            }
-          }
-
-          // === Pass spotlight after turn completes ===
-          const currentSpotlight = stateManager.getSpotlightState();
-          if (currentSpotlight) {
-            const newSpotlight = this.spotlightManager.pass(currentSpotlight);
-            stateManager.setSpotlightState(newSpotlight);
-            this.broadcastSpotlightState(sessionId, newSpotlight);
-          }
-
-          console.log(`AI GM responded to ${client.name} (streaming, ${fullText.length} chars)`);
-        } finally {
-          this.activeStreams.delete(sessionId);
-          if (this.sessionStore) {
-            await this.sessionStore.releaseTurnLock(sessionId);
-          }
+        if (this.sessionStore) {
+          await this.sessionStore.releaseTurnLock(sessionId);
         }
+        return;
+      }
+
+      // Build AI GM context with party awareness
+      const context = {
+        sessionId,
+        character,
+        characters: state.characters.length > 0 ? state.characters : [character],
+        activePlayerId: client.playerId,
+        activePlayerName: client.name,
+        sessionState: state,
+        worldLore: this.aiGM?.getWorldLore(),
+      };
+
+      const isSessionZero = state.status === 'sessionZero';
+
+      try {
+        await this.runNarration(
+          socket, client, stateManager, context, playerAction, isSessionZero,
+        );
       } catch (err) {
         this.activeStreams.delete(sessionId);
         if (this.sessionStore) {
           await this.sessionStore.releaseTurnLock(sessionId);
         }
         console.error('AI GM error:', err);
-        // On stream error, emit as gm:narrate:end with error flag for compatibility
         this.io.to(sessionId).emit('gm:narrate:end', {
           type: 'gm:narrate:end',
           sessionId,
           senderId: 'system',
           payload: {
-            turnId,
+            turnId: uuidv4(),
             fullText: `（AI管家暂时无法响应，请稍后重试。错误：${(err as Error).message}）`,
             choices: [],
             error: true,
@@ -1078,6 +990,286 @@ export class SocketServer {
         },
         timestamp: Date.now(),
       });
+    }
+  }
+
+  // ===== Unified narration flow (shared by handlePlayerAction and handleAttack) =====
+
+  private async runNarration(
+    socket: Socket,
+    client: ConnectedClient,
+    stateManager: StateManager,
+    context: AIGMContext,
+    actionText: string,
+    isSessionZero: boolean,
+    resolvedOutcome?: { narrationHint: string },
+  ): Promise<void> {
+    const sessionId = client.sessionId;
+    const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
+    const turnId = uuidv4();
+
+    const abortController = new AbortController();
+    this.activeStreams.set(sessionId, abortController);
+    this.io.to(sessionId).emit('gm:narrate:start', {
+      type: 'gm:narrate:start',
+      sessionId,
+      senderId: 'system',
+      payload: {
+        turnId,
+        activePlayerId: client.playerId,
+        characterName: character.name,
+        playerName: client.name,
+      },
+      timestamp: Date.now(),
+    });
+
+    let fullText = '';
+
+    try {
+      const onToken = (delta: string) => {
+        fullText += delta;
+        this.io.to(sessionId).emit('gm:narrate:delta', {
+          type: 'gm:narrate:delta',
+          sessionId,
+          senderId: 'system',
+          payload: { turnId, text: delta },
+          timestamp: Date.now(),
+        });
+      };
+
+      const aiContext = context;
+
+      // If we have a resolved outcome, prepend it to the action text so AI knows the result
+      const effectiveAction = resolvedOutcome
+        ? `【已结算·请据此叙事，不要改动任何数字】${actionText}。结果：${resolvedOutcome.narrationHint}`
+        : actionText;
+
+      const response = isSessionZero
+        ? await this.aiGM!.runSessionZero(aiContext, effectiveAction)
+        : await this.aiGM!.processPlayerActionStream(aiContext, effectiveAction, onToken, undefined, abortController.signal, resolvedOutcome?.narrationHint);
+
+      const rawContent = isSessionZero ? response.message.content : fullText;
+
+      // Extract [STATE] changes from AI response (fallback — kept as safety net)
+      const { cleanContent, stateChanges: parsedStateChanges } = extractStateChanges(rawContent);
+
+      // Apply [STATE] changes to StateManager
+      if (parsedStateChanges.length > 0) {
+        applyStateChanges(stateManager, client.playerId, parsedStateChanges);
+      }
+
+      // Extract GM effects via structured channel (narration → JSON extraction)
+      try {
+        const gmModel = this.aiGM!.getConfig().narratorModel;
+        const gmEffects = await extractGmEffects(this.aiGM!.getGateway(), cleanContent, gmModel);
+        for (const effect of gmEffects) {
+          this.applyGmEffect(stateManager, client.playerId, effect);
+        }
+      } catch {
+        // Structured extraction failure is non-fatal — [STATE] fallback may have already applied
+      }
+
+      // Extract choices from cleaned content
+      const choices = extractChoices(cleanContent);
+
+      // Emit stream end
+      this.io.to(sessionId).emit('gm:narrate:end', {
+        type: 'gm:narrate:end',
+        sessionId,
+        senderId: 'system',
+        payload: {
+          turnId,
+          fullText: cleanContent,
+          choices,
+          npcName: response.message.npcName,
+          npcId: response.message.npcId,
+          playerName: client.name,
+          characterName: character.name,
+        },
+        timestamp: Date.now(),
+      });
+
+      // Store GM narration on server for persistence
+      const gmMsg: PersistedAdventureMessage = {
+        id: `msg_${Date.now()}_gm`,
+        role: response.message.npcName ? 'npc' : 'narrator',
+        content: cleanContent,
+        timestamp: Date.now(),
+        npcName: response.message.npcName,
+        npcId: response.message.npcId,
+        choices: choices?.map(c => ({ id: c.id, text: c.label, action: c.action })),
+      };
+      stateManager.addAdventureMessage(gmMsg);
+
+      // Session Zero phase advancement
+      if (isSessionZero) {
+        const state = stateManager.getState();
+        const S0_PHASES: Array<import('@trpgmaster/shared').SessionZeroPhase> = ['safety', 'worldbuilding', 'connections', 'expectations', 'narrativePact'];
+        const currentPhase = state.sessionZeroPhase;
+        const currentIndex = S0_PHASES.indexOf(currentPhase!);
+
+        if (currentPhase !== 'safety' && currentIndex >= 0 && currentIndex < S0_PHASES.length - 1) {
+          const nextPhase = S0_PHASES[currentIndex + 1];
+          stateManager.setSessionZeroPhase(nextPhase);
+          console.log(`Session Zero advanced to phase: ${nextPhase}`);
+        } else if (currentPhase !== 'safety' && currentIndex === S0_PHASES.length - 1) {
+          stateManager.completeSessionZero();
+          this.io.to(sessionId).emit('session:completeSessionZero', {
+            type: 'session:completeSessionZero',
+            sessionId,
+            senderId: 'system',
+            payload: {},
+            timestamp: Date.now(),
+          });
+          this.io.to(sessionId).emit('session:started', {
+            type: 'session:started',
+            sessionId,
+            senderId: 'system',
+            payload: { status: 'active' },
+            timestamp: Date.now(),
+          });
+          this.broadcastState(stateManager.getState());
+          console.log(`Session Zero completed, game is now active`);
+        }
+      }
+
+      // Pass spotlight after turn completes
+      const currentSpotlight = stateManager.getSpotlightState();
+      if (currentSpotlight) {
+        const newSpotlight = this.spotlightManager.pass(currentSpotlight);
+        stateManager.setSpotlightState(newSpotlight);
+        this.broadcastSpotlightState(sessionId, newSpotlight);
+      }
+
+      console.log(`AI GM responded to ${client.name} (streaming, ${fullText.length} chars)`);
+    } finally {
+      this.activeStreams.delete(sessionId);
+      if (this.sessionStore) {
+        await this.sessionStore.releaseTurnLock(sessionId);
+      }
+    }
+  }
+
+  // ===== Structured Attack (action:attack) =====
+
+  private async handleAttack(socket: Socket, msg: SocketMessage<ActionDeclaration>): Promise<void> {
+    const client = this.clients.get(socket.id);
+    if (!client) return;
+
+    const sessionId = client.sessionId;
+    const stateManager = this.sessionRegistry.findById(sessionId);
+    if (!stateManager) return;
+
+    // Guard: safety + spotlight + turn lock
+    if (!(await this.guardTurn(socket, client, stateManager))) return;
+
+    const decl = msg.payload;
+    const attacker = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
+    const enemy = stateManager.getCombatState()?.enemies.find(e => e.id === decl.targetId);
+    if (!attacker || !enemy) {
+      if (this.sessionStore) {
+        await this.sessionStore.releaseTurnLock(sessionId);
+      }
+      return;
+    }
+
+    // Store attack action in adventure history
+    stateManager.addAdventureMessage({
+      id: `msg_${Date.now()}_player`,
+      role: 'player',
+      content: `${attacker.name} 攻击 ${enemy.name}`,
+      timestamp: Date.now(),
+    });
+
+    // 1) Backend resolution + write state (deterministic, before narration)
+    const res = resolvePlayerAttack(attacker, enemy, decl);
+    applyPlayerAttack(stateManager, client.playerId, enemy.id, res);
+    // onChange has already broadcast state:update; front-end sees enemy HP / hope / fear changes
+
+    // 2) Feed resolved result to AI for narration only
+    const actionText = `${attacker.name} 攻击 ${enemy.name}`;
+    const state = stateManager.getState();
+    const context = {
+      sessionId,
+      character: attacker,
+      characters: state.characters.length > 0 ? state.characters : [attacker],
+      activePlayerId: client.playerId,
+      activePlayerName: client.name,
+      sessionState: state,
+      worldLore: this.aiGM?.getWorldLore(),
+    };
+
+    try {
+      await this.runNarration(
+        socket, client, stateManager, context, actionText, false,
+        { narrationHint: res.narrationHint },
+      );
+    } catch (err) {
+      this.activeStreams.delete(sessionId);
+      if (this.sessionStore) {
+        await this.sessionStore.releaseTurnLock(sessionId);
+      }
+      console.error('Attack narration error:', err);
+      this.io.to(sessionId).emit('gm:narrate:end', {
+        type: 'gm:narrate:end',
+        sessionId,
+        senderId: 'system',
+        payload: {
+          turnId: uuidv4(),
+          fullText: `（攻击已结算，但叙事生成失败：${(err as Error).message}）`,
+          choices: [],
+          error: true,
+        },
+        timestamp: Date.now(),
+      });
+    }
+  }
+
+  // ===== Apply a single GmEffect to StateManager =====
+
+  private applyGmEffect(
+    sm: StateManager,
+    playerId: string,
+    effect: GmEffect,
+  ): void {
+    const character = sm.getPlayerCharacter(playerId) || sm.getCharacter();
+
+    switch (effect.type) {
+      case 'damageToPlayer': {
+        if (!character) break;
+        const res = resolveDamageToCharacter(character, effect.amount ?? 0);
+        applyDamageToCharacter(sm, playerId, res);
+        break;
+      }
+      case 'stressToPlayer': {
+        if (effect.amount && effect.amount > 0) {
+          sm.updateCharacterStress(effect.amount);
+        }
+        break;
+      }
+      case 'enemyAttack': {
+        // Enemy attacks player — use amount as raw damage, resolve through severity
+        if (!character) break;
+        const rawDmg = effect.amount ?? 0;
+        if (rawDmg > 0) {
+          const res = resolveDamageToCharacter(character, rawDmg);
+          applyDamageToCharacter(sm, playerId, res);
+        }
+        break;
+      }
+      case 'enemyHp': {
+        // Direct enemy HP change (heal or damage)
+        if (effect.enemyId && effect.amount) {
+          sm.updateCombatEnemyHp(effect.enemyId, effect.amount);
+        }
+        break;
+      }
+      case 'spendFear': {
+        if (effect.amount && effect.amount > 0) {
+          sm.spendFearPoints(effect.amount);
+        }
+        break;
+      }
     }
   }
 

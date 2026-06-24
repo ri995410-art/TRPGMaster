@@ -270,6 +270,16 @@ export class StateManager {
     return true;
   }
 
+  /** Adjust armor slots by numeric delta (negative = spend, positive = recover), clamped to [0, maxArmorSlots] */
+  adjustCharacterArmorSlots(delta: number): boolean {
+    const char = this.state.character;
+    if (!char) return false;
+
+    char.armorSlots = Math.max(0, Math.min(char.maxArmorSlots, char.armorSlots + delta));
+    this.markDirty('character');
+    return true;
+  }
+
   updateCharacter(updates: Partial<Character>): boolean {
     const char = this.state.character;
     if (!char) return false;
@@ -354,6 +364,10 @@ export class StateManager {
     if (!enemy) return false;
 
     enemy.currentHp = Math.max(0, Math.min(enemy.maxHp, enemy.currentHp + delta));
+    if (enemy.currentHp === 0) {
+      // Mark enemy as defeated — remove from active combat
+      combat.enemies = combat.enemies.filter(e => e.id !== enemyId);
+    }
     this.markDirty('combat');
     return true;
   }

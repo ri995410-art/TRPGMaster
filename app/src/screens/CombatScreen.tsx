@@ -1,12 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  FlatList,
-  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,108 +13,136 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import { useGameStore } from '../store/gameStore';
+import { sendAttackAction, sendPlayerAction } from '../hooks/useSocket';
+import type { CombatEnemy } from '@trpgmaster/shared';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-
-interface EnemyDisplay {
-  id: string;
-  name: string;
-  currentHp: number;
-  maxHp: number;
-  currentStress: number;
-  maxStress: number;
-  isFocused: boolean;
-}
-
-// Placeholder until combat state from server is connected
-const MOCK_ENEMIES: EnemyDisplay[] = [
-  { id: 'e1', name: '迷雾猎犬', currentHp: 8, maxHp: 12, currentStress: 1, maxStress: 3, isFocused: false },
-  { id: 'e2', name: '翠晶史莱姆', currentHp: 5, maxHp: 8, currentStress: 0, maxStress: 2, isFocused: true },
-];
 
 export function CombatScreen() {
   const navigation = useNavigation();
   const character = useGameStore((s) => s.character);
   const fearPoints = useGameStore((s) => s.fearPoints);
-  const updateCharacterHp = useGameStore((s) => s.updateCharacterHp);
-  const updateCharacterStress = useGameStore((s) => s.updateCharacterStress);
-  const updateCharacterHope = useGameStore((s) => s.updateCharacterHope);
-  const updateCharacterArmorSlots = useGameStore((s) => s.updateCharacterArmorSlots);
+  const combatState = useGameStore((s) => s.combatState);
+  const aiProcessing = useGameStore((s) => s.aiProcessing);
+  const gmTyping = useGameStore((s) => s.gmTyping);
+  const streamingText = useGameStore((s) => s.streamingText);
+  const playerId = useGameStore((s) => s.playerId);
 
-  const [enemies, setEnemies] = useState<EnemyDisplay[]>(MOCK_ENEMIES);
-  const [round, setRound] = useState(1);
-  const [selectedAction, setSelectedAction] = useState<string | null>(null);
+  const [selectingTarget, setSelectingTarget] = useState(false);
+  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
 
-  const combatActions = [
-    { id: 'attack', label: '攻击', icon: 'cut' as const, color: '#e74c3c' },
-    { id: 'spell', label: '施法', icon: 'flame' as const, color: '#9b59b6' },
-    { id: 'defend', label: '防御', icon: 'shield' as const, color: '#3498db' },
-    { id: 'move', label: '移动', icon: 'walk' as const, color: '#2ecc71' },
-    { id: 'interact', label: '交互', icon: 'hand-left' as const, color: '#f39c12' },
-    { id: 'flee', label: '撤退', icon: 'exit-outline' as const, color: '#95a5a6' },
-  ];
+  // Auto-close when combat ends (no enemies left)
+  useEffect(() => {
+    if (combatState && combatState.enemies.length === 0) {
+      navigation.goBack();
+    }
+  }, [combatState?.enemies.length]);
 
-  const handleAction = (actionId: string) => {
-    setSelectedAction(actionId);
-    // TODO: Send action to server via Socket.IO
-    Alert.alert(
-      '战斗行动',
-      `你选择了：${combatActions.find((a) => a.id === actionId)?.label}\n\n此功能需要连接服务器以获取AI管家的战斗管理。`,
-      [{ text: '确定' }],
-    );
+  const enemies: CombatEnemy[] = combatState?.enemies ?? [];
+  const round = combatState?.round ?? 1;
+
+  const handleAttack = () => {
+    if (enemies.length === 0) return;
+    if (enemies.length === 1) {
+      // Single enemy — attack directly
+      executeAttack(enemies[0]);
+    } else {
+      // Multiple enemies — enter target selection mode
+      setSelectingTarget(true);
+      setSelectedTargetId(null);
+    }
+  };
+
+  const handleSelectTarget = (enemy: CombatEnemy) => {
+    if (!selectingTarget) return;
+    setSelectingTarget(false);
+    executeAttack(enemy);
+  };
+
+  const executeAttack = (enemy: CombatEnemy) => {
+    if (!character) return;
+    const evasion = (enemy as any).evasion ?? 12;
+    sendAttackAction({
+      kind: 'attack',
+      attackerId: playerId,
+      targetId: enemy.id,
+      difficulty: evasion,
+    });
+  };
+
+  const handleOtherAction = (label: string) => {
+    sendPlayerAction(label);
+    navigation.goBack();
   };
 
   const handleEndCombat = () => {
-    Alert.alert('结束战斗', '确定要结束战斗吗？', [
-      { text: '取消', style: 'cancel' },
-      {
-        text: '确定',
-        onPress: () => navigation.goBack(),
-      },
-    ]);
+    sendPlayerAction('请求结束战斗');
+    navigation.goBack();
   };
 
-  const renderEnemy = ({ item }: { item: EnemyDisplay }) => (
-    <View style={[styles.enemyCard, item.isFocused && styles.enemyCardFocused]}>
-      {item.isFocused && (
-        <View style={styles.focusedBadge}>
-          <Text style={styles.focusedText}>聚焦</Text>
+  const combatActions = [
+    { id: 'attack', label: '攻击', icon: 'cut' as const, color: '#e74c3c', handler: handleAttack },
+    { id: 'spell', label: '施法', icon: 'flame' as const, color: '#9b59b6', handler: () => handleOtherAction('施法') },
+    { id: 'defend', label: '防御', icon: 'shield' as const, color: '#3498db', handler: () => handleOtherAction('防御') },
+    { id: 'move', label: '移动', icon: 'walk' as const, color: '#2ecc71', handler: () => handleOtherAction('移动') },
+    { id: 'interact', label: '交互', icon: 'hand-left' as const, color: '#f39c12', handler: () => handleOtherAction('交互') },
+    { id: 'flee', label: '撤退', icon: 'exit-outline' as const, color: '#95a5a6', handler: () => handleOtherAction('撤退') },
+  ];
+
+  const renderEnemy = (enemy: CombatEnemy) => {
+    const isTargeted = selectingTarget || selectedTargetId === enemy.id;
+    return (
+      <TouchableOpacity
+        key={enemy.id}
+        style={[styles.enemyCard, enemy.isFocused && styles.enemyCardFocused, selectingTarget && styles.enemyCardSelectable]}
+        onPress={() => selectingTarget && handleSelectTarget(enemy)}
+        activeOpacity={selectingTarget ? 0.7 : 1}
+      >
+        {enemy.isFocused && (
+          <View style={styles.focusedBadge}>
+            <Text style={styles.focusedText}>聚焦</Text>
+          </View>
+        )}
+        <Text style={styles.enemyName}>{enemy.name}</Text>
+        <View style={styles.enemyResourceRow}>
+          <Text style={styles.enemyResourceLabel}>HP</Text>
+          <View style={styles.enemyResourceBar}>
+            <View
+              style={[
+                styles.enemyResourceFill,
+                { width: `${enemy.maxHp > 0 ? (enemy.currentHp / enemy.maxHp) * 100 : 0}%`, backgroundColor: '#e74c3c' },
+              ]}
+            />
+          </View>
+          <Text style={styles.enemyResourceValue}>
+            {enemy.currentHp}/{enemy.maxHp}
+          </Text>
         </View>
-      )}
-      <Text style={styles.enemyName}>{item.name}</Text>
-      <View style={styles.enemyResourceRow}>
-        <Text style={styles.enemyResourceLabel}>HP</Text>
-        <View style={styles.enemyResourceBar}>
-          <View
-            style={[
-              styles.enemyResourceFill,
-              { width: `${(item.currentHp / item.maxHp) * 100}%`, backgroundColor: '#e74c3c' },
-            ]}
-          />
+        <View style={styles.enemyResourceRow}>
+          <Text style={styles.enemyResourceLabel}>压力</Text>
+          <View style={styles.enemyResourceBar}>
+            <View
+              style={[
+                styles.enemyResourceFill,
+                {
+                  width: `${enemy.maxStress > 0 ? (enemy.currentStress / enemy.maxStress) * 100 : 0}%`,
+                  backgroundColor: '#e67e22',
+                },
+              ]}
+            />
+          </View>
+          <Text style={styles.enemyResourceValue}>
+            {enemy.currentStress}/{enemy.maxStress}
+          </Text>
         </View>
-        <Text style={styles.enemyResourceValue}>
-          {item.currentHp}/{item.maxHp}
-        </Text>
-      </View>
-      <View style={styles.enemyResourceRow}>
-        <Text style={styles.enemyResourceLabel}>压力</Text>
-        <View style={styles.enemyResourceBar}>
-          <View
-            style={[
-              styles.enemyResourceFill,
-              {
-                width: `${item.maxStress > 0 ? (item.currentStress / item.maxStress) * 100 : 0}%`,
-                backgroundColor: '#e67e22',
-              },
-            ]}
-          />
-        </View>
-        <Text style={styles.enemyResourceValue}>
-          {item.currentStress}/{item.maxStress}
-        </Text>
-      </View>
-    </View>
-  );
+        {selectingTarget && (
+          <View style={styles.targetHint}>
+            <Text style={styles.targetHintText}>点击选择目标</Text>
+          </View>
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -165,14 +192,25 @@ export function CombatScreen() {
           </View>
         )}
 
+        {/* Target selection hint */}
+        {selectingTarget && (
+          <View style={styles.targetBanner}>
+            <Text style={styles.targetBannerText}>选择攻击目标</Text>
+            <TouchableOpacity onPress={() => setSelectingTarget(false)}>
+              <Text style={styles.targetCancelText}>取消</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Enemies */}
         <Text style={styles.sectionLabel}>敌人</Text>
-        <FlatList
-          data={enemies}
-          keyExtractor={(item) => item.id}
-          renderItem={renderEnemy}
-          scrollEnabled={false}
-        />
+        {enemies.length > 0 ? (
+          enemies.map(renderEnemy)
+        ) : (
+          <View style={styles.noEnemies}>
+            <Text style={styles.noEnemiesText}>等待敌人数据...</Text>
+          </View>
+        )}
 
         {/* Combat actions */}
         <Text style={styles.sectionLabel}>行动</Text>
@@ -180,17 +218,32 @@ export function CombatScreen() {
           {combatActions.map((action) => (
             <TouchableOpacity
               key={action.id}
-              style={[
-                styles.actionButton,
-                selectedAction === action.id && { borderColor: action.color, borderWidth: 2 },
-              ]}
-              onPress={() => handleAction(action.id)}
+              style={[styles.actionButton, aiProcessing && styles.actionButtonDisabled]}
+              onPress={action.handler}
+              disabled={aiProcessing}
             >
-              <Ionicons name={action.icon} size={20} color={action.color} />
-              <Text style={styles.actionLabel}>{action.label}</Text>
+              <Ionicons name={action.icon} size={20} color={aiProcessing ? '#555' : action.color} />
+              <Text style={[styles.actionLabel, aiProcessing && styles.actionLabelDisabled]}>{action.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
+
+        {/* Narrative preview */}
+        {(gmTyping || streamingText.length > 0) && (
+          <View style={styles.narrativePreview}>
+            <Text style={styles.narrativePreviewLabel}>GM 叙事</Text>
+            {streamingText.length > 0 ? (
+              <Text style={styles.narrativePreviewText} numberOfLines={4}>
+                {streamingText}
+              </Text>
+            ) : (
+              <View style={styles.typingIndicator}>
+                <ActivityIndicator size="small" color="#9b59b6" />
+                <Text style={styles.typingText}>GM正在叙述...</Text>
+              </View>
+            )}
+          </View>
+        )}
 
         {/* End combat */}
         <TouchableOpacity style={styles.endCombatButton} onPress={handleEndCombat}>
@@ -206,7 +259,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0f0f23',
   },
-  // Top bar
   topBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -234,12 +286,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
   },
-  // Scroll content
   scrollContent: {
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  // Player stats
   playerStats: {
     backgroundColor: '#1a1a2e',
     borderRadius: 12,
@@ -267,7 +317,6 @@ const styles = StyleSheet.create({
     color: '#bdc3c7',
     fontSize: 12,
   },
-  // Section label
   sectionLabel: {
     color: '#7f8c8d',
     fontSize: 12,
@@ -275,7 +324,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginTop: 8,
   },
-  // Enemy card
   enemyCard: {
     backgroundColor: '#1a1a2e',
     borderRadius: 8,
@@ -286,6 +334,10 @@ const styles = StyleSheet.create({
   },
   enemyCardFocused: {
     borderColor: '#e74c3c',
+    borderWidth: 2,
+  },
+  enemyCardSelectable: {
+    borderColor: '#f39c12',
     borderWidth: 2,
   },
   focusedBadge: {
@@ -335,7 +387,43 @@ const styles = StyleSheet.create({
     width: 36,
     textAlign: 'right',
   },
-  // Action grid
+  targetHint: {
+    marginTop: 6,
+    alignItems: 'center',
+  },
+  targetHintText: {
+    color: '#f39c12',
+    fontSize: 11,
+  },
+  targetBanner: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#f39c1222',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#f39c12',
+  },
+  targetBannerText: {
+    color: '#f39c12',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  targetCancelText: {
+    color: '#e74c3c',
+    fontSize: 13,
+  },
+  noEnemies: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+  noEnemiesText: {
+    color: '#7f8c8d',
+    fontSize: 13,
+  },
   actionGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -351,11 +439,44 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2c3e50',
   },
+  actionButtonDisabled: {
+    opacity: 0.5,
+  },
   actionLabel: {
     color: '#bdc3c7',
     fontSize: 12,
   },
-  // End combat
+  actionLabelDisabled: {
+    color: '#555',
+  },
+  narrativePreview: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#9b59b644',
+  },
+  narrativePreviewLabel: {
+    color: '#9b59b6',
+    fontSize: 11,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  narrativePreviewText: {
+    color: '#bdc3c7',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  typingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  typingText: {
+    color: '#7f8c8d',
+    fontSize: 12,
+  },
   endCombatButton: {
     backgroundColor: '#e74c3c22',
     borderRadius: 8,

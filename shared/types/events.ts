@@ -227,6 +227,7 @@ export interface CombatEnemy {
   conditions: ConditionInstance[];
   isFocused: boolean;
   hasActed: boolean;
+  evasion: number;
 }
 
 export interface ActiveCondition {

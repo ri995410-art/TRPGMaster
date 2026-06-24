@@ -14,6 +14,7 @@ import type {
   SubclassData,
   SpotlightState,
   SafetyState,
+  CombatState,
 } from '@trpgmaster/shared';
 import { mmkvStorage } from './mmkvStorage';
 
@@ -58,6 +59,23 @@ export interface JournalEntry {
   timestamp: number;
   relatedId?: string; // quest id, faction id, npc id, etc.
   completed?: boolean;
+}
+
+// ===== Dice result from server (temporary, cleared after sending to AI) =====
+
+export interface DiceResult {
+  hopeDie: number;
+  fearDie: number;
+  modifier: number;
+  difficulty: number;
+  outcome: string;
+  isCritical: boolean;
+  withHope: boolean;
+  withFear: boolean;
+  hopeGain: number;
+  fearGain: number;
+  success: boolean;
+  total: number;
 }
 
 // ===== Main store =====
@@ -123,6 +141,12 @@ interface GameStore {
   safetyState: SafetyState | null;
   xcardPaused: boolean;
 
+  // Combat state (from server, not persisted)
+  combatState: CombatState | null;
+
+  // Pending dice result (temporary, cleared after sending to AI)
+  pendingDiceResult: DiceResult | null;
+
   // AI config (fetched from server)
   aiConfig: {
     apiKey: string;           // 脱敏显示（如 ••••a1b2）
@@ -174,6 +198,11 @@ interface GameStore {
   // Safety actions
   setSafetyState: (state: SafetyState | null) => void;
   setXcardPaused: (paused: boolean) => void;
+  // Combat actions
+  setCombatState: (combat: CombatState | null) => void;
+  // Dice actions
+  setPendingDiceResult: (result: DiceResult | null) => void;
+  clearPendingDiceResult: () => void;
   // AI config actions
   setAiConfig: (config: GameStore['aiConfig']) => void;
   setAiConnected: (connected: boolean) => void;
@@ -209,6 +238,8 @@ const initialState = {
   spotlightState: null,
   safetyState: null,
   xcardPaused: false,
+  combatState: null,
+  pendingDiceResult: null,
   aiConfig: null,
 };
 
@@ -221,6 +252,7 @@ export const useGameStore = create<GameStore>()(
         campaignId,
         sessionState: state,
         fearPoints: state.fearPoints,
+        combatState: state.activeCombat || null,
       }),
 
       setConnected: (connected) => set({ isConnected: connected }),
@@ -380,6 +412,13 @@ export const useGameStore = create<GameStore>()(
   setSpotlightState: (state) => set({ spotlightState: state }),
   setSafetyState: (state) => set({ safetyState: state }),
   setXcardPaused: (paused) => set({ xcardPaused: paused }),
+
+  // Combat actions
+  setCombatState: (combat) => set({ combatState: combat }),
+
+  // Dice actions
+  setPendingDiceResult: (result) => set({ pendingDiceResult: result }),
+  clearPendingDiceResult: () => set({ pendingDiceResult: null }),
 
       // AI config actions
       setAiConfig: (config) => set({ aiConfig: config }),

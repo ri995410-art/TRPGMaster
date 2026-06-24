@@ -63,7 +63,7 @@ export class AIGameMaster {
 
   // ===== 核心方法 =====
 
-  private readonly stateReminder = "\n\n【输出要求】如果本回合角色受到了伤害、恢复了生命、获得了压力或消耗了希望，你必须在叙述结尾另起一行输出状态标记。示例：\n骨爪划过凯尔的肩膀，鲜血渗出。\n[STATE] hp:-2 stress:+1\n如果角色休息恢复了体力：\n[STATE] hp:+2 stress:-1\n如果没有状态变化则不输出。";
+  private readonly stateReminder = "\n\n【机械结算提醒】本回合的数值结果已在 <resolved_outcome> 中预先算好。请据此叙事，不要输出 [STATE] 标记，不要擅自更改任何数字。只描述已经发生的结果，把数字讲成画面与后果。如果本回合无 <resolved_outcome>，正常叙事即可。";
 
   /**
    * 处理玩家行动 — 流式版本，逐 token 回调
@@ -75,6 +75,7 @@ export class AIGameMaster {
     onToken: (delta: string) => void,
     diceResult?: DualityDiceResult,
     signal?: AbortSignal,
+    resolvedOutcome?: string,
   ): Promise<AIGMResponse> {
     const sessionId = context.sessionId;
 
@@ -89,6 +90,12 @@ export class AIGameMaster {
 
     if (diceResult) {
       messages.push({ role: 'system', content: this.formatDiceResultSummary(diceResult) });
+    }
+
+    if (resolvedOutcome) {
+      messages.push({ role: 'system', content: `<resolved_outcome>\n${resolvedOutcome}\n</resolved_outcome>` });
+    } else {
+      messages.push({ role: 'system', content: `<resolved_outcome>\n（本回合无机械结算）\n</resolved_outcome>` });
     }
 
     const playerHistoryEntry: HistoryEntry = {
@@ -576,7 +583,7 @@ ${characterList}
 - 1点：聚焦另一个敌人（切换当前聚焦目标）
 - 1点：使用敌人的恐惧特性
 - 1点：使用环境的恐惧效果
-- 花费恐惧点时在[STATE]中标记：fearPoints:-1
+- 花费恐惧点时不需要在输出中标记，系统会自动处理
 
 ## 德拉肯海姆设定
 - 5派系：提灯团、女王之仆、白银骑士团、陨火信徒、紫晶学院
@@ -626,39 +633,12 @@ ${characterList}
 在后续叙事中基于此构建。
 示例：如果玩家说"我认出这个符号——我师父教过我这个"，那么该符号现在与他们的师父有关。
 
-## 状态变更输出（极其重要！）
-
-当叙事中角色受到伤害、恢复、获得压力、消耗希望等状态变化时，你必须在叙述文本的最后一行输出状态变更标记。
-
-### 格式规则
-- 在叙述文本之后，另起一行输出：[STATE] 属性:变化值
-- 仅在实际发生状态变化时输出
-- 多个变化用空格分隔
-- 对特定角色：[STATE:角色名] 属性:变化值
-- 可用的属性：hp（生命）, stress（压力）, hope（希望）, fearPoints（恐惧点池）
-
-### 完整示例
-
-示例1 - 角色受伤：
-你举起匕首，但骷髅的骨爪划过你的肩膀，皮甲被撕裂，鲜血渗出。疼痛让你咬牙，但你没有退后。
-[STATE] hp:-2 stress:+1
-
-示例2 - 角色战斗胜利后：
-随着最后一击，骷髅倒在你脚下，骨头散落一地。你喘着粗气，感到一丝胜利的希望。
-[STATE] hp:-1 hope:+1 fearPoints:+2
-
-示例3 - 角色休息恢复：
-你在安全的角落坐下，伤口得到处理，精神也恢复了一些。
-[STATE] hp:+2 stress:-1
-
-示例4 - 多人模式特定角色受伤：
-凯尔被迷雾中的利爪击中，鲜血飞溅。莉娅在后方向他喊道："坚持住！"
-[STATE:灰烬行者·凯尔] hp:-3 stress:+1
-
-### 重要提醒
-- 每次角色受伤、休息恢复、受到精神压力、获得希望时，都必须输出[STATE]行
-- 如果没有状态变化，不要输出[STATE]行
-- [STATE]行必须是响应的最后一行`;
+## 机械结算（重要）
+- 本回合的数值结果由系统预先算好，写在 <resolved_outcome> 中。
+- 你必须严格按 <resolved_outcome> 叙事，绝不擅自更改、新增或省略任何数字（HP、伤害、压力、希望、恐惧）。
+- 不要输出 [STATE] 标记；状态由系统负责，不归你管。
+- 你只描述"已经发生的结果"，把数字讲成画面与后果。
+- 如果 <resolved_outcome> 不存在，说明本回合无机械结算，正常叙事即可`;
 
     if (isMultiplayer) {
       prompt += `
@@ -962,6 +942,10 @@ ${buildCharStatus(char, true)}
 
   getWorldLore(): WorldLore | undefined {
     return this.worldLore ?? undefined;
+  }
+
+  getGateway(): AIGateway {
+    return this.gateway;
   }
 
   getConfig(): AIGMConfig {

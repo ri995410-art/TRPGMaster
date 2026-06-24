@@ -5,7 +5,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Alert,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,6 +13,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import { useGameStore } from '../store/gameStore';
+import { sendRestRequest } from '../hooks/useSocket';
 import type { ShortRestAction, LongRestAction } from '@trpgmaster/shared';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -35,17 +36,14 @@ const LONG_REST_OPTIONS: { id: LongRestAction; label: string; icon: keyof typeof
 export function RestScreen() {
   const navigation = useNavigation();
   const character = useGameStore((s) => s.character);
-  const updateCharacterHp = useGameStore((s) => s.updateCharacterHp);
-  const updateCharacterStress = useGameStore((s) => s.updateCharacterStress);
-  const updateCharacterHope = useGameStore((s) => s.updateCharacterHope);
-  const updateCharacterArmorSlots = useGameStore((s) => s.updateCharacterArmorSlots);
-  const updateFearPoints = useGameStore((s) => s.updateFearPoints);
 
   const [restType, setRestType] = useState<'short' | 'long'>('short');
   const [selectedActions, setSelectedActions] = useState<string[]>([]);
+  const [projectDescription, setProjectDescription] = useState('');
 
   const maxSelections = 2;
   const options = restType === 'short' ? SHORT_REST_OPTIONS : LONG_REST_OPTIONS;
+  const hasAdvanceProject = selectedActions.includes('advanceProject');
 
   const toggleAction = (id: string) => {
     if (selectedActions.includes(id)) {
@@ -56,49 +54,16 @@ export function RestScreen() {
   };
 
   const handleRest = () => {
-    if (selectedActions.length === 0) {
-      Alert.alert('提示', '请选择至少1个休整行动');
-      return;
-    }
-    if (selectedActions.length < maxSelections) {
-      Alert.alert('提示', `请选择${maxSelections}个休整行动`);
-      return;
-    }
+    if (selectedActions.length < maxSelections) return;
 
-    // TODO: Send to server for proper rule resolution via DaggerHeartRules.executeRest()
-    // For now, apply simple effects locally
-    for (const action of selectedActions) {
-      switch (action) {
-        case 'treatWounds':
-        case 'treatAllWounds':
-          updateCharacterHp(1);
-          break;
-        case 'relieveStress':
-        case 'relieveAllStress':
-          updateCharacterStress(-1);
-          break;
-        case 'repairArmor':
-        case 'repairAllArmor':
-          updateCharacterArmorSlots(1);
-          break;
-        case 'prepare':
-        case 'prepareFully':
-          updateCharacterHope(1);
-          break;
-        case 'advanceProject':
-          // No local effect - server handles narrative
-          break;
-      }
-    }
+    const store = useGameStore.getState();
+    store.setAiProcessing(true);
 
-    // Fear gained on rest
-    if (restType === 'short') {
-      updateFearPoints(2); // avg of 1d4
-      Alert.alert('短休完成', 'GM获得1d4恐惧点');
-    } else {
-      updateFearPoints(4); // avg of 1d4+2
-      Alert.alert('长休完成', 'GM获得1d4+2恐惧点');
-    }
+    sendRestRequest(
+      restType,
+      selectedActions,
+      hasAdvanceProject ? projectDescription : undefined,
+    );
 
     navigation.goBack();
   };
@@ -118,14 +83,14 @@ export function RestScreen() {
         <View style={styles.restTypeSelector}>
           <TouchableOpacity
             style={[styles.restTypeButton, restType === 'short' && styles.restTypeButtonActive]}
-            onPress={() => { setRestType('short'); setSelectedActions([]); }}
+            onPress={() => { setRestType('short'); setSelectedActions([]); setProjectDescription(''); }}
           >
             <Ionicons name="cafe" size={20} color={restType === 'short' ? '#2ecc71' : '#7f8c8d'} />
             <Text style={[styles.restTypeLabel, restType === 'short' && styles.restTypeLabelActive]}>短休</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.restTypeButton, restType === 'long' && styles.restTypeButtonActive]}
-            onPress={() => { setRestType('long'); setSelectedActions([]); }}
+            onPress={() => { setRestType('long'); setSelectedActions([]); setProjectDescription(''); }}
           >
             <Ionicons name="moon" size={20} color={restType === 'long' ? '#3498db' : '#7f8c8d'} />
             <Text style={[styles.restTypeLabel, restType === 'long' && styles.restTypeLabelActive]}>长休</Text>
@@ -195,6 +160,22 @@ export function RestScreen() {
           );
         })}
 
+        {/* Project description input (when advanceProject is selected) */}
+        {hasAdvanceProject && (
+          <View style={styles.projectInputContainer}>
+            <Text style={styles.projectInputLabel}>项目描述</Text>
+            <TextInput
+              style={styles.projectInput}
+              value={projectDescription}
+              onChangeText={setProjectDescription}
+              placeholder="描述你想推进的长期项目..."
+              placeholderTextColor="#7f8c8d"
+              multiline
+              maxLength={200}
+            />
+          </View>
+        )}
+
         {/* Confirm */}
         <TouchableOpacity
           style={[styles.confirmButton, selectedActions.length < maxSelections && styles.confirmButtonDisabled]}
@@ -230,7 +211,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  // Rest type selector
   restTypeSelector: {
     flexDirection: 'row',
     gap: 12,
@@ -260,7 +240,6 @@ const styles = StyleSheet.create({
   restTypeLabelActive: {
     color: '#2ecc71',
   },
-  // Info box
   infoBox: {
     backgroundColor: '#16213e',
     borderRadius: 8,
@@ -272,7 +251,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
-  // Current state
   currentState: {
     backgroundColor: '#1a1a2e',
     borderRadius: 8,
@@ -298,14 +276,12 @@ const styles = StyleSheet.create({
     color: '#ecf0f1',
     fontSize: 13,
   },
-  // Selection title
   selectionTitle: {
     color: '#bdc3c7',
     fontSize: 14,
     fontWeight: 'bold',
     marginBottom: 8,
   },
-  // Action card
   actionCard: {
     backgroundColor: '#1a1a2e',
     borderRadius: 8,
@@ -342,7 +318,29 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     marginLeft: 28,
   },
-  // Confirm
+  projectInputContainer: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#9b59b6',
+  },
+  projectInputLabel: {
+    color: '#9b59b6',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginBottom: 6,
+  },
+  projectInput: {
+    backgroundColor: '#16213e',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: '#ecf0f1',
+    fontSize: 14,
+    maxHeight: 80,
+  },
   confirmButton: {
     backgroundColor: '#2ecc71',
     borderRadius: 8,
