@@ -1,5 +1,5 @@
 import { io, Socket } from 'socket.io-client';
-import { useGameStore, type AdventureMessage } from '../store/gameStore';
+import { useGameStore, type JournalEntry, type AdventureMessage } from '../store/gameStore';
 import type {
   GameEvent,
   SessionState,
@@ -9,8 +9,10 @@ import type {
   SpotlightState,
   SafetyState,
   CombatState,
+  LootResult,
+  AdventureSummary,
 } from '@trpgmaster/shared';
-import type { ActionDeclaration } from '@trpgmaster/shared';
+import type { ActionDeclaration, RollDeclaration } from '@trpgmaster/shared';
 import type { DiceResult } from '../store/gameStore';
 
 // Local SocketMessage interface for wire format
@@ -22,10 +24,128 @@ interface SocketMessage<T = unknown> {
   timestamp: number;
 }
 
+/** Extract journal entries from GM narration text */
+function extractJournalEntries(text: string, npcName?: string): JournalEntry[] {
+  const entries: JournalEntry[] = [];
+  const now = Date.now();
+
+  // NPC encounter: narrative mentions a named character speaking or appearing
+  if (npcName) {
+    entries.push({
+      id: `je_${now}_npc`,
+      type: 'npc',
+      title: npcName,
+      content: text.substring(0, 150),
+      timestamp: now,
+    });
+  }
+
+  // NPC detection from narrative text (when no explicit npcName)
+  if (!npcName) {
+    const npcPatterns = [
+      /(?:一个|一名|那位|那个)叫(?:做|着)?(.{1,10}?)(?:的|人|者|男|女|老|少)/,
+      /(?:名叫|叫做|名为|自称)(.{1,10}?)(?:的|人|者|男|女|老人|家伙|先生|女士|商人)/,
+    ];
+    for (const pat of npcPatterns) {
+      const match = text.match(pat);
+      if (match && match[1]) {
+        entries.push({
+          id: `je_${now}_npc_auto`,
+          type: 'npc',
+          title: match[1].trim(),
+          content: text.substring(0, 150),
+          timestamp: now,
+        });
+        break;
+      }
+    }
+  }
+
+  // Quest-related keywords
+  const questPatterns = [
+    /(?:任务|委托|使命|quest)[:：]?\s*(.{2,40})/i,
+    /(?:接受|完成|推进|失败|放弃)(?:了|了)?(?:任务|委托|使命)(.{0,30})/i,
+  ];
+  for (const pat of questPatterns) {
+    const match = text.match(pat);
+    if (match) {
+      entries.push({
+        id: `je_${now}_quest`,
+        type: 'quest',
+        title: match[1] ? match[1].trim() : '任务进展',
+        content: text.substring(0, 150),
+        timestamp: now,
+      });
+      break;
+    }
+  }
+
+  // Discovery keywords
+  const discoveryPatterns = [
+    /(?:发现|找到|揭示|揭开|得知|获悉)(?:了|了)?(.{2,50})/i,
+    /(?:秘密|线索|真相|隐藏)(.{2,40})/i,
+  ];
+  for (const pat of discoveryPatterns) {
+    const match = text.match(pat);
+    if (match) {
+      entries.push({
+        id: `je_${now}_disc`,
+        type: 'discovery',
+        title: match[0].substring(0, 40),
+        content: text.substring(0, 150),
+        timestamp: now,
+      });
+      break;
+    }
+  }
+
+  // Faction keywords
+  const factionPatterns = [
+    /(?:提灯团|女王之仆|白银骑士团|陨火信徒|紫晶学院)(.{0,30})/i,
+  ];
+  for (const pat of factionPatterns) {
+    const match = text.match(pat);
+    if (match) {
+      entries.push({
+        id: `je_${now}_faction`,
+        type: 'faction',
+        title: match[0].substring(0, 40),
+        content: text.substring(0, 150),
+        timestamp: now,
+      });
+      break;
+    }
+  }
+
+  // Major events: combat, death, level up, location change
+  const eventPatterns = [
+    /(?:战斗|交战|冲突|袭击|伏击)(.{0,30})/i,
+    /(?:升级|升到|等级提升)/i,
+    /(?:死亡|倒下|倒地|重伤)/i,
+    /(?:抵达|来到|进入|离开)(.{2,30})/i,
+  ];
+  for (const pat of eventPatterns) {
+    const match = text.match(pat);
+    if (match) {
+      entries.push({
+        id: `je_${now}_event`,
+        type: 'event',
+        title: match[0].substring(0, 40),
+        content: text.substring(0, 150),
+        timestamp: now,
+      });
+      break;
+    }
+  }
+
+  return entries;
+}
+
 let socket: Socket | null = null;
 let hasJoinedSession = false;  // Track whether we've done initial join vs rejoin
 
-export function connectToServer(serverUrl: string): Promise<string> {
+export function connectToServer(serverUrl: string, options?: { autoJoin?: boolean }): Promise<string> {
+  const autoJoin = options?.autoJoin !== false;  // default true
   return new Promise((resolve, reject) => {
     // Ensure we have a stable playerId before connecting
     useGameStore.getState().initPlayerId();
@@ -44,33 +164,37 @@ export function connectToServer(serverUrl: string): Promise<string> {
       const character = store.character;
 
       if (!hasJoinedSession) {
-        // First connection: send session:join
-        socket!.emit('session:join', {
-          type: 'session:join',
-          sessionId: '',
-          senderId: playerId,
-          payload: {
-            playerId,
-            role: 'player',
-            name: character?.name || 'Player',
-            character: character || undefined,
-          },
-          timestamp: Date.now(),
-        } as SocketMessage<{ playerId: string; role: 'player'; name: string; character?: Character }>);
+        // First connection: send session:join (unless autoJoin is disabled)
+        if (autoJoin) {
+          socket!.emit('session:join', {
+            type: 'session:join',
+            sessionId: '',
+            senderId: playerId,
+            payload: {
+              playerId,
+              role: 'player',
+              name: character?.name || 'Player',
+              character: character || undefined,
+            },
+            timestamp: Date.now(),
+          } as SocketMessage<{ playerId: string; role: 'player'; name: string; character?: Character }>);
+        }
         hasJoinedSession = true;
       } else {
         // Reconnection: send session:rejoin (silent rejoin, no playerJoined broadcast)
-        socket!.emit('session:rejoin', {
-          type: 'session:rejoin',
-          sessionId: store.campaignId || '',
-          senderId: playerId,
-          payload: {
-            playerId,
-            name: character?.name || 'Player',
-            character: character || undefined,
-          },
-          timestamp: Date.now(),
-        } as SocketMessage<{ playerId: string; name: string; character?: Character }>);
+        if (autoJoin) {
+          socket!.emit('session:rejoin', {
+            type: 'session:rejoin',
+            sessionId: store.campaignId || '',
+            senderId: playerId,
+            payload: {
+              playerId,
+              name: character?.name || 'Player',
+              character: character || undefined,
+            },
+            timestamp: Date.now(),
+          } as SocketMessage<{ playerId: string; name: string; character?: Character }>);
+        }
       }
       // Fetch character from server if we don't have one locally
       if (!character) {
@@ -134,6 +258,11 @@ export function connectToServer(serverUrl: string): Promise<string> {
       const store = useGameStore.getState();
       store.setCampaign(state.sessionId, state);
 
+      // Record this character-session association
+      if (store.character) {
+        store.addCharacterSession(store.character.id, state.sessionId);
+      }
+
       // Update character from state (only if server has one — don't overwrite local with null)
       if (state.character) {
         store.setCharacter(state.character);
@@ -169,20 +298,24 @@ export function connectToServer(serverUrl: string): Promise<string> {
 
       // Sync adventure messages from server
       // Only replace if server has more messages (server is the source of truth)
-      if (adventureMessages && adventureMessages.length > store.adventureMessages.length) {
-        store.setAdventureMessages(adventureMessages.map(m => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          timestamp: m.timestamp,
-          npcName: m.npcName,
-          npcId: m.npcId,
-          choices: m.choices?.map(c => ({
-            id: c.id,
-            text: c.text,
-            action: c.action,
-          })),
-        })));
+      if (adventureMessages && adventureMessages.length > 0) {
+        const key = state.sessionId || '_default';
+        const currentMsgs = store.adventureMessagesBySession[key] || [];
+        if (adventureMessages.length > currentMsgs.length) {
+          store.setAdventureMessages(adventureMessages.map(m => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            timestamp: m.timestamp,
+            npcName: m.npcName,
+            npcId: m.npcId,
+            choices: m.choices?.map(c => ({
+              id: c.id,
+              text: c.text,
+              action: c.action,
+            })),
+          })));
+        }
       }
     });
 
@@ -228,6 +361,10 @@ export function connectToServer(serverUrl: string): Promise<string> {
       if (store.streamingTurnId === msg.payload.turnId) {
         store.appendStreamingText(msg.payload.text);
       }
+      // Also append to streaming summary if adventure is ending
+      if (store.isAdventureEnding) {
+        store.appendStreamingSummary(msg.payload.text);
+      }
     });
 
     // Streaming: end
@@ -252,6 +389,14 @@ export function connectToServer(serverUrl: string): Promise<string> {
         store.setStreamingTurnId(null);
         store.setGmTyping(false);
         store.setAiProcessing(false);
+
+        // Auto-generate journal entries from narration
+        if (!msg.payload.error && msg.payload.fullText.length > 20) {
+          const journalEntries = extractJournalEntries(msg.payload.fullText, msg.payload.npcName);
+          for (const entry of journalEntries) {
+            store.addJournalEntry(entry);
+          }
+        }
       }
     });
 
@@ -454,6 +599,45 @@ export function connectToServer(serverUrl: string): Promise<string> {
       };
       store.addAdventureMessage(sysMsg);
     });
+
+    // ===== Campaign Reset =====
+
+    socket.on('campaign:resetDone', (msg: SocketMessage<{ state: SessionState }>) => {
+      const store = useGameStore.getState();
+      // Reset local store completely, then apply new server state
+      store.reset();
+      store.setCampaign(msg.payload.state.sessionId, msg.payload.state);
+      store.setConnected(true);
+      console.log('[useSocket] Campaign reset done, new session:', msg.payload.state.sessionId);
+    });
+
+    // ===== Loot Events =====
+
+    socket.on('loot:available', (msg: SocketMessage<LootResult>) => {
+      useGameStore.getState().setPendingLoot(msg.payload);
+    });
+
+    // ===== Adventure End Events =====
+
+    socket.on('adventure:ending', () => {
+      const store = useGameStore.getState();
+      // Show summary modal immediately with return-to-lobby button
+      store.setIsAdventureEnding(true);
+      store.setAiProcessing(false);
+    });
+
+    socket.on('adventure:summary', (msg: SocketMessage<AdventureSummary>) => {
+      const store = useGameStore.getState();
+      const sysMsg: AdventureMessage = {
+        id: `msg_${Date.now()}_summary`,
+        role: 'system',
+        content: `冒险总结\n${msg.payload.summary}`,
+        timestamp: Date.now(),
+      };
+      store.addAdventureMessage(sysMsg);
+      // Finalize the summary text (persists locally for later viewing)
+      store.finalizeStreamingSummary(msg.payload.summary);
+    });
   });
 }
 
@@ -622,6 +806,7 @@ export function createSession(character: Character): Promise<{ sessionId: string
 
     const handler = (msg: SocketMessage<{ sessionId: string; code: string; isHost: boolean }>) => {
       socket!.off('session:created', handler);
+      useGameStore.getState().addCharacterSession(character.id, msg.payload.sessionId);
       resolve({ sessionId: msg.payload.sessionId, code: msg.payload.code });
     };
 
@@ -653,10 +838,13 @@ export function joinSessionByCode(code: string, character: Character): Promise<{
 
     const handler = (msg: SocketMessage<{ sessionId: string; code: string; isHost: boolean; status: string }>) => {
       socket!.off('session:joined', handler);
+      socket!.off('session:error', errorHandler);
+      useGameStore.getState().addCharacterSession(character.id, msg.payload.sessionId);
       resolve({ sessionId: msg.payload.sessionId, code: msg.payload.code });
     };
 
     const errorHandler = (msg: SocketMessage<{ error: string; code?: string }>) => {
+      socket!.off('session:joined', handler);
       socket!.off('session:error', errorHandler);
       reject(new Error(msg.payload.error));
     };
@@ -677,6 +865,49 @@ export function joinSessionByCode(code: string, character: Character): Promise<{
       socket!.off('session:joined', handler);
       socket!.off('session:error', errorHandler);
       reject(new Error('加入会话超时'));
+    }, 10000);
+  });
+}
+
+/** Rejoin a specific session by sessionId */
+export function rejoinSessionById(sessionId: string, character: Character): Promise<{ sessionId: string; code: string }> {
+  return new Promise((resolve, reject) => {
+    if (!socket) {
+      reject(new Error('未连接到服务器'));
+      return;
+    }
+
+    const playerId = useGameStore.getState().playerId;
+
+    const handler = (msg: SocketMessage<{ sessionId: string; code: string }>) => {
+      socket!.off('session:rejoined', handler);
+      socket!.off('session:error', errorHandler);
+      useGameStore.getState().addCharacterSession(character.id, sessionId);
+      resolve({ sessionId: msg.payload.sessionId, code: msg.payload.code });
+    };
+
+    const errorHandler = (msg: SocketMessage<{ message: string }>) => {
+      socket!.off('session:rejoined', handler);
+      socket!.off('session:error', errorHandler);
+      reject(new Error(msg.payload.message || '重新加入失败'));
+    };
+
+    socket.on('session:rejoined', handler);
+    socket.on('session:error', errorHandler);
+
+    socket.emit('session:rejoinById', {
+      type: 'session:rejoinById',
+      sessionId,
+      senderId: playerId,
+      payload: { sessionId, playerId, name: character.name, character },
+      timestamp: Date.now(),
+    } as SocketMessage<{ sessionId: string; playerId: string; name: string; character?: Character }>);
+
+    // Timeout
+    setTimeout(() => {
+      socket!.off('session:rejoined', handler);
+      socket!.off('session:error', errorHandler);
+      reject(new Error('重新加入超时'));
     }, 10000);
   });
 }
@@ -724,6 +955,144 @@ export function resumeSafety(): void {
     type: 'safety:resume',
     sessionId: useGameStore.getState().campaignId || '',
     senderId: useGameStore.getState().playerId,
+    payload: {},
+    timestamp: Date.now(),
+  } as SocketMessage);
+}
+
+/** Reset campaign — deletes server session and creates a fresh one */
+export function sendCampaignReset(): void {
+  if (!socket) return;
+  socket.emit('campaign:reset', {
+    type: 'campaign:reset',
+    sessionId: useGameStore.getState().campaignId || '',
+    senderId: useGameStore.getState().playerId,
+    payload: {},
+    timestamp: Date.now(),
+  } as SocketMessage);
+}
+
+/** Send action roll — contextual dice roll with attribute and difficulty */
+export function sendActionRoll(decl: RollDeclaration): void {
+  if (!socket) return;
+
+  const store = useGameStore.getState();
+  store.setAiProcessing(true);
+
+  // Add player message to chat
+  store.addAdventureMessage({
+    id: `msg_${Date.now()}_player`,
+    role: 'player',
+    content: decl.action,
+    timestamp: Date.now(),
+  });
+
+  socket.emit('action:roll', {
+    type: 'action:roll',
+    sessionId: store.campaignId || '',
+    senderId: store.playerId,
+    payload: decl,
+    timestamp: Date.now(),
+  } as SocketMessage<RollDeclaration>);
+}
+
+/** Add an enemy to combat by stat block ID */
+export function sendCombatAddEnemy(statBlockId: string, name?: string): void {
+  if (!socket) return;
+
+  socket.emit('combat:addEnemy', {
+    type: 'combat:addEnemy',
+    sessionId: useGameStore.getState().campaignId || '',
+    senderId: useGameStore.getState().playerId,
+    payload: { statBlockId, name },
+    timestamp: Date.now(),
+  } as SocketMessage<{ statBlockId: string; name?: string }>);
+}
+
+/** End current combat */
+export function sendCombatEnd(): void {
+  if (!socket) return;
+
+  socket.emit('combat:end', {
+    type: 'combat:end',
+    sessionId: useGameStore.getState().campaignId || '',
+    senderId: useGameStore.getState().playerId,
+    payload: {},
+    timestamp: Date.now(),
+  } as SocketMessage);
+}
+
+/** Use a feature (domain card, class feature, ancestry feature, etc.) */
+export function sendUseFeature(featureId: string, featureType: string, action: string, targetId?: string, attribute?: string): void {
+  if (!socket) return;
+
+  const store = useGameStore.getState();
+  store.setAiProcessing(true);
+
+  // Add player message to chat
+  store.addAdventureMessage({
+    id: `msg_${Date.now()}_player`,
+    role: 'player',
+    content: action,
+    timestamp: Date.now(),
+  });
+
+  socket.emit('action:useFeature', {
+    type: 'action:useFeature',
+    sessionId: store.campaignId || '',
+    senderId: store.playerId,
+    payload: { featureId, featureType, action, targetId, attribute },
+    timestamp: Date.now(),
+  } as SocketMessage<{ featureId: string; featureType: string; action: string; targetId?: string; attribute?: string }>);
+}
+
+/** Pick up loot items */
+export function sendLootPickup(itemIds: string[]): void {
+  if (!socket) return;
+
+  socket.emit('loot:pickup', {
+    type: 'loot:pickup',
+    sessionId: useGameStore.getState().campaignId || '',
+    senderId: useGameStore.getState().playerId,
+    payload: { itemIds },
+    timestamp: Date.now(),
+  } as SocketMessage<{ itemIds: string[] }>);
+}
+
+/** Search the current scene */
+export function sendSceneSearch(): void {
+  if (!socket) return;
+
+  const store = useGameStore.getState();
+  store.setAiProcessing(true);
+
+  store.addAdventureMessage({
+    id: `msg_${Date.now()}_player`,
+    role: 'player',
+    content: '探查周围环境...',
+    timestamp: Date.now(),
+  });
+
+  socket.emit('scene:search', {
+    type: 'scene:search',
+    sessionId: store.campaignId || '',
+    senderId: store.playerId,
+    payload: {},
+    timestamp: Date.now(),
+  } as SocketMessage);
+}
+
+/** End the current adventure */
+export function sendAdventureEnd(): void {
+  if (!socket) return;
+
+  const store = useGameStore.getState();
+  store.setAiProcessing(true);
+
+  socket.emit('adventure:end', {
+    type: 'adventure:end',
+    sessionId: store.campaignId || '',
+    senderId: store.playerId,
     payload: {},
     timestamp: Date.now(),
   } as SocketMessage);

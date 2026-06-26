@@ -154,6 +154,7 @@ export interface Character {
   // 特性
   experiences: Experience[];
   domainCardConfig: DomainCardConfig;
+  featureUses: Record<string, number>;  // featureId → 剩余使用次数
   scars: Scar[];
 
   // 状态
@@ -171,12 +172,31 @@ export interface Character {
   backstory: string;
   personalQuest: string;
   relationships: CharacterRelationship[];
+  adventureSummaries: AdventureSummary[];
 }
 
 export interface CharacterRelationship {
   targetName: string; // 目标角色名（可能是其他玩家或NPC）
   question: string;   // 关系问题
   answer: string;     // 回答
+}
+
+// ===== 战利品结果 =====
+
+export interface LootResult {
+  items: Array<{ id: string; name: string; description?: string; category?: string; quantity: number }>;
+  gold?: { coins: number; handfuls: number; bags: number; chests: number };
+}
+
+// ===== 冒险总结 =====
+
+export interface AdventureSummary {
+  sessionId: string;
+  startedAt: number;
+  endedAt: number;
+  summary: string;          // 第三人称小说式叙事
+  milestones: string[];     // AI 提取的关键里程碑
+  locationsVisited: string[];
 }
 
 // ===== 辅助函数 =====

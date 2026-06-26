@@ -1,13 +1,16 @@
 import { Server as IOServer, Socket } from 'socket.io';
 import { Server as HttpServer } from 'http';
 import { v4 as uuidv4 } from 'uuid';
+import enemyData from '../rules/data/daggerheart/enemies.json';
 import type { StateManager } from '../core/StateManager';
 import type { SessionRegistry } from '../core/SessionRegistry';
 import type { AIGameMaster } from '../ai/AIGameMaster';
 import { resolveDualityDice, gainFearOnRest } from '../rules/systems/DaggerHeartRules';
-import { resolvePlayerAttack, resolveDamageToCharacter } from '../rules/combatResolver';
+import { resolvePlayerAttack, resolveDamageToCharacter, resolveAbilityCheck } from '../rules/combatResolver';
+import { rollLootTable, rollSceneSearchLoot } from '../rules/lootResolver';
+import type { LootResult } from '@trpgmaster/shared';
 import { applyPlayerAttack, applyDamageToCharacter } from './combatApply';
-import { extractGmEffects } from '../ai/extractGmEffects';
+import { extractGmEffects, playerInputSuggestsCombat, extractEnemyNameFromNarration } from '../ai/extractGmEffects';
 import { extractStateChanges, parseStateKeyValue, extractChoices, applyStateChanges } from './stateChangeParser';
 import type {
   GameEvent,
@@ -17,6 +20,9 @@ import type {
   Character,
   ActionDeclaration,
   GmEffect,
+  RollDeclaration,
+  CombatEnemy,
+  AdventureSummary,
 } from '@trpgmaster/shared';
 import type { AIGMContext } from '@trpgmaster/shared';
 import type { PersistedAdventureMessage } from '../core/SessionPersistence';
@@ -92,6 +98,10 @@ export class SocketServer {
 
       socket.on('session:rejoin', (msg: SocketMessage<{ playerId: string; name: string; character?: Character }>) => {
         this.handleRejoin(socket, msg);
+      });
+
+      socket.on('session:rejoinById', (msg: SocketMessage<{ sessionId: string; playerId: string; name: string; character?: Character }>) => {
+        this.handleRejoinById(socket, msg);
       });
 
       socket.on('session:info', () => {
@@ -240,6 +250,34 @@ export class SocketServer {
         this.handleAttack(socket, msg);
       });
 
+      socket.on('action:roll', (msg: SocketMessage<RollDeclaration>) => {
+        this.handleActionRoll(socket, msg);
+      });
+
+      socket.on('combat:addEnemy', (msg: SocketMessage<{ statBlockId: string; name?: string }>) => {
+        this.handleCombatAddEnemy(socket, msg);
+      });
+
+      socket.on('combat:end', () => {
+        this.handleCombatEnd(socket);
+      });
+
+      socket.on('action:useFeature', (msg: SocketMessage<{ featureId: string; featureType: string; action: string; targetId?: string; attribute?: string }>) => {
+        this.handleUseFeature(socket, msg);
+      });
+
+      socket.on('loot:pickup', (msg: SocketMessage<{ itemIds: string[] }>) => {
+        this.handleLootPickup(socket, msg);
+      });
+
+      socket.on('scene:search', () => {
+        this.handleSceneSearch(socket);
+      });
+
+      socket.on('adventure:end', () => {
+        this.handleAdventureEnd(socket);
+      });
+
       // ===== GM Narration =====
 
       socket.on('gm:narrate', () => {
@@ -254,6 +292,10 @@ export class SocketServer {
 
       socket.on('character:switch', (msg: SocketMessage<{ character: Character }>) => {
         this.handleCharacterSwitch(socket, msg);
+      });
+
+      socket.on('campaign:reset', () => {
+        this.handleCampaignReset(socket);
       });
 
       // ===== Disconnect =====
@@ -273,20 +315,27 @@ export class SocketServer {
     // Use stable playerId if provided, otherwise fall back to senderId
     const effectivePlayerId = playerId || msg.senderId;
 
-    // Determine which session to join — default to first available (single-player compat)
-    const allSessions = this.sessionRegistry.getAllSessions();
+    // Try to find an existing session this player belongs to (for rejoin after server restart)
     let sessionId: string;
     let stateManager: StateManager;
+    const existingSession = this.sessionRegistry.findByPlayerId(effectivePlayerId);
 
-    if (allSessions.length > 0) {
-      // Join the first (default) session for backward compat
-      sessionId = allSessions[0].sessionId;
-      stateManager = this.sessionRegistry.findById(sessionId)!;
+    if (existingSession) {
+      // Player already has a session — rejoin it
+      sessionId = existingSession.getState().sessionId;
+      stateManager = existingSession;
     } else {
-      // Create a default session if none exists
-      const result = this.sessionRegistry.createSession();
-      sessionId = result.sessionId;
-      stateManager = result.stateManager;
+      const allSessions = this.sessionRegistry.getAllSessions();
+      if (allSessions.length > 0) {
+        // Join the first (default) session for backward compat
+        sessionId = allSessions[0].sessionId;
+        stateManager = this.sessionRegistry.findById(sessionId)!;
+      } else {
+        // Create a default session if none exists
+        const result = this.sessionRegistry.createSession();
+        sessionId = result.sessionId;
+        stateManager = result.stateManager;
+      }
     }
 
     const client: ConnectedClient = {
@@ -562,6 +611,84 @@ export class SocketServer {
     console.log(`${name} rejoined session ${sessionId} (rejoin, playerId: ${playerId})`);
   }
 
+  /**
+   * Handle session:rejoinById — rejoin a specific session by sessionId.
+   * Like handleRejoin but targets an explicit session instead of searching by playerId.
+   */
+  private handleRejoinById(socket: Socket, msg: SocketMessage<{ sessionId: string; playerId: string; name: string; character?: Character }>): void {
+    const { sessionId, playerId, name, character } = msg.payload;
+
+    const stateManager = this.sessionRegistry.findById(sessionId);
+    if (!stateManager) {
+      socket.emit('session:error', {
+        type: 'session:error',
+        senderId: 'system',
+        payload: { message: '会话不存在或已过期' },
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
+    // Leave any previous session room
+    const prevClient = this.clients.get(socket.id);
+    if (prevClient?.sessionId) {
+      socket.leave(prevClient.sessionId);
+    }
+
+    // Register client
+    const client: ConnectedClient = {
+      socketId: socket.id,
+      playerId,
+      role: 'player',
+      name,
+      sessionId,
+      characterId: character?.id,
+    };
+    this.clients.set(socket.id, client);
+    socket.join(sessionId);
+
+    // Restore or add player
+    const existingPlayer = stateManager.getPlayers().find(p => p.id === playerId);
+    if (existingPlayer) {
+      existingPlayer.isConnected = true;
+      if (character) {
+        existingPlayer.character = character;
+      }
+    } else if (character) {
+      const player: Player = {
+        id: playerId,
+        name,
+        character,
+        isConnected: true,
+        joinedAt: Date.now(),
+      };
+      stateManager.addPlayer(player);
+    }
+
+    // Send rejoin confirmation
+    socket.emit('session:rejoined', {
+      type: 'session:rejoined',
+      sessionId,
+      senderId: 'system',
+      payload: { sessionId, code: stateManager.getState().sessionCode },
+      timestamp: Date.now(),
+    });
+
+    // Send full state
+    const state = stateManager.getState();
+    const adventureMessages = stateManager.getAdventureMessages();
+    socket.emit('game:state', {
+      type: 'game:state',
+      sessionId,
+      senderId: 'system',
+      payload: { state, adventureMessages },
+      timestamp: Date.now(),
+    });
+
+    this.broadcastPlayerList(sessionId, stateManager);
+    console.log(`${name} rejoined session ${sessionId} by ID (playerId: ${playerId})`);
+  }
+
   private handleSessionInfo(socket: Socket): void {
     const client = this.clients.get(socket.id);
     if (!client) return;
@@ -694,6 +821,40 @@ export class SocketServer {
 
     this.broadcastState(state);
     console.log(`Session ${sessionId} ended by ${client.name}`);
+  }
+
+  private handleCampaignReset(socket: Socket): void {
+    const client = this.clients.get(socket.id);
+    if (!client) return;
+
+    const oldSessionId = client.sessionId;
+
+    // Delete old session from persistence and registry
+    this.sessionRegistry.removeSession(oldSessionId);
+
+    // Create a fresh session
+    const { sessionId, stateManager } = this.sessionRegistry.createSession(client.playerId);
+
+    // Re-assign client to new session
+    client.sessionId = sessionId;
+    socket.leave(oldSessionId);
+    socket.join(sessionId);
+
+    // Start the fresh session
+    stateManager.startSession();
+
+    const state = stateManager.getState();
+
+    this.io.to(sessionId).emit('campaign:resetDone', {
+      type: 'campaign:resetDone',
+      sessionId,
+      senderId: 'system',
+      payload: { state },
+      timestamp: Date.now(),
+    });
+
+    this.broadcastState(state);
+    console.log(`Campaign reset: ${oldSessionId} → ${sessionId} by ${client.name}`);
   }
 
   private handleLeave(socket: Socket): void {
@@ -1059,14 +1220,42 @@ export class SocketServer {
       }
 
       // Extract GM effects via structured channel (narration → JSON extraction)
+      let effectsApplied = false;
       try {
         const gmModel = this.aiGM!.getConfig().narratorModel;
-        const gmEffects = await extractGmEffects(this.aiGM!.getGateway(), cleanContent, gmModel);
+        const gmEffects = await extractGmEffects(this.aiGM!.getGateway(), cleanContent, gmModel, actionText);
         for (const effect of gmEffects) {
           this.applyGmEffect(stateManager, client.playerId, effect);
+          effectsApplied = true;
         }
       } catch {
         // Structured extraction failure is non-fatal — [STATE] fallback may have already applied
+      }
+
+      // Keyword-based combat fallback: if player input suggests combat but no combat was triggered
+      // by GM effects, force start combat with a generic enemy from the narration
+      if (playerInputSuggestsCombat(actionText) && !stateManager.getCombatState()) {
+          const enemyName = extractEnemyNameFromNarration(cleanContent) || '敌对者';
+          const genericEnemy: CombatEnemy = {
+            id: `enemy_${uuidv4()}`,
+            statBlockId: 'generic',
+            name: enemyName,
+            currentHp: 5,
+            maxHp: 5,
+            currentStress: 0,
+            maxStress: 3,
+            conditions: [],
+            isFocused: false,
+            hasActed: false,
+            evasion: 10,
+          };
+          stateManager.addCombatEnemy(genericEnemy);
+          effectsApplied = true;
+        }
+
+      // Broadcast state after GM effects (e.g. enemies added to combat)
+      if (effectsApplied) {
+        this.broadcastState(stateManager.getState());
       }
 
       // Extract choices from cleaned content
@@ -1184,6 +1373,28 @@ export class SocketServer {
     // 1) Backend resolution + write state (deterministic, before narration)
     const res = resolvePlayerAttack(attacker, enemy, decl);
     applyPlayerAttack(stateManager, client.playerId, enemy.id, res);
+
+    // Send dice result back to player
+    this.io.to(sessionId).emit('dice:roll', {
+      type: 'dice:roll',
+      sessionId,
+      senderId: client.playerId,
+      payload: {
+        hopeDie: res.hopeDie,
+        fearDie: res.fearDie,
+        modifier: 0,
+        difficulty: res.difficulty,
+        total: res.total,
+        outcome: res.outcome,
+        isCritical: res.isCritical,
+        withHope: res.outcome === 'hopeSuccess' || res.outcome === 'hopeFailure',
+        withFear: res.outcome === 'fearSuccess' || res.outcome === 'fearFailure',
+        hopeGain: res.hopeGain,
+        fearGain: res.fearGain,
+        success: res.success,
+      },
+      timestamp: Date.now(),
+    });
     // onChange has already broadcast state:update; front-end sees enemy HP / hope / fear changes
 
     // 2) Feed resolved result to AI for narration only
@@ -1223,6 +1434,599 @@ export class SocketServer {
         timestamp: Date.now(),
       });
     }
+  }
+
+  private async handleActionRoll(socket: Socket, msg: SocketMessage<RollDeclaration>): Promise<void> {
+    const client = this.clients.get(socket.id);
+    if (!client) return;
+
+    const sessionId = client.sessionId;
+    const stateManager = this.sessionRegistry.findById(sessionId);
+    if (!stateManager) return;
+
+    // Guard: safety + spotlight + turn lock
+    if (!(await this.guardTurn(socket, client, stateManager))) return;
+
+    // Override client-side difficulty with AI-evaluated scene difficulty
+    const decl = { ...msg.payload, difficulty: stateManager.getSceneDifficulty() };
+    const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
+    if (!character) {
+      if (this.sessionStore) {
+        await this.sessionStore.releaseTurnLock(sessionId);
+      }
+      return;
+    }
+
+    // Store player action in adventure history
+    stateManager.addAdventureMessage({
+      id: `msg_${Date.now()}_player`,
+      role: 'player',
+      content: decl.action,
+      timestamp: Date.now(),
+    });
+
+    // 1) Backend resolution
+    const res = resolveAbilityCheck(character, decl);
+
+    // Send dice result back to player so they can see hope/fear values
+    this.io.to(sessionId).emit('dice:roll', {
+      type: 'dice:roll',
+      sessionId,
+      senderId: client.playerId,
+      payload: {
+        hopeDie: res.hopeDie,
+        fearDie: res.fearDie,
+        modifier: res.modifier ?? 0,
+        difficulty: res.difficulty,
+        total: res.total,
+        outcome: res.outcome,
+        isCritical: res.isCritical,
+        withHope: res.outcome === 'hopeSuccess' || res.outcome === 'hopeFailure',
+        withFear: res.outcome === 'fearSuccess' || res.outcome === 'fearFailure',
+        hopeGain: res.hopeGain,
+        fearGain: res.fearGain,
+        success: res.success,
+      },
+      timestamp: Date.now(),
+    });
+
+    // Apply hope/fear changes
+    const charUpdates: Partial<Character> = {};
+    if (res.hopeGain > 0) {
+      charUpdates.hope = Math.min(character.maxHope, character.hope + res.hopeGain);
+    }
+    if (res.fearGain > 0) {
+      stateManager.addFearPoints(res.fearGain);
+    }
+    stateManager.updatePlayerCharacter(client.playerId, charUpdates);
+    this.broadcastState(stateManager.getState());
+
+    // 2) Feed resolved result to AI for narration
+    const state = stateManager.getState();
+    const context = {
+      sessionId,
+      character,
+      characters: state.characters.length > 0 ? state.characters : [character],
+      activePlayerId: client.playerId,
+      activePlayerName: client.name,
+      sessionState: state,
+      worldLore: this.aiGM?.getWorldLore(),
+    };
+
+    try {
+      await this.runNarration(
+        socket, client, stateManager, context, decl.action, false,
+        { narrationHint: res.narrationHint },
+      );
+    } catch (err) {
+      this.activeStreams.delete(sessionId);
+      if (this.sessionStore) {
+        await this.sessionStore.releaseTurnLock(sessionId);
+      }
+      console.error('Action roll narration error:', err);
+      this.io.to(sessionId).emit('gm:narrate:end', {
+        type: 'gm:narrate:end',
+        sessionId,
+        senderId: 'system',
+        payload: {
+          turnId: uuidv4(),
+          fullText: `（行动已结算，但叙事生成失败：${(err as Error).message}）`,
+          choices: [],
+          error: true,
+        },
+        timestamp: Date.now(),
+      });
+    }
+  }
+
+  /** Load an enemy from stat block catalog and create a CombatEnemy instance */
+  private loadEnemyFromStatBlock(statBlockId: string, customName?: string): CombatEnemy | null {
+    const statBlock = (enemyData as any[]).find((e: any) => e.id === statBlockId);
+    if (!statBlock) {
+      console.warn(`Enemy stat block not found: ${statBlockId}`);
+      return null;
+    }
+    // enemies.json uses "hp"/"stress" for max values
+    const maxHp = statBlock.maxHp ?? statBlock.hp ?? 5;
+    const maxStress = statBlock.maxStress ?? statBlock.stress ?? 3;
+    return {
+      id: `enemy_${uuidv4()}`,
+      statBlockId,
+      name: customName || statBlock.name,
+      currentHp: maxHp,
+      maxHp,
+      currentStress: 0,
+      maxStress,
+      conditions: [],
+      isFocused: false,
+      hasActed: false,
+      evasion: statBlock.evasion || 10,
+    };
+  }
+
+  private handleCombatAddEnemy(socket: Socket, msg: SocketMessage<{ statBlockId: string; name?: string }>): void {
+    const client = this.clients.get(socket.id);
+    if (!client) return;
+
+    const stateManager = this.sessionRegistry.findById(client.sessionId);
+    if (!stateManager) return;
+
+    const { statBlockId, name } = msg.payload;
+    const enemy = this.loadEnemyFromStatBlock(statBlockId, name);
+    if (!enemy) {
+      socket.emit('error', { message: `敌人类型未找到: ${statBlockId}` });
+      return;
+    }
+
+    stateManager.addCombatEnemy(enemy);
+    this.broadcastState(stateManager.getState());
+    console.log(`Combat enemy added: ${enemy.name} (${statBlockId}) in session ${client.sessionId}`);
+  }
+
+  private pendingLootBySession: Map<string, LootResult> = new Map();
+  private searchCooldownBySession: Map<string, number> = new Map(); // sessionId → last search timestamp
+
+  private handleCombatEnd(socket: Socket): void {
+    const client = this.clients.get(socket.id);
+    if (!client) return;
+
+    const stateManager = this.sessionRegistry.findById(client.sessionId);
+    if (!stateManager) return;
+
+    // Generate loot before ending combat
+    const combat = stateManager.getCombatState();
+    const difficulty = combat?.enemies.length ? 15 : 10;
+    const loot = rollLootTable(difficulty);
+
+    // Store pending loot for pickup
+    this.pendingLootBySession.set(client.sessionId, loot);
+
+    stateManager.endCombat();
+    this.broadcastState(stateManager.getState());
+
+    // Send loot to client
+    this.io.to(client.sessionId).emit('loot:available', {
+      type: 'loot:available',
+      sessionId: client.sessionId,
+      senderId: 'system',
+      payload: loot,
+      timestamp: Date.now(),
+    });
+
+    console.log(`Combat ended in session ${client.sessionId}, loot generated`);
+  }
+
+  private handleLootPickup(socket: Socket, msg: SocketMessage<{ itemIds: string[] }>): void {
+    const client = this.clients.get(socket.id);
+    if (!client) return;
+
+    const stateManager = this.sessionRegistry.findById(client.sessionId);
+    if (!stateManager) return;
+
+    const pendingLoot = this.pendingLootBySession.get(client.sessionId);
+    if (!pendingLoot) {
+      this.broadcastState(stateManager.getState());
+      return;
+    }
+
+    const { itemIds } = msg.payload;
+    // Add selected items to character inventory
+    for (const item of pendingLoot.items) {
+      if (itemIds.includes(item.id)) {
+        stateManager.addInventoryItem(item);
+      }
+    }
+    // Add gold
+    if (pendingLoot.gold) {
+      stateManager.addGold(pendingLoot.gold);
+    }
+
+    // Clear pending loot
+    this.pendingLootBySession.delete(client.sessionId);
+
+    this.broadcastState(stateManager.getState());
+  }
+
+  private async handleSceneSearch(socket: Socket): Promise<void> {
+    const client = this.clients.get(socket.id);
+    if (!client) return;
+
+    const sessionId = client.sessionId;
+    const stateManager = this.sessionRegistry.findById(sessionId);
+    if (!stateManager) return;
+
+    const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
+    if (!character) return;
+
+    // Cooldown: 30s between searches, max 3 per scene
+    const now = Date.now();
+    const lastSearch = this.searchCooldownBySession.get(sessionId) ?? 0;
+    if (now - lastSearch < 30000) {
+      this.io.to(sessionId).emit('gm:narrate:end', {
+        type: 'gm:narrate:end',
+        sessionId,
+        senderId: 'system',
+        payload: {
+          turnId: `search_cd_${now}`,
+          fullText: '你刚刚才搜索过这里，需要等一会儿再仔细查看。',
+          choices: [],
+        },
+        timestamp: Date.now(),
+      });
+      return;
+    }
+    this.searchCooldownBySession.set(sessionId, now);
+
+    // Trigger AI narration for the search first — let AI describe what's found
+    const state = stateManager.getState();
+    const context = {
+      sessionId,
+      character,
+      characters: state.characters.length > 0 ? state.characters : [character],
+      activePlayerId: client.playerId,
+      activePlayerName: client.name,
+      sessionState: state,
+      worldLore: this.aiGM?.getWorldLore(),
+    };
+
+    try {
+      await this.runNarration(
+        socket, client, stateManager, context,
+        `${character.name}探查了周围环境，寻找有用的物品和线索`,
+        false,
+      );
+
+      // After narration, use extractGmEffects to find narrative items
+      // Then supplement with a small random loot as fallback
+      const loot = rollSceneSearchLoot();
+      for (const item of loot.items) {
+        stateManager.addInventoryItem(item);
+      }
+      if (loot.gold) {
+        stateManager.addGold(loot.gold);
+      }
+      this.broadcastState(stateManager.getState());
+
+      this.io.to(sessionId).emit('loot:available', {
+        type: 'loot:available',
+        sessionId,
+        senderId: 'system',
+        payload: loot,
+        timestamp: Date.now(),
+      });
+    } catch (err) {
+      console.error('Scene search error:', err);
+    }
+  }
+
+  private async handleUseFeature(socket: Socket, msg: SocketMessage<{ featureId: string; featureType: string; action: string; targetId?: string; attribute?: string }>): Promise<void> {
+    const client = this.clients.get(socket.id);
+    if (!client) return;
+
+    const sessionId = client.sessionId;
+    const stateManager = this.sessionRegistry.findById(sessionId);
+    if (!stateManager) return;
+
+    if (!(await this.guardTurn(socket, client, stateManager))) return;
+
+    const { featureId, featureType, action, targetId, attribute } = msg.payload;
+    const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
+    if (!character) {
+      if (this.sessionStore) await this.sessionStore.releaseTurnLock(sessionId);
+      return;
+    }
+
+    // Check feature uses remaining
+    const currentUses = character.featureUses?.[featureId];
+    if (currentUses !== undefined && currentUses <= 0) {
+      this.io.to(sessionId).emit('gm:narrate:end', {
+        type: 'gm:narrate:end',
+        sessionId,
+        senderId: 'system',
+        payload: {
+          turnId: uuidv4(),
+          fullText: `（该特性的使用次数已用尽）`,
+          choices: [],
+          error: true,
+        },
+        timestamp: Date.now(),
+      });
+      if (this.sessionStore) await this.sessionStore.releaseTurnLock(sessionId);
+      return;
+    }
+
+    // Deduct feature use
+    const uses = { ...character.featureUses };
+    if (currentUses !== undefined) {
+      uses[featureId] = currentUses - 1;
+    }
+
+    // Deduct hope/stress cost from domain cards
+    let hopeCost = 0;
+    let stressCost = 0;
+    if (featureType === 'domainCard') {
+      const card = character.domainCardConfig.loadout.find(c => c.id === featureId);
+      hopeCost = card?.hopeCost ?? 0;
+      stressCost = card?.stressCost ?? 0;
+    }
+    const newHope = Math.max(0, character.hope - hopeCost);
+    // Apply all character updates in one batch
+    stateManager.updatePlayerCharacter(client.playerId, {
+      featureUses: uses,
+      hope: newHope,
+    });
+    if (stressCost > 0) {
+      stateManager.updateCharacterStress(stressCost);
+    }
+
+    // Store player action in adventure history
+    stateManager.addAdventureMessage({
+      id: `msg_${Date.now()}_player`,
+      role: 'player',
+      content: action,
+      timestamp: Date.now(),
+    });
+
+    // If attribute is specified, roll dice for the ability check
+    let rollNarrationHint = '';
+    if (attribute) {
+      const rollDecl: RollDeclaration = {
+        action,
+        attribute: attribute as any,
+        difficulty: stateManager.getSceneDifficulty(),
+      };
+      const rollRes = resolveAbilityCheck(character, rollDecl);
+
+      // Send dice result back to player
+      this.io.to(sessionId).emit('dice:roll', {
+        type: 'dice:roll',
+        sessionId,
+        senderId: client.playerId,
+        payload: {
+          hopeDie: rollRes.hopeDie,
+          fearDie: rollRes.fearDie,
+          modifier: rollRes.modifier ?? 0,
+          difficulty: rollRes.difficulty,
+          total: rollRes.total,
+          outcome: rollRes.outcome,
+          isCritical: rollRes.isCritical,
+          withHope: rollRes.outcome === 'hopeSuccess' || rollRes.outcome === 'hopeFailure',
+          withFear: rollRes.outcome === 'fearSuccess' || rollRes.outcome === 'fearFailure',
+          hopeGain: rollRes.hopeGain,
+          fearGain: rollRes.fearGain,
+          success: rollRes.success,
+        },
+        timestamp: Date.now(),
+      });
+
+      // Apply hope/fear from the roll
+      const charUpdates: Partial<Character> = {};
+      if (rollRes.hopeGain > 0) {
+        // Re-read character after cost deduction
+        const updatedChar = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
+        if (updatedChar) {
+          charUpdates.hope = Math.min(updatedChar.maxHope, updatedChar.hope + rollRes.hopeGain);
+        }
+      }
+      if (rollRes.fearGain > 0) {
+        stateManager.addFearPoints(rollRes.fearGain);
+      }
+      if (Object.keys(charUpdates).length > 0) {
+        stateManager.updatePlayerCharacter(client.playerId, charUpdates);
+      }
+      rollNarrationHint = `\n骰子结算：${rollRes.narrationHint}`;
+    }
+
+    this.broadcastState(stateManager.getState());
+
+    // If targetId is an enemy, this is an ability-on-enemy action
+    let narrationHint = `${character.name} 使用"${action}"`;
+    if (targetId) {
+      const combat = stateManager.getCombatState();
+      const enemy = combat?.enemies.find(e => e.id === targetId);
+      if (enemy) {
+        narrationHint += ` 对 ${enemy.name}`;
+      }
+    }
+    narrationHint += rollNarrationHint;
+
+    // Feed to AI for narration
+    const state = stateManager.getState();
+    const context = {
+      sessionId,
+      character,
+      characters: state.characters.length > 0 ? state.characters : [character],
+      activePlayerId: client.playerId,
+      activePlayerName: client.name,
+      sessionState: state,
+      worldLore: this.aiGM?.getWorldLore(),
+    };
+
+    try {
+      await this.runNarration(
+        socket, client, stateManager, context, action, false,
+        { narrationHint },
+      );
+    } catch (err) {
+      this.activeStreams.delete(sessionId);
+      if (this.sessionStore) await this.sessionStore.releaseTurnLock(sessionId);
+      console.error('Use feature narration error:', err);
+      this.io.to(sessionId).emit('gm:narrate:end', {
+        type: 'gm:narrate:end',
+        sessionId,
+        senderId: 'system',
+        payload: {
+          turnId: uuidv4(),
+          fullText: `（特性已使用，但叙事生成失败）`,
+          choices: [],
+          error: true,
+        },
+        timestamp: Date.now(),
+      });
+    }
+  }
+
+  private async handleAdventureEnd(socket: Socket): Promise<void> {
+    const client = this.clients.get(socket.id);
+    if (!client) return;
+
+    const sessionId = client.sessionId;
+    const stateManager = this.sessionRegistry.findById(sessionId);
+    if (!stateManager) return;
+
+    const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
+    if (!character) return;
+
+    // End session immediately so player can return to home
+    stateManager.endSession();
+    this.broadcastState(stateManager.getState());
+
+    // Signal client that adventure is ending — show modal immediately
+    this.io.to(sessionId).emit('adventure:ending', {
+      type: 'adventure:ending',
+      sessionId,
+      senderId: 'system',
+      payload: {},
+      timestamp: Date.now(),
+    });
+
+    // Stream the summary as narration
+    const messages = stateManager.getAdventureMessages().slice(-50).map(m => ({
+      role: m.role,
+      content: m.content,
+    }));
+
+    const turnId = uuidv4();
+
+    if (this.aiGM) {
+      try {
+        const state = stateManager.getState();
+        const context = {
+          sessionId,
+          character,
+          characters: state.characters.length > 0 ? state.characters : [character],
+          activePlayerId: client.playerId,
+          activePlayerName: client.name,
+          sessionState: state,
+          worldLore: this.aiGM?.getWorldLore(),
+        };
+
+        const prompt = `你是一位小说家。请为以下这场Daggerheart RPG冒险撰写一段第三人称小说式总结（300-500字）。
+同时提取3-5个关键里程碑事件，在总结最后用"里程碑："标记。
+
+冒险对话记录：
+${messages.slice(-50).map(m => `[${m.role}]: ${m.content}`).join('\n')}
+
+角色：${character.name}（${character.classId}）
+当前状态：HP ${character.hp}/${character.maxHp}，压力 ${character.stress}/${character.maxStress}`;
+
+        // Start stream
+        this.io.to(sessionId).emit('gm:narrate:start', {
+          type: 'gm:narrate:start',
+          sessionId,
+          senderId: 'system',
+          payload: { turnId, characterName: character.name, playerName: client.name },
+          timestamp: Date.now(),
+        });
+
+        const { fullText } = await this.aiGM.getGateway().sendStreamRequest(
+          {
+            model: this.aiGM.getConfig().narratorModel || this.aiGM.getConfig().gateway.defaultModel,
+            messages: [
+              { role: 'system', content: '你是小说家，擅长将RPG冒险总结为引人入胜的短篇叙事。' },
+              { role: 'user', content: prompt },
+            ],
+            temperature: 0.7,
+            maxTokens: 1024,
+            agentType: 'summary',
+          },
+          (delta: string) => {
+            this.io.to(sessionId).emit('gm:narrate:delta', {
+              type: 'gm:narrate:delta',
+              sessionId,
+              senderId: 'system',
+              payload: { turnId, text: delta },
+              timestamp: Date.now(),
+            });
+          },
+        );
+
+        // End stream
+        this.io.to(sessionId).emit('gm:narrate:end', {
+          type: 'gm:narrate:end',
+          sessionId,
+          senderId: 'system',
+          payload: { turnId, fullText: fullText || '冒险结束了。', choices: [] },
+          timestamp: Date.now(),
+        });
+
+        // Send structured summary for persistence
+        const summary: AdventureSummary = {
+          sessionId,
+          startedAt: Date.now() - 3600000,
+          endedAt: Date.now(),
+          summary: fullText || '冒险结束了。',
+          milestones: [],
+          locationsVisited: [],
+        };
+        const summaries = [...(character.adventureSummaries || []), summary];
+        stateManager.updatePlayerCharacter(client.playerId, { adventureSummaries: summaries });
+
+        this.io.to(sessionId).emit('adventure:summary', {
+          type: 'adventure:summary',
+          sessionId,
+          senderId: 'system',
+          payload: summary,
+          timestamp: Date.now(),
+        });
+      } catch (err) {
+        console.error('Adventure summary generation error:', err);
+        this.io.to(sessionId).emit('gm:narrate:end', {
+          type: 'gm:narrate:end',
+          sessionId,
+          senderId: 'system',
+          payload: { turnId, fullText: '冒险结束了。', choices: [] },
+          timestamp: Date.now(),
+        });
+        this.io.to(sessionId).emit('adventure:summary', {
+          type: 'adventure:summary',
+          sessionId,
+          senderId: 'system',
+          payload: { sessionId, startedAt: Date.now() - 3600000, endedAt: Date.now(), summary: '冒险结束了。', milestones: [], locationsVisited: [] },
+          timestamp: Date.now(),
+        });
+      }
+    } else {
+      this.io.to(sessionId).emit('gm:narrate:end', {
+        type: 'gm:narrate:end',
+        sessionId,
+        senderId: 'system',
+        payload: { turnId, fullText: '冒险结束了。', choices: [] },
+        timestamp: Date.now(),
+      });
+    }
+
+    console.log(`Adventure ended in session ${sessionId}`);
   }
 
   // ===== Apply a single GmEffect to StateManager =====
@@ -1267,6 +2071,74 @@ export class SocketServer {
       case 'spendFear': {
         if (effect.amount && effect.amount > 0) {
           sm.spendFearPoints(effect.amount);
+        }
+        break;
+      }
+      case 'addEnemy': {
+        const statBlockId = effect.enemyStatBlockId;
+        const enemyName = effect.enemyName;
+        let enemy: CombatEnemy | null = null;
+        if (statBlockId) {
+          enemy = this.loadEnemyFromStatBlock(statBlockId, enemyName);
+        }
+        // Fallback: try matching by name if statBlockId didn't work
+        if (!enemy && enemyName) {
+          const match = (enemyData as any[]).find((e: any) =>
+            e.name === enemyName || e.nameEn === enemyName || e.id === enemyName
+          );
+          if (match) {
+            enemy = this.loadEnemyFromStatBlock(match.id, enemyName);
+          }
+        }
+        // Last resort: create a generic enemy with the given name
+        if (!enemy && enemyName) {
+          enemy = {
+            id: `enemy_${uuidv4()}`,
+            statBlockId: 'generic',
+            name: enemyName,
+            currentHp: 5,
+            maxHp: 5,
+            currentStress: 0,
+            maxStress: 3,
+            conditions: [],
+            isFocused: false,
+            hasActed: false,
+            evasion: 10,
+          };
+        }
+        if (enemy) {
+          sm.addCombatEnemy(enemy);
+        }
+        break;
+      }
+      case 'startCombat': {
+        // Combat starts — enemies are added by individual addEnemy effects
+        // If no combat exists yet, we just ensure combat state is initialized
+        // (addCombatEnemy already auto-starts combat)
+        break;
+      }
+      case 'endCombat': {
+        sm.endCombat();
+        break;
+      }
+      case 'setDifficulty': {
+        if (effect.amount && effect.amount >= 8 && effect.amount <= 25) {
+          sm.setSceneDifficulty(effect.amount);
+        }
+        break;
+      }
+      case 'addItem': {
+        if (effect.itemName) {
+          sm.addInventoryItem({
+            id: `item_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            name: effect.itemName,
+            quantity: 1,
+            description: effect.itemDescription,
+            category: effect.itemCategory || 'misc',
+          });
+        }
+        if (effect.goldCoins && effect.goldCoins > 0) {
+          sm.addGold({ coins: effect.goldCoins, handfuls: 0, bags: 0, chests: 0 });
         }
         break;
       }

@@ -10,20 +10,26 @@ import {
   Platform,
   ActivityIndicator,
   StatusBar,
+  Alert,
+  Modal,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
-import { useGameStore, type AdventureMessage, type AdventureChoice, type DiceResult } from '../store/gameStore';
-import { sendPlayerAction, sendPlayerChoice, sendDiceRoll, requestSpotlight, submitS0, activateXCard, resumeSafety } from '../hooks/useSocket';
+import { useGameStore, type AdventureMessage, type AdventureChoice, type DiceResult, useCurrentAdventureMessages } from '../store/gameStore';
+import { sendPlayerAction, sendPlayerChoice, sendDiceRoll, sendActionRoll, sendAdventureEnd, requestSpotlight, submitS0, activateXCard, resumeSafety, sendUseFeature } from '../hooks/useSocket';
+import type { Attribute } from '@trpgmaster/shared';
+import { ATTRIBUTE_LABELS } from '@trpgmaster/shared';
 import { theme } from '../theme/theme';
 import { NarrativeCard } from '../components/NarrativeCard';
 import { ResourceGauge } from '../components/ResourceGauge';
 import { SpotlightIndicator } from '../components/SpotlightIndicator';
 import { SafetyOverlay } from '../components/SafetyOverlay';
 import { DiceTray } from '../components/DiceTray/DiceTray';
+import { FeatureTray, type FeatureItem } from '../components/FeatureTray';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -38,7 +44,8 @@ const S0_PHASE_LABELS: Record<string, string> = {
 export function AdventureScreen() {
   const navigation = useNavigation<NavigationProp>();
   const character = useGameStore((s) => s.character);
-  const adventureMessages = useGameStore((s) => s.adventureMessages);
+  const campaignId = useGameStore((s) => s.campaignId);
+  const adventureMessages = useCurrentAdventureMessages();
   const aiProcessing = useGameStore((s) => s.aiProcessing);
   const gmTyping = useGameStore((s) => s.gmTyping);
   const streamingText = useGameStore((s) => s.streamingText);
@@ -56,6 +63,11 @@ export function AdventureScreen() {
   const combatState = useGameStore((s) => s.combatState);
   const pendingDiceResult = useGameStore((s) => s.pendingDiceResult);
   const clearPendingDiceResult = useGameStore((s) => s.clearPendingDiceResult);
+  const adventureSummaryText = useGameStore((s) => s.adventureSummaryText);
+  const isAdventureEnding = useGameStore((s) => s.isAdventureEnding);
+  const streamingSummaryText = useGameStore((s) => s.streamingSummaryText);
+  const setAdventureSummaryText = useGameStore((s) => s.setAdventureSummaryText);
+  const setCampaignId = useGameStore((s) => s.setCampaignId);
 
   // Spotlight: can this player act?
   const canAct = (!spotlightState || spotlightState.current === null || spotlightState.current === playerId)
@@ -67,10 +79,13 @@ export function AdventureScreen() {
     : null;
 
   const [inputText, setInputText] = useState('');
+  const [selectedAttribute, setSelectedAttribute] = useState<Attribute | null>(null);
+  const [selectedFeature, setSelectedFeature] = useState<FeatureItem | null>(null);
   const [s0Lines, setS0Lines] = useState('');
   const [s0Veils, setS0Veils] = useState('');
   const [s0Tone, setS0Tone] = useState('');
   const [showDiceTray, setShowDiceTray] = useState(false);
+  const [adventureSummary, setAdventureSummary] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
   // Auto-navigate to combat when combatState appears
@@ -79,6 +94,13 @@ export function AdventureScreen() {
       navigation.navigate('Combat');
     }
   }, [combatState?.id]);
+
+  // Navigate back to home when campaign ends (campaignId cleared, after summary dismissed)
+  useEffect(() => {
+    if (!campaignId && !adventureSummaryText && !isAdventureEnding && navigation.canGoBack()) {
+      navigation.navigate('Home');
+    }
+  }, [campaignId, adventureSummaryText, isAdventureEnding]);
 
   // Compute dynamic placeholder based on latest narrator message
   const getInputPlaceholder = (): string => {
@@ -116,19 +138,40 @@ export function AdventureScreen() {
   const handleSend = () => {
     if (!inputText.trim() || aiProcessing || !canAct) return;
 
-    const playerMsg: AdventureMessage = {
-      id: `msg_${Date.now()}_player`,
-      role: 'player',
-      content: inputText.trim(),
-      timestamp: Date.now(),
-    };
-
-    addAdventureMessage(playerMsg);
     const text = inputText.trim();
     setInputText('');
 
-    // Send to AI GM via Socket (with dice context if pending)
-    sendPlayerAction(text);
+    if (selectedFeature) {
+      // Feature + action: send useFeature with optional attribute roll
+      const featureAction = `[${selectedFeature.name}] ${text}`;
+      sendUseFeature(
+        selectedFeature.id,
+        selectedFeature.type,
+        featureAction,
+        undefined, // targetId — set when in combat
+        selectedAttribute ?? undefined,
+      );
+      setSelectedFeature(null);
+      setSelectedAttribute(null);
+    } else if (selectedAttribute) {
+      // Contextual action roll: send with attribute (GM decides difficulty)
+      sendActionRoll({
+        action: text,
+        attribute: selectedAttribute,
+        difficulty: 0,
+      });
+      setSelectedAttribute(null);
+    } else {
+      // Free text: plain player action
+      const playerMsg: AdventureMessage = {
+        id: `msg_${Date.now()}_player`,
+        role: 'player',
+        content: text,
+        timestamp: Date.now(),
+      };
+      addAdventureMessage(playerMsg);
+      sendPlayerAction(text);
+    }
   };
 
   const handleChoice = (choice: AdventureChoice) => {
@@ -252,9 +295,7 @@ export function AdventureScreen() {
       </TouchableOpacity>
       <TouchableOpacity
         style={styles.quickActionButton}
-        onPress={() => {
-          // TODO: Open inventory
-        }}
+        onPress={() => navigation.navigate('Inventory')}
       >
         <Ionicons name="bag-handle" size={16} color={theme.color.accent} />
         <Text style={styles.quickActionText}>物品</Text>
@@ -268,6 +309,22 @@ export function AdventureScreen() {
           <Text style={styles.quickActionText}>X-Card</Text>
         </TouchableOpacity>
       )}
+      <TouchableOpacity
+        style={styles.quickActionButton}
+        onPress={() => {
+          Alert.alert(
+            '结束冒险',
+            '确定要结束当前冒险吗？AI管家将为你生成冒险总结。',
+            [
+              { text: '取消', style: 'cancel' },
+              { text: '确定', style: 'destructive', onPress: () => sendAdventureEnd() },
+            ],
+          );
+        }}
+      >
+        <Ionicons name="book-outline" size={16} color={theme.color.muted} />
+        <Text style={styles.quickActionText}>结束冒险</Text>
+      </TouchableOpacity>
     </View>
   );
 
@@ -361,25 +418,42 @@ export function AdventureScreen() {
           </View>
         ) : (
         <View style={styles.inputContainer}>
-          <TextInput
-            style={[styles.textInput, sessionZeroPhase ? styles.s0TextInput : undefined]}
-            value={inputText}
-            onChangeText={setInputText}
-            placeholder={inputPlaceholder}
-            placeholderTextColor={theme.color.muted}
-            multiline
-            maxLength={500}
-            editable={!aiProcessing && canAct}
-            onSubmitEditing={handleSend}
-            returnKeyType="send"
-          />
-          <TouchableOpacity
-            style={[styles.sendButton, (!inputText.trim() || aiProcessing || !canAct) && styles.sendButtonDisabled]}
-            onPress={handleSend}
-            disabled={!inputText.trim() || aiProcessing || !canAct}
-          >
-            <Ionicons name="send" size={20} color={theme.color.parchment} />
-          </TouchableOpacity>
+          <FeatureTray selectedFeature={selectedFeature} onSelectFeature={setSelectedFeature} />
+          {/* Attribute selection row */}
+          <View style={styles.attributeRow}>
+            {(['agility', 'strength', 'finesse', 'instinct', 'presence', 'knowledge'] as Attribute[]).map((attr) => (
+              <TouchableOpacity
+                key={attr}
+                style={[styles.attributeChip, selectedAttribute === attr && styles.attributeChipActive]}
+                onPress={() => setSelectedAttribute(selectedAttribute === attr ? null : attr)}
+              >
+                <Text style={[styles.attributeChipText, selectedAttribute === attr && styles.attributeChipTextActive]}>
+                  {ATTRIBUTE_LABELS[attr]}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View style={styles.inputRow}>
+            <TextInput
+              style={[styles.textInput, sessionZeroPhase ? styles.s0TextInput : undefined]}
+              value={inputText}
+              onChangeText={setInputText}
+              placeholder={selectedFeature ? `描述你使用${selectedFeature.name}的行动...` : selectedAttribute ? `描述你的${ATTRIBUTE_LABELS[selectedAttribute]}行动...` : inputPlaceholder}
+              placeholderTextColor={theme.color.muted}
+              multiline
+              maxLength={500}
+              editable={!aiProcessing && canAct}
+              onSubmitEditing={handleSend}
+              returnKeyType="send"
+            />
+            <TouchableOpacity
+              style={[styles.sendButton, (!inputText.trim() || aiProcessing || !canAct) && styles.sendButtonDisabled]}
+              onPress={handleSend}
+              disabled={!inputText.trim() || aiProcessing || !canAct}
+            >
+              <Ionicons name={selectedFeature ? 'star' : selectedAttribute ? 'dice' : 'send'} size={20} color={theme.color.parchment} />
+            </TouchableOpacity>
+          </View>
         </View>
         )}
       </KeyboardAvoidingView>
@@ -406,10 +480,16 @@ export function AdventureScreen() {
           <View style={styles.diceBannerContent}>
             <Ionicons name="dice" size={16} color={pendingDiceResult.success ? theme.color.emerald : theme.color.danger} />
             <Text style={styles.diceBannerText}>
-              {pendingDiceResult.withHope ? '希望' : pendingDiceResult.withFear ? '恐惧' : '中立'}
+              {pendingDiceResult.isCritical ? '大成功! ' : ''}
               {pendingDiceResult.success ? '成功' : '失败'}
-              {' '}({pendingDiceResult.hopeDie}+{pendingDiceResult.fearDie}+{pendingDiceResult.modifier}={pendingDiceResult.total} vs {pendingDiceResult.difficulty})
-              {pendingDiceResult.isCritical ? ' 大成功!' : ''}
+              {'  '}
+              <Text style={{ color: theme.color.emerald }}>希望骰:{pendingDiceResult.hopeDie}</Text>
+              {' '}
+              <Text style={{ color: theme.color.blood }}>恐惧骰:{pendingDiceResult.fearDie}</Text>
+              {pendingDiceResult.modifier ? ` +${pendingDiceResult.modifier}` : ''}
+              {' = '}{pendingDiceResult.total} vs {pendingDiceResult.difficulty}
+              {pendingDiceResult.hopeGain > 0 && `  +${pendingDiceResult.hopeGain}希望`}
+              {pendingDiceResult.fearGain > 0 && `  +${pendingDiceResult.fearGain}恐惧`}
             </Text>
           </View>
           <TouchableOpacity onPress={() => clearPendingDiceResult()}>
@@ -421,6 +501,28 @@ export function AdventureScreen() {
       {xcardPaused && (
         <SafetyOverlay isHost={isHost} onResume={resumeSafety} />
       )}
+      {/* Adventure summary / ending modal */}
+      <Modal visible={isAdventureEnding || !!adventureSummaryText} animationType="slide" transparent>
+        <View style={styles.summaryModalOverlay}>
+          <View style={styles.summaryModalContent}>
+            <Text style={styles.summaryTitle}>冒险总结</Text>
+            <ScrollView style={styles.summaryScroll}>
+              <Text style={styles.summaryText}>
+                {adventureSummaryText || streamingSummaryText || '正在生成总结...'}
+              </Text>
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.summaryCloseButton}
+              onPress={() => {
+                setAdventureSummaryText(null);
+                setCampaignId(null);
+              }}
+            >
+              <Text style={styles.summaryCloseText}>返回大厅</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -621,11 +723,41 @@ const styles = StyleSheet.create({
   },
   // Input container
   inputContainer: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+  },
+  inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
     gap: 8,
+  },
+  attributeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    paddingBottom: 4,
+    alignItems: 'center',
+  },
+  attributeChip: {
+    backgroundColor: theme.color.bgInput,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: theme.color.fog,
+  },
+  attributeChipActive: {
+    backgroundColor: theme.color.accent + '33',
+    borderColor: theme.color.accent,
+  },
+  attributeChipText: {
+    color: theme.color.textDim,
+    fontSize: 11,
+    fontFamily: theme.font.body,
+  },
+  attributeChipTextActive: {
+    color: theme.color.accent,
+    fontWeight: 'bold',
   },
   textInput: {
     flex: 1,
@@ -743,5 +875,51 @@ const styles = StyleSheet.create({
     color: theme.color.parchment,
     fontSize: 13,
     fontFamily: theme.font.body,
+  },
+  // Summary modal
+  summaryModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  summaryModalContent: {
+    backgroundColor: theme.color.bgCard,
+    borderRadius: 16,
+    padding: 24,
+    width: '90%',
+    maxHeight: '80%',
+    borderWidth: 1,
+    borderColor: theme.color.gold,
+  },
+  summaryTitle: {
+    color: theme.color.gold,
+    fontSize: 20,
+    fontWeight: 'bold',
+    fontFamily: theme.font.display,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  summaryScroll: {
+    maxHeight: 400,
+    marginBottom: 16,
+  },
+  summaryText: {
+    color: theme.color.parchment,
+    fontSize: 15,
+    lineHeight: 24,
+    fontFamily: theme.font.body,
+  },
+  summaryCloseButton: {
+    backgroundColor: theme.color.emerald,
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  summaryCloseText: {
+    color: theme.color.ink,
+    fontSize: 16,
+    fontWeight: 'bold',
+    fontFamily: theme.font.display,
   },
 });

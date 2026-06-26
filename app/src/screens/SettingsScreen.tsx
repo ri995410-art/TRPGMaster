@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useGameStore } from '../store/gameStore';
+import { sendCampaignReset } from '../hooks/useSocket';
 
 // ===== AI Preset Providers =====
 
@@ -163,6 +164,7 @@ export function SettingsScreen() {
           text: '确定重置',
           style: 'destructive',
           onPress: () => {
+            sendCampaignReset();
             reset();
           },
         },

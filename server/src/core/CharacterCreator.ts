@@ -296,6 +296,8 @@ export class CharacterCreator {
         vault: [],
         maxLoadout: 5,
       },
+      featureUses: {},
+      adventureSummaries: [],
       scars: [],
       conditions: [],
       resistances: [],

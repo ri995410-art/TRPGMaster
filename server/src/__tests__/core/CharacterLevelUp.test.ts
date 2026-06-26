@@ -49,6 +49,8 @@ function makeCharacter(overrides: Partial<Character> = {}): Character {
       vault: [],
       maxLoadout: 5,
     },
+    featureUses: {},
+    adventureSummaries: [],
     scars: [],
     conditions: [],
     resistances: [],

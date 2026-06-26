@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
-import { useGameStore } from '../store/gameStore';
-import { connectToServer, disconnect } from '../hooks/useSocket';
+import { useGameStore, type AdventureMessage } from '../store/gameStore';
+import { connectToServer, disconnect, rejoinSessionById } from '../hooks/useSocket';
+import type { Character } from '@trpgmaster/shared';
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 
@@ -15,24 +16,62 @@ interface Props {
 
 const DEFAULT_SERVER_URL = 'http://localhost:3000';
 
+interface SaveSlot {
+  character: Character;
+  sessions: Array<{
+    sessionId: string;
+    messageCount: number;
+    lastPlayed: number | undefined;
+    sceneName: string;
+  }>;
+}
+
+function getSaveSlots(
+  characters: Character[],
+  characterSessionHistory: Record<string, string[]>,
+  adventureMessagesBySession: Record<string, AdventureMessage[]>,
+): SaveSlot[] {
+  return characters.map(char => {
+    const sessionIds = characterSessionHistory[char.id] || [];
+    const sessions = sessionIds.map(sid => {
+      const messages = adventureMessagesBySession[sid] || [];
+      const lastMsg = messages[messages.length - 1];
+      return {
+        sessionId: sid,
+        messageCount: messages.length,
+        lastPlayed: lastMsg?.timestamp,
+        sceneName: '',
+      };
+    });
+    return { character: char, sessions };
+  });
+}
+
 export function HomeScreen({ navigation }: Props) {
   const character = useGameStore((s) => s.character);
+  const characters = useGameStore((s) => s.characters);
   const campaignId = useGameStore((s) => s.campaignId);
   const isConnected = useGameStore((s) => s.isConnected);
+  const characterSessionHistory = useGameStore((s) => s.characterSessionHistory);
+  const adventureMessagesBySession = useGameStore((s) => s.adventureMessagesBySession);
+  const serverUrl = useGameStore((s) => s.serverUrl);
 
-  const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_URL);
+  const [inputServerUrl, setInputServerUrl] = useState(serverUrl || DEFAULT_SERVER_URL);
   const [connecting, setConnecting] = useState(false);
+  const [loadingSlot, setLoadingSlot] = useState<string | null>(null);
 
-  const hasActiveCampaign = !!campaignId;
+  const saveSlots = useMemo(
+    () => getSaveSlots(characters, characterSessionHistory, adventureMessagesBySession),
+    [characters, characterSessionHistory, adventureMessagesBySession],
+  );
 
   const handleConnect = async () => {
     if (isConnected) return;
 
     setConnecting(true);
     try {
-      const socketId = await connectToServer(serverUrl);
+      const socketId = await connectToServer(inputServerUrl);
       console.log('[HomeScreen] Connected to server, socketId:', socketId);
-      Alert.alert('连接成功', '已连接到游戏服务器');
     } catch (err: any) {
       console.error('[HomeScreen] Connection failed:', err);
       Alert.alert('连接失败', `无法连接到服务器: ${err.message || '未知错误'}`);
@@ -43,14 +82,47 @@ export function HomeScreen({ navigation }: Props) {
 
   const handleDisconnect = () => {
     disconnect();
-    Alert.alert('已断开', '已断开与服务器的连接');
   };
 
-  const handleContinue = () => {
+  const handleContinueSlot = async (slot: SaveSlot, sessionId: string) => {
+    const store = useGameStore.getState();
+    const char = slot.character;
+
+    // Switch to this character and session
+    store.loadSaveSlot(char.id, sessionId);
+
+    if (isConnected) {
+      setLoadingSlot(char.id);
+      try {
+        await rejoinSessionById(sessionId, char);
+      } catch (err: any) {
+        Alert.alert('重连失败', err.message || '无法恢复该存档的服务器会话');
+      } finally {
+        setLoadingSlot(null);
+      }
+    } else if (inputServerUrl) {
+      // Connect first, then rejoin
+      setLoadingSlot(char.id);
+      try {
+        await connectToServer(inputServerUrl, { autoJoin: false });
+        await rejoinSessionById(sessionId, char);
+      } catch (err: any) {
+        Alert.alert('连接失败', `无法连接并恢复存档: ${err.message || '未知错误'}`);
+      } finally {
+        setLoadingSlot(null);
+      }
+    }
+
     navigation.navigate('Main');
   };
 
-  const handleNewCampaign = () => {
+  const handleNewAdventure = (slot: SaveSlot) => {
+    const store = useGameStore.getState();
+    store.loadSaveSlot(slot.character.id, null);
+    navigation.navigate('Main');
+  };
+
+  const handleCreateCharacter = () => {
     navigation.navigate('CharacterCreate', {});
   };
 
@@ -60,6 +132,14 @@ export function HomeScreen({ navigation }: Props) {
 
   const handleMultiplayer = () => {
     navigation.navigate('SessionJoin');
+  };
+
+  const getClassIcon = (classId: string) => {
+    const map: Record<string, string> = {
+      cleric: '🛡️', warrior: '⚔️', rogue: '🗡️', ranger: '🏹', wizard: '🧙',
+      druid: '🌿', bard: '🎵', necromancer: '💀',
+    };
+    return map[classId] || '⚔️';
   };
 
   return (
@@ -81,8 +161,8 @@ export function HomeScreen({ navigation }: Props) {
           <View style={styles.serverInputRow}>
             <TextInput
               style={styles.serverInput}
-              value={serverUrl}
-              onChangeText={setServerUrl}
+              value={inputServerUrl}
+              onChangeText={setInputServerUrl}
               placeholder="服务器地址"
               placeholderTextColor="#7f8c8d"
               autoCapitalize="none"
@@ -119,27 +199,73 @@ export function HomeScreen({ navigation }: Props) {
           </View>
         </View>
 
-        {/* Main actions */}
-        <View style={styles.actions}>
-          {hasActiveCampaign && (
-            <TouchableOpacity
-              style={[styles.actionCard, styles.continueCard]}
-              onPress={handleContinue}
-            >
-              <Ionicons name="play-circle" size={32} color="#2ecc71" />
-              <View style={styles.actionTextContainer}>
-                <Text style={styles.actionTitle}>继续冒险</Text>
-                <Text style={styles.actionDesc}>
-                  {character ? `${character.name} · Lv.${character.level}` : '返回当前战役'}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#7f8c8d" />
-            </TouchableOpacity>
-          )}
+        {/* Save slots */}
+        <View style={styles.slotsSection}>
+          <Text style={styles.sectionTitle}>存档</Text>
+          {saveSlots.length === 0 ? (
+            <View style={styles.noSlots}>
+              <Ionicons name="folder-open-outline" size={32} color="#7f8c8d" />
+              <Text style={styles.noSlotsText}>还没有角色，创建一个开始冒险吧</Text>
+            </View>
+          ) : (
+            saveSlots.map((slot) => {
+              const isLoading = loadingSlot === slot.character.id;
+              const hasSession = slot.sessions.length > 0;
+              const latestSession = hasSession ? slot.sessions[slot.sessions.length - 1] : null;
 
+              return (
+                <View key={slot.character.id} style={styles.slotCard}>
+                  <View style={styles.slotHeader}>
+                    <Text style={styles.slotIcon}>{getClassIcon(slot.character.classId)}</Text>
+                    <View style={styles.slotInfo}>
+                      <Text style={styles.slotName}>{slot.character.name}</Text>
+                      <Text style={styles.slotDetail}>
+                        {slot.character.classId} · Lv.{slot.character.level}
+                        {slot.character.ancestryId ? ` · ${slot.character.ancestryId}` : ''}
+                      </Text>
+                    </View>
+                    <View style={styles.slotStatus}>
+                      {hasSession && (
+                        <Text style={styles.slotMsgCount}>{latestSession!.messageCount}条消息</Text>
+                      )}
+                    </View>
+                  </View>
+                  <View style={styles.slotActions}>
+                    {hasSession && latestSession && (
+                      <TouchableOpacity
+                        style={[styles.slotButton, styles.continueButton, isLoading && styles.slotButtonDisabled]}
+                        onPress={() => handleContinueSlot(slot, latestSession.sessionId)}
+                        disabled={isLoading}
+                      >
+                        {isLoading ? (
+                          <ActivityIndicator size="small" color="#2ecc71" />
+                        ) : (
+                          <>
+                            <Ionicons name="play-circle" size={16} color="#2ecc71" />
+                            <Text style={styles.continueButtonText}>继续冒险</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity
+                      style={[styles.slotButton, styles.newButton]}
+                      onPress={() => handleNewAdventure(slot)}
+                    >
+                      <Ionicons name="add-circle-outline" size={16} color="#9b59b6" />
+                      <Text style={styles.newButtonText}>新冒险</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })
+          )}
+        </View>
+
+        {/* Quick actions */}
+        <View style={styles.actions}>
           <TouchableOpacity
             style={[styles.actionCard, styles.newCard]}
-            onPress={handleNewCampaign}
+            onPress={handleCreateCharacter}
           >
             <Ionicons name="add-circle" size={32} color="#9b59b6" />
             <View style={styles.actionTextContainer}>
@@ -360,6 +486,94 @@ const styles = StyleSheet.create({
   statusTextConnected: {
     color: '#2ecc71',
   },
+  // Save slots section
+  slotsSection: {
+    marginBottom: 20,
+  },
+  noSlots: {
+    alignItems: 'center',
+    paddingVertical: 20,
+    backgroundColor: '#1a1a2e',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2c3e50',
+  },
+  noSlotsText: {
+    color: '#7f8c8d',
+    fontSize: 13,
+    marginTop: 8,
+  },
+  slotCard: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#2c3e50',
+  },
+  slotHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 12,
+  },
+  slotIcon: {
+    fontSize: 28,
+  },
+  slotInfo: {
+    flex: 1,
+  },
+  slotName: {
+    color: '#ecf0f1',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  slotDetail: {
+    color: '#7f8c8d',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  slotStatus: {
+    alignItems: 'flex-end',
+  },
+  slotMsgCount: {
+    color: '#2ecc71',
+    fontSize: 12,
+  },
+  slotActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  slotButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 1,
+  },
+  slotButtonDisabled: {
+    opacity: 0.5,
+  },
+  continueButton: {
+    backgroundColor: '#2ecc7122',
+    borderColor: '#2ecc71',
+  },
+  continueButtonText: {
+    color: '#2ecc71',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  newButton: {
+    backgroundColor: '#9b59b622',
+    borderColor: '#9b59b644',
+  },
+  newButtonText: {
+    color: '#9b59b6',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
   // Actions
   actions: {
     gap: 12,
@@ -372,10 +586,6 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     gap: 16,
-  },
-  continueCard: {
-    backgroundColor: '#1a1a2e',
-    borderColor: '#2ecc71',
   },
   newCard: {
     backgroundColor: '#1a1a2e',

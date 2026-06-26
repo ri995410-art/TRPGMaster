@@ -6,6 +6,9 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
+  Modal,
+  FlatList,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,8 +16,18 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import { useGameStore } from '../store/gameStore';
-import { sendAttackAction, sendPlayerAction } from '../hooks/useSocket';
+import { sendAttackAction, sendPlayerAction, sendCombatAddEnemy, sendCombatEnd } from '../hooks/useSocket';
 import type { CombatEnemy } from '@trpgmaster/shared';
+
+// Enemy catalog type from server API
+interface EnemyCatalogEntry {
+  id: string;
+  name: string;
+  nameEn?: string;
+  type: string;
+  difficulty?: number;
+  description?: string;
+}
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -30,13 +43,16 @@ export function CombatScreen() {
 
   const [selectingTarget, setSelectingTarget] = useState(false);
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
+  const [showEnemyCatalog, setShowEnemyCatalog] = useState(false);
+  const [enemyCatalog, setEnemyCatalog] = useState<EnemyCatalogEntry[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
 
-  // Auto-close when combat ends (no enemies left)
+  // Navigate back when combat is explicitly ended (no combat state at all)
   useEffect(() => {
-    if (combatState && combatState.enemies.length === 0) {
+    if (!combatState) {
       navigation.goBack();
     }
-  }, [combatState?.enemies.length]);
+  }, [combatState]);
 
   const enemies: CombatEnemy[] = combatState?.enemies ?? [];
   const round = combatState?.round ?? 1;
@@ -76,8 +92,26 @@ export function CombatScreen() {
   };
 
   const handleEndCombat = () => {
-    sendPlayerAction('请求结束战斗');
+    sendCombatEnd();
     navigation.goBack();
+  };
+
+  const handleAddEnemy = async () => {
+    if (enemyCatalog.length === 0) {
+      setCatalogLoading(true);
+      try {
+        const serverUrl = useGameStore.getState().serverUrl;
+        if (serverUrl) {
+          const res = await fetch(`${serverUrl}/api/data/enemies`);
+          const data = await res.json();
+          setEnemyCatalog(data);
+        }
+      } catch {
+        // ignore fetch errors
+      }
+      setCatalogLoading(false);
+    }
+    setShowEnemyCatalog(true);
   };
 
   const combatActions = [
@@ -212,6 +246,12 @@ export function CombatScreen() {
           </View>
         )}
 
+        {/* Add enemy button */}
+        <TouchableOpacity style={styles.addEnemyButton} onPress={handleAddEnemy}>
+          <Ionicons name="add-circle-outline" size={18} color="#9b59b6" />
+          <Text style={styles.addEnemyText}>添加敌人</Text>
+        </TouchableOpacity>
+
         {/* Combat actions */}
         <Text style={styles.sectionLabel}>行动</Text>
         <View style={styles.actionGrid}>
@@ -250,6 +290,46 @@ export function CombatScreen() {
           <Text style={styles.endCombatText}>结束战斗</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Enemy catalog modal */}
+      <Modal visible={showEnemyCatalog} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>选择敌人</Text>
+              <TouchableOpacity onPress={() => setShowEnemyCatalog(false)}>
+                <Ionicons name="close" size={24} color="#ecf0f1" />
+              </TouchableOpacity>
+            </View>
+            {catalogLoading ? (
+              <ActivityIndicator size="large" color="#9b59b6" style={styles.modalLoading} />
+            ) : (
+              <FlatList
+                data={enemyCatalog}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.catalogItem}
+                    onPress={() => {
+                      sendCombatAddEnemy(item.id, item.name);
+                      setShowEnemyCatalog(false);
+                    }}
+                  >
+                    <View style={styles.catalogItemInfo}>
+                      <Text style={styles.catalogItemName}>{item.name}</Text>
+                      {item.description ? (
+                        <Text style={styles.catalogItemDesc} numberOfLines={2}>{item.description}</Text>
+                      ) : null}
+                    </View>
+                    <Ionicons name="add-circle" size={20} color="#9b59b6" />
+                  </TouchableOpacity>
+                )}
+                contentContainerStyle={styles.catalogList}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -489,5 +569,78 @@ const styles = StyleSheet.create({
   endCombatText: {
     color: '#e74c3c',
     fontSize: 14,
+  },
+  addEnemyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#9b59b622',
+    borderRadius: 8,
+    paddingVertical: 10,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#9b59b644',
+  },
+  addEnemyText: {
+    color: '#9b59b6',
+    fontSize: 14,
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#1a1a2e',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    maxHeight: '70%',
+    paddingBottom: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2c3e50',
+  },
+  modalTitle: {
+    color: '#ecf0f1',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  modalLoading: {
+    paddingVertical: 40,
+  },
+  catalogList: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  catalogItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#16213e',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#2c3e50',
+  },
+  catalogItemInfo: {
+    flex: 1,
+  },
+  catalogItemName: {
+    color: '#ecf0f1',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  catalogItemDesc: {
+    color: '#7f8c8d',
+    fontSize: 12,
+    marginTop: 2,
   },
 });

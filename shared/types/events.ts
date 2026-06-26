@@ -193,6 +193,7 @@ export interface SessionState {
   sessionZeroData?: SessionZeroData;    // S0收集的数据
   spotlightState?: SpotlightState;      // 聚光灯/回合管理
   safetyState?: SafetyState;           // 安全工具状态
+  sceneDifficulty?: number;            // AI评估的当前场景难度（默认15）
 }
 
 export interface SceneState {

@@ -81,7 +81,7 @@ export class StateManager {
   }
 
   getCharacter(): Character {
-    return this.state.character;
+    return JSON.parse(JSON.stringify(this.state.character));
   }
 
   // ===== Multi-player Management =====
@@ -289,6 +289,44 @@ export class StateManager {
     return true;
   }
 
+  addInventoryItem(item: { id: string; name: string; quantity: number; description?: string; category?: string }): void {
+    const char = this.state.character;
+    if (!char) return;
+    const existing = char.inventory.find(i => i.id === item.id);
+    if (existing) {
+      existing.quantity += item.quantity;
+    } else {
+      char.inventory.push({
+        id: item.id,
+        name: item.name,
+        quantity: item.quantity,
+        description: item.description,
+        equipped: false,
+        category: (item.category as any) || 'misc',
+      });
+    }
+    this.markDirty('character');
+  }
+
+  addGold(gold: { coins: number; handfuls: number; bags: number; chests: number }): void {
+    const char = this.state.character;
+    if (!char) return;
+    char.gold.coins += gold.coins;
+    char.gold.handfuls += gold.handfuls;
+    char.gold.bags += gold.bags;
+    char.gold.chests += gold.chests;
+    // Consolidate
+    if (char.gold.coins >= 10) {
+      char.gold.handfuls += Math.floor(char.gold.coins / 10);
+      char.gold.coins = char.gold.coins % 10;
+    }
+    if (char.gold.handfuls >= 10) {
+      char.gold.bags += Math.floor(char.gold.handfuls / 10);
+      char.gold.handfuls = char.gold.handfuls % 10;
+    }
+    this.markDirty('character');
+  }
+
   // ===== Spotlight / Turn Management =====
 
   getSpotlightState(): SpotlightState | undefined {
@@ -332,6 +370,15 @@ export class StateManager {
   setCurrentScene(scene: SceneState): void {
     this.state.currentScene = scene;
     this.markDirty('scene');
+  }
+
+  setSceneDifficulty(difficulty: number): void {
+    this.state.sceneDifficulty = difficulty;
+    this.markDirty('scene');
+  }
+
+  getSceneDifficulty(): number {
+    return this.state.sceneDifficulty ?? 15;
   }
 
   // ===== Combat Management =====
@@ -379,6 +426,16 @@ export class StateManager {
     combat.enemies = combat.enemies.filter(e => e.id !== enemyId);
     this.markDirty('combat');
     return true;
+  }
+
+  /** Add an enemy to combat — starts combat if not active */
+  addCombatEnemy(enemy: CombatEnemy): void {
+    if (!this.state.activeCombat) {
+      this.startCombat([enemy]);
+    } else {
+      this.state.activeCombat.enemies.push(enemy);
+      this.markDirty('combat');
+    }
   }
 
   // ===== Timeline =====
@@ -502,6 +559,7 @@ export class StateManager {
       id: p.id,
       name: p.name,
       characterName: p.character?.name,
+      characterId: p.character?.id,
       joinedAt: p.joinedAt,
     }));
 
@@ -566,13 +624,20 @@ export class StateManager {
 
     // Restore players — mark all as disconnected (they'll reconnect)
     if (data.players) {
-      this.state.players = data.players.map(p => ({
-        id: p.id,
-        name: p.name,
-        character: data.characters?.find(c => c.name === p.characterName) || (data.character as Character) || null as unknown as Character,
-        isConnected: false,  // Will be set to true on reconnect
-        joinedAt: p.joinedAt || Date.now(),
-      }));
+      this.state.players = data.players.map(p => {
+        // Prefer characterId matching, fall back to name matching
+        const matchedChar = (p.characterId && data.characters?.find(c => c.id === p.characterId))
+          || data.characters?.find(c => c.name === p.characterName)
+          || (data.character as Character)
+          || null as unknown as Character;
+        return {
+          id: p.id,
+          name: p.name,
+          character: matchedChar,
+          isConnected: false,  // Will be set to true on reconnect
+          joinedAt: p.joinedAt || Date.now(),
+        };
+      });
     }
 
     // Restore scene

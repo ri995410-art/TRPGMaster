@@ -18,6 +18,8 @@ import type {
   ActionDeclaration,
   AttackResolution,
   DamageResolution,
+  RollDeclaration,
+  RollResolution,
 } from '@trpgmaster/shared';
 import type { DamageSeverity } from '@trpgmaster/shared';
 
@@ -90,6 +92,37 @@ export function resolveDamageToCharacter(
     hpLoss,
     stressGain: 0,
     narrationHint: `${target.name}受到${zhSeverity(newSeverity)}伤害，失去${hpLoss}点生命${slotsSpent ? `（消耗${slotsSpent}护甲槽）` : ''}。`,
+  };
+}
+
+/** 属性检定（行动掷骰）：玩家描述行动 + 选属性 → 后端掷骰 → 结算 hope/fear */
+export function resolveAbilityCheck(
+  character: Character,
+  decl: RollDeclaration,
+): RollResolution {
+  const dice = rollDualD12();
+  const modifier = decl.attribute
+    ? (character.attributes as Record<string, number>)[decl.attribute] ?? 0
+    : 0;
+  const roll = resolveRoll(
+    dice.hopeDie, dice.fearDie, modifier, decl.difficulty,
+    decl.advantage ?? 0, decl.disadvantage ?? 0,
+  );
+
+  const attrLabel = decl.attribute ? `使用${decl.attribute}` : '无属性';
+
+  return {
+    outcome: roll.type,
+    success: roll.success,
+    isCritical: roll.isCritical,
+    hopeDie: roll.hopeDie,
+    fearDie: roll.fearDie,
+    total: roll.total,
+    difficulty: roll.difficulty,
+    modifier,
+    hopeGain: roll.hopeGained,
+    fearGain: roll.fearGained,
+    narrationHint: `${character.name}尝试"${decl.action}"（${attrLabel}，难度${decl.difficulty}）：${zhOutcome(roll.type)}（${roll.total} vs ${decl.difficulty}）${roll.isCritical ? '——关键成功！' : ''}`,
   };
 }
 

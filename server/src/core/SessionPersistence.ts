@@ -3,7 +3,7 @@
  * 将游戏会话数据写入 session_data.json，服务器重启后恢复
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, renameSync } from 'fs';
 import type { Character, GameEvent, GameEventType, SessionStatus, CampaignChapter, SpotlightState, SafetyState } from '@trpgmaster/shared';
 
 const SESSION_DATA_FILE = 'session_data.json';
@@ -41,8 +41,10 @@ export interface PersistedSession {
     id: string;
     name: string;
     characterName?: string;
+    characterId?: string;
     joinedAt: number;
   }>;
+  hostPlayerId?: string;
   timeline: Array<{
     id: string;
     timestamp: number;
@@ -105,7 +107,9 @@ export function loadSessionData(): PersistedSessionData | null {
  */
 export function saveSessionData(data: PersistedSessionData): void {
   try {
-    writeFileSync(SESSION_DATA_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    const tmp = SESSION_DATA_FILE + '.tmp';
+    writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf-8');
+    renameSync(tmp, SESSION_DATA_FILE);
   } catch (err) {
     console.error('[SessionPersistence] Failed to save session data:', err);
   }

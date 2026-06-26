@@ -425,6 +425,8 @@ describe('Rest System', () => {
       gold: { coins: 0, handfuls: 0, bags: 0, chests: 0 },
       experiences: [],
       domainCardConfig: { loadout: [], vault: [], maxLoadout: 5 },
+      featureUses: {},
+      adventureSummaries: [],
       scars: [],
       conditions: [],
       resistances: [],

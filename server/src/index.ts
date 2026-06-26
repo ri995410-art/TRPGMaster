@@ -83,6 +83,17 @@ async function main() {
       console.log(`Default session created: ${newSession.sessionId} (code: ${newSession.code})`);
     }
     console.log(`Restored ${Object.keys(persistedData.sessions).length} session(s)`);
+
+    // Pre-warm AI conversation history from disk for all restored sessions
+    if (sessionStore) {
+      for (const sessionId of Object.keys(persistedData.sessions)) {
+        sessionStore.getHistory(sessionId).then(entries => {
+          if (entries.length > 0) {
+            console.log(`[Startup] Pre-warmed ${entries.length} history entries for ${sessionId}`);
+          }
+        }).catch(() => {});
+      }
+    }
   } else {
     const defaultSession = sessionRegistry.createSession();
     stateManager = defaultSession.stateManager;
@@ -119,7 +130,7 @@ async function main() {
 
     const newApiKey = updates.apiKey ?? aiConfig?.apiKey ?? '';
     const newBaseUrl = updates.baseUrl || aiConfig?.baseUrl || 'https://api.siliconflow.cn/v1';
-    const newDefaultModel = updates.defaultModel || aiConfig?.defaultModel || 'nex-agi/Nex-N2-Pro';
+    const newDefaultModel = updates.defaultModel || aiConfig?.defaultModel || 'deepseek-ai/DeepSeek-V4-Flash';
     if (updates.narratorModel !== undefined) currentNarratorModel = updates.narratorModel;
     if (updates.combatModel !== undefined) currentCombatModel = updates.combatModel;
     if (updates.temperature !== undefined) currentTemperature = updates.temperature;

@@ -15,6 +15,7 @@ import { SessionJoinScreen } from '../screens/SessionJoinScreen';
 import { SessionLobbyScreen } from '../screens/SessionLobbyScreen';
 import { CombatScreen } from '../screens/CombatScreen';
 import { RestScreen } from '../screens/RestScreen';
+import { InventoryScreen } from '../screens/InventoryScreen';
 import { LevelUpScreen } from '../screens/LevelUpScreen';
 
 // ===== Tab Navigator (Main Game) =====
@@ -72,6 +73,7 @@ export type RootStackParamList = {
   SessionLobby: { sessionCode: string; isHost: boolean };
   Combat: undefined;
   Rest: undefined;
+  Inventory: undefined;
   LevelUp: undefined;
 };
 
@@ -134,6 +136,11 @@ export function AppNavigator() {
           name="LevelUp"
           component={LevelUpScreen}
           options={{ title: '升级', presentation: 'modal' }}
+        />
+        <Stack.Screen
+          name="Inventory"
+          component={InventoryScreen}
+          options={{ title: '物品', presentation: 'modal' }}
         />
       </Stack.Navigator>
     </NavigationContainer>

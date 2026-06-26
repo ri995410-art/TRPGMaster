@@ -951,4 +951,53 @@ ${buildCharStatus(char, true)}
   getConfig(): AIGMConfig {
     return { ...this.config };
   }
+
+  /**
+   * Generate an adventure summary in third-person novel style
+   */
+  async generateAdventureSummary(
+    context: AIGMContext,
+    messages: Array<{ role: string; content: string }>,
+  ): Promise<{ summary: string; milestones: string[] }> {
+    const prompt = `你是一位小说家。请为以下这场Daggerheart RPG冒险撰写一段第三人称小说式总结（300-500字）。
+同时提取3-5个关键里程碑事件。
+
+输出JSON格式：
+{
+  "summary": "小说式总结...",
+  "milestones": ["里程碑1", "里程碑2", ...]
+}
+
+冒险对话记录：
+${messages.slice(-50).map(m => `[${m.role}]: ${m.content}`).join('\n')}
+
+角色：${context.character.name}（${context.character.classId}）
+当前状态：HP ${context.character.hp}/${context.character.maxHp}，压力 ${context.character.stress}/${context.character.maxStress}`;
+
+    try {
+      const response = await this.gateway.sendRequest({
+        model: this.config.narratorModel || this.config.gateway.defaultModel,
+        messages: [
+          { role: 'system', content: '你是小说家，擅长将RPG冒险总结为引人入胜的短篇叙事。只输出JSON。' },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.7,
+        maxTokens: 1024,
+        agentType: 'summary',
+      });
+
+      const json = response.content.replace(/```json|```/g, '').trim();
+      const parsed = JSON.parse(json);
+      return {
+        summary: parsed.summary || '冒险结束。',
+        milestones: Array.isArray(parsed.milestones) ? parsed.milestones : [],
+      };
+    } catch (err) {
+      console.error('Adventure summary generation failed:', err);
+      return {
+        summary: '冒险结束了。英雄们的故事将被铭记。',
+        milestones: [],
+      };
+    }
+  }
 }

@@ -61,7 +61,7 @@ export function getAIConfig(): AIConfig | null {
   return {
     apiKey,
     baseUrl: persisted?.baseUrl || process.env.SILICONFLOW_BASE_URL || 'https://api.siliconflow.cn/v1',
-    defaultModel: persisted?.defaultModel || process.env.AI_DEFAULT_MODEL || 'nex-agi/Nex-N2-Pro',
+    defaultModel: persisted?.defaultModel || process.env.AI_DEFAULT_MODEL || 'deepseek-ai/DeepSeek-V4-Flash',
     maxRetries: 3,
     retryDelay: 1000,
     maxConcurrent: 5,

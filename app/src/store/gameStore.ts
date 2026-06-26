@@ -98,8 +98,8 @@ interface GameStore {
   // Game data (classes, weapons, armor, domains for display)
   gameData: GameDataState;
 
-  // Adventure messages (chat with AI GM)
-  adventureMessages: AdventureMessage[];
+  // Adventure messages (chat with AI GM) — keyed by campaignId
+  adventureMessagesBySession: Record<string, AdventureMessage[]>;
 
   // AI is processing
   aiProcessing: boolean;
@@ -147,6 +147,27 @@ interface GameStore {
   // Pending dice result (temporary, cleared after sending to AI)
   pendingDiceResult: DiceResult | null;
 
+  // Pending loot (from combat end or scene search)
+  pendingLoot: import('@trpgmaster/shared').LootResult | null;
+
+  // Save slot tracking — which sessions each character has participated in
+  characterSessionHistory: Record<string, string[]>;
+
+  // Past rooms — cached from server, not persisted
+  pastRooms: Array<{
+    sessionId: string;
+    code: string;
+    status: string;
+    players: Array<{ id: string; name: string; characterName?: string; isConnected: boolean }>;
+    createdAt: number;
+    currentSceneName: string;
+  }>;
+
+  // Adventure summary text (shown in modal after adventure ends)
+  adventureSummaryText: string | null;
+  isAdventureEnding: boolean;         // True while summary is streaming
+  streamingSummaryText: string;       // Live text as it streams in
+
   // AI config (fetched from server)
   aiConfig: {
     apiKey: string;           // 脱敏显示（如 ••••a1b2）
@@ -160,6 +181,7 @@ interface GameStore {
 
   // Actions
   setCampaign: (campaignId: string, state: SessionState) => void;
+  setCampaignId: (campaignId: string | null) => void;
   setConnected: (connected: boolean) => void;
   setServerUrl: (url: string | null) => void;
   setCharacter: (character: Character) => void;
@@ -203,6 +225,17 @@ interface GameStore {
   // Dice actions
   setPendingDiceResult: (result: DiceResult | null) => void;
   clearPendingDiceResult: () => void;
+  // Loot actions
+  setPendingLoot: (loot: import('@trpgmaster/shared').LootResult | null) => void;
+  // Save slot actions
+  addCharacterSession: (characterId: string, sessionId: string) => void;
+  setPastRooms: (rooms: GameStore['pastRooms']) => void;
+  loadSaveSlot: (characterId: string, sessionId: string | null) => void;
+  // Adventure summary actions
+  setAdventureSummaryText: (text: string | null) => void;
+  setIsAdventureEnding: (ending: boolean) => void;
+  appendStreamingSummary: (delta: string) => void;
+  finalizeStreamingSummary: (text: string) => void;
   // AI config actions
   setAiConfig: (config: GameStore['aiConfig']) => void;
   setAiConnected: (connected: boolean) => void;
@@ -220,7 +253,7 @@ const initialState = {
   characters: [],
   activeCharacterId: null,
   gameData: { classes: [], subclasses: [], weapons: [], armor: [], domainCards: [], ancestries: [], communities: [], loaded: false },
-  adventureMessages: [],
+  adventureMessagesBySession: {},
   aiProcessing: false,
   streamingTurnId: null,
   streamingText: '',
@@ -240,6 +273,12 @@ const initialState = {
   xcardPaused: false,
   combatState: null,
   pendingDiceResult: null,
+  pendingLoot: null,
+  characterSessionHistory: {},
+  pastRooms: [],
+  adventureSummaryText: null,
+  isAdventureEnding: false,
+  streamingSummaryText: '',
   aiConfig: null,
 };
 
@@ -255,6 +294,8 @@ export const useGameStore = create<GameStore>()(
         combatState: state.activeCombat || null,
       }),
 
+      setCampaignId: (campaignId) => set({ campaignId }),
+
       setConnected: (connected) => set({ isConnected: connected }),
 
       setServerUrl: (url) => set({ serverUrl: url }),
@@ -269,13 +310,33 @@ export const useGameStore = create<GameStore>()(
         gameData: { ...state.gameData, ...data },
       })),
 
-      addAdventureMessage: (msg) => set((state) => ({
-        adventureMessages: [...state.adventureMessages.slice(-500), msg],
-      })),
+      addAdventureMessage: (msg) => set((state) => {
+        const key = state.campaignId || '_default';
+        const existing = state.adventureMessagesBySession[key] || [];
+        return {
+          adventureMessagesBySession: {
+            ...state.adventureMessagesBySession,
+            [key]: [...existing.slice(-500), msg],
+          },
+        };
+      }),
 
-      setAdventureMessages: (msgs) => set({ adventureMessages: msgs }),
+      setAdventureMessages: (msgs) => set((state) => {
+        const key = state.campaignId || '_default';
+        return {
+          adventureMessagesBySession: {
+            ...state.adventureMessagesBySession,
+            [key]: msgs,
+          },
+        };
+      }),
 
-      clearAdventureMessages: () => set({ adventureMessages: [] }),
+      clearAdventureMessages: () => set((state) => {
+        const key = state.campaignId || '_default';
+        const updated = { ...state.adventureMessagesBySession };
+        delete updated[key];
+        return { adventureMessagesBySession: updated };
+      }),
 
       setAiProcessing: (processing) => set({ aiProcessing: processing }),
 
@@ -372,10 +433,13 @@ export const useGameStore = create<GameStore>()(
           ? (newCharacters[0]?.id || null)
           : state.activeCharacterId;
         const activeChar = newCharacters.find(c => c.id === newActiveId) || null;
+        // Clean up session history for removed character
+        const { [characterId]: _removed, ...restHistory } = state.characterSessionHistory;
         return {
           characters: newCharacters,
           activeCharacterId: newActiveId,
           character: activeChar,
+          characterSessionHistory: restHistory,
         };
       }),
 
@@ -420,7 +484,55 @@ export const useGameStore = create<GameStore>()(
   setPendingDiceResult: (result) => set({ pendingDiceResult: result }),
   clearPendingDiceResult: () => set({ pendingDiceResult: null }),
 
-      // AI config actions
+  // Loot actions
+  setPendingLoot: (loot) => set({ pendingLoot: loot }),
+
+  // Save slot actions
+  addCharacterSession: (characterId, sessionId) => set((state) => {
+    const existing = state.characterSessionHistory[characterId] || [];
+    if (existing.includes(sessionId)) return {};
+    return {
+      characterSessionHistory: {
+        ...state.characterSessionHistory,
+        [characterId]: [...existing, sessionId],
+      },
+    };
+  }),
+
+  setPastRooms: (rooms) => set({ pastRooms: rooms }),
+
+  loadSaveSlot: (characterId, sessionId) => set((state) => {
+    const char = state.characters.find(c => c.id === characterId);
+    if (!char) return {};
+
+    if (sessionId) {
+      // Resume existing session
+      return {
+        activeCharacterId: characterId,
+        character: char,
+        campaignId: sessionId,
+      };
+    }
+    // New adventure — keep character, reset session state
+    return {
+      activeCharacterId: characterId,
+      character: char,
+      campaignId: null,
+      adventureMessagesBySession: {
+        ...state.adventureMessagesBySession,
+      },
+      combatState: null,
+      fearPoints: 0,
+    };
+  }),
+
+  // Adventure summary actions
+  setAdventureSummaryText: (text) => set({ adventureSummaryText: text }),
+  setIsAdventureEnding: (ending) => set({ isAdventureEnding: ending, streamingSummaryText: '' }),
+  appendStreamingSummary: (delta) => set((state) => ({ streamingSummaryText: state.streamingSummaryText + delta })),
+  finalizeStreamingSummary: (text) => set({ adventureSummaryText: text, isAdventureEnding: false, streamingSummaryText: text }),
+
+  // AI config actions
       setAiConfig: (config) => set({ aiConfig: config }),
       setAiConnected: (connected) => set((state) => {
         if (!state.aiConfig) return {};
@@ -444,7 +556,10 @@ export const useGameStore = create<GameStore>()(
         character: state.character,
         characters: state.characters,
         activeCharacterId: state.activeCharacterId,
-        adventureMessages: state.adventureMessages.slice(-100), // Keep last 100 messages
+        characterSessionHistory: state.characterSessionHistory,
+        adventureMessagesBySession: Object.fromEntries(
+          Object.entries(state.adventureMessagesBySession).map(([k, v]) => [k, v.slice(-100)])
+        ),
         journalEntries: state.journalEntries,
         currentLocationName: state.currentLocationName,
         fearPoints: state.fearPoints,
@@ -455,6 +570,25 @@ export const useGameStore = create<GameStore>()(
           apiKey: '',  // Don't persist API key for security
         } : null,
       }),
+      merge: (persisted, current) => {
+        const p = persisted as unknown as Record<string, unknown>;
+        const c = current as unknown as Record<string, unknown>;
+        const merged = { ...c, ...p };
+        // Migration: old format had flat adventureMessages array
+        if (p.adventureMessages && Array.isArray(p.adventureMessages) && (!p.adventureMessagesBySession || Object.keys(p.adventureMessagesBySession as Record<string, unknown>).length === 0)) {
+          const key = (p.campaignId as string) || '_default';
+          merged.adventureMessagesBySession = { [key]: p.adventureMessages };
+        }
+        delete merged.adventureMessages;
+        return { ...current, ...merged } as GameStore;
+      },
     },
   ),
 );
+
+/** Selector hook: get adventure messages for the current campaign session */
+export function useCurrentAdventureMessages(): AdventureMessage[] {
+  const campaignId = useGameStore((s) => s.campaignId);
+  const bySession = useGameStore((s) => s.adventureMessagesBySession);
+  return bySession[campaignId || '_default'] || [];
+}

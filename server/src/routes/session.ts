@@ -13,6 +13,11 @@ export function createSessionRouter(
     res.json(getDefaultStateManager().getState());
   });
 
+  router.get('/api/sessions', (_req, res) => {
+    const sessions = sessionRegistry.getAllSessionsDetailed();
+    res.json({ sessions });
+  });
+
   router.post('/api/session/start', (_req, res) => {
     getDefaultStateManager().startSession();
     res.json({ status: 'started' });
@@ -40,7 +45,14 @@ export function createSessionRouter(
       res.status(404).json({ error: '房间码无效' });
       return;
     }
-    res.json(info);
+    // Extend with player names
+    const sm = sessionRegistry.findByCode(code);
+    const players = sm ? sm.getState().players.map(p => ({
+      id: p.id,
+      name: p.name,
+      characterName: p.character?.name,
+    })) : [];
+    res.json({ ...info, players });
   });
 
   router.get('/api/session/:id/players', (req, res) => {

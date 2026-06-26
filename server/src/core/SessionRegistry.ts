@@ -71,6 +71,7 @@ export class SessionRegistry {
       stateManager,
       code,
       createdAt: data.createdAt || Date.now(),
+      hostPlayerId: data.hostPlayerId,
     };
 
     this.sessions.set(sessionId, entry);
@@ -182,6 +183,35 @@ export class SessionRegistry {
   }
 
   /**
+   * Get all sessions with detailed info (players, scene) for client listing
+   */
+  getAllSessionsDetailed(): Array<{
+    sessionId: string;
+    code: string;
+    status: string;
+    players: Array<{ id: string; name: string; characterName?: string; isConnected: boolean }>;
+    createdAt: number;
+    currentSceneName: string;
+  }> {
+    return Array.from(this.sessions.entries()).map(([sessionId, entry]) => {
+      const state = entry.stateManager.getState();
+      return {
+        sessionId,
+        code: entry.code,
+        status: state.status,
+        players: state.players.map(p => ({
+          id: p.id,
+          name: p.name,
+          characterName: p.character?.name,
+          isConnected: p.isConnected,
+        })),
+        createdAt: entry.createdAt,
+        currentSceneName: state.currentScene.name,
+      };
+    });
+  }
+
+  /**
    * Generate a 6-character room code
    * Excludes easily confused characters: 0/O, 1/I/l
    */
@@ -232,6 +262,7 @@ export class SessionRegistry {
     if (!entry) return;
 
     const persisted = entry.stateManager.toPersisted(entry.code);
+    persisted.hostPlayerId = entry.hostPlayerId;
     // Read current file, update this session, write back
     const current = this.loadCurrentData();
     current.sessions[sessionId] = persisted;
@@ -249,7 +280,9 @@ export class SessionRegistry {
     };
 
     for (const [sessionId, entry] of this.sessions) {
-      data.sessions[sessionId] = entry.stateManager.toPersisted(entry.code);
+      const persisted = entry.stateManager.toPersisted(entry.code);
+      persisted.hostPlayerId = entry.hostPlayerId;
+      data.sessions[sessionId] = persisted;
     }
 
     saveSessionData(data);
@@ -280,7 +313,9 @@ export class SessionRegistry {
     for (const sessionId of this.dirtySessions) {
       const entry = this.sessions.get(sessionId);
       if (entry) {
-        current.sessions[sessionId] = entry.stateManager.toPersisted(entry.code);
+        const persisted = entry.stateManager.toPersisted(entry.code);
+        persisted.hostPlayerId = entry.hostPlayerId;
+        current.sessions[sessionId] = persisted;
       }
     }
 
