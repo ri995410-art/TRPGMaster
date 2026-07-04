@@ -11,6 +11,10 @@ import {
 import { StateManager } from '../../core/StateManager';
 import type { Player, Character } from '@trpgmaster/shared';
 
+function getChar(sm: StateManager): Character {
+  return sm.getCharacter()!;
+}
+
 function makeCharacter(overrides: Partial<Character> = {}): Character {
   return {
     id: 'char-1', name: 'TestChar',
@@ -156,21 +160,21 @@ describe('stateChangeParser', () => {
     test('applies HP change via StateManager', () => {
       const sm = setupStateManagerWithCharacter();
       applyStateChanges(sm, 'player-1', [{ changes: { hp: -3 } }]);
-      expect(sm.getCharacter().hp).toBe(7);
+      expect(getChar(sm).hp).toBe(7);
     });
 
     test('stress overflow to HP', () => {
       const sm = setupStateManagerWithCharacter(makeCharacter({ hp: 10, maxHp: 10, stress: 2, maxStress: 3 }));
       applyStateChanges(sm, 'player-1', [{ changes: { stress: 3 } }]);
       // stress=2+3=5, overflow=5-3=2, stress capped at 3, HP=10-2=8
-      expect(sm.getCharacter().stress).toBe(3);
-      expect(sm.getCharacter().hp).toBe(8);
+      expect(getChar(sm).stress).toBe(3);
+      expect(getChar(sm).hp).toBe(8);
     });
 
     test('hope clamped to maxHope', () => {
       const sm = setupStateManagerWithCharacter(makeCharacter({ hope: 5, maxHope: 6 }));
       applyStateChanges(sm, 'player-1', [{ changes: { hope: 5 } }]);
-      expect(sm.getCharacter().hope).toBe(6);
+      expect(getChar(sm).hope).toBe(6);
     });
 
     test('fearPoints add and spend', () => {
@@ -185,13 +189,13 @@ describe('stateChangeParser', () => {
       const sm = setupStateManagerWithCharacter();
       applyStateChanges(sm, 'player-1', [{ changes: { unknownKey: 5 } }]);
       // No crash, no state change
-      expect(sm.getCharacter().hp).toBe(10);
+      expect(getChar(sm).hp).toBe(10);
     });
 
     test('named character lookup', () => {
       const sm = setupStateManagerWithCharacter(makeCharacter({ name: '阿尔忒弥斯' }));
       applyStateChanges(sm, 'player-1', [{ characterName: '阿尔忒弥斯', changes: { hp: -2 } }]);
-      expect(sm.getCharacter().hp).toBe(8);
+      expect(getChar(sm).hp).toBe(8);
     });
   });
 });

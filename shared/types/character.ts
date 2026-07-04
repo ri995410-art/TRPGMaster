@@ -14,8 +14,9 @@ import type {
   DamageDie,
   DeathMoveResult,
   DeathMoveType,
+  CardEffect,
 } from './rules';
-import { getTier } from './rules';
+import type { GameCharacter } from './base';
 
 // ===== 角色创建步骤 =====
 
@@ -54,6 +55,7 @@ export interface DomainCard {
   recallCost: number;       // 回想费用（闪电标记数）
   description: string;
   effect: string;
+  mechanicalEffects?: CardEffect[];  // 结构化效果（供规则引擎读取）
   hopeCost?: number;
   stressCost?: number;
   usesPerRest?: 'shortRest' | 'longRest' | 'session';
@@ -104,12 +106,9 @@ export interface Resistance {
   mode: 'resistance' | 'immunity';
 }
 
-// ===== 角色完整状态 =====
+// ===== 角色完整状态（Daggerheart 规则特有） =====
 
-export interface Character {
-  id: string;
-  name: string;
-
+export interface DaggerheartCharacter extends GameCharacter {
   // 身份
   classId: string;
   subclassId: string;
@@ -119,8 +118,13 @@ export interface Character {
   mixedAncestryFeature2?: string;
   communityId: string;
 
+  // 多职
+  multiclass?: {
+    classId: string;                   // 第二职业ID
+    domain: DomainType;                // 选择的多职领域
+  };
+
   // 等级与位阶
-  level: number;
   tier: Tier;
   proficiency: number;                 // 熟练值（1-4，影响伤害骰数量）
 
@@ -129,8 +133,6 @@ export interface Character {
   attributeMarks: Record<Attribute, boolean>; // 已标记属性（升级用）
 
   // 核心资源
-  hp: number;
-  maxHp: number;
   stress: number;
   maxStress: number;
   hope: number;
@@ -174,6 +176,9 @@ export interface Character {
   relationships: CharacterRelationship[];
   adventureSummaries: AdventureSummary[];
 }
+
+/** 向后兼容类型别名 — 现有代码无需改动 */
+export type Character = DaggerheartCharacter;
 
 export interface CharacterRelationship {
   targetName: string; // 目标角色名（可能是其他玩家或NPC）
@@ -226,39 +231,76 @@ export function getDamageSeverity(
   return 'none';
 }
 
-// 伤害等级对应的HP损失
+// 伤害等级对应的HP损失 — canonical values are DAMAGE_SEVERITY_HP in rules.ts
+// Kept here for backward compatibility; values must stay in sync.
+export const HP_LOSS_BY_SEVERITY: Record<DamageSeverity, number> = {
+  none: 0,
+  minor: 1,
+  major: 2,
+  severe: 3,
+};
+
 export function getHpLossFromSeverity(severity: DamageSeverity): number {
-  switch (severity) {
-    case 'none': return 0;
-    case 'minor': return 1;
-    case 'major': return 2;
-    case 'severe': return 3;
-  }
+  return HP_LOSS_BY_SEVERITY[severity];
 }
 
 // ===== 敌人数据块 =====
 
-export type EnemyType = 'minion' | 'elite' | 'solo' | 'boss';
+export type EnemyType = 'minion' | 'horde' | 'elite' | 'solo' | 'boss'
+  | 'bruiser' | 'ranged' | 'skulker' | 'social' | 'standard' | 'support' | 'leader';
+
+/** 敌人行为类型——决定 AI 战术选择 */
+export type EnemyBehaviorType = 'bruiser' | 'leader' | 'support' | 'solo' | 'ambusher' | 'caster';
+
+/** 结构化伤害骰组件（不用正则解析字符串） */
+export interface DamageDiceComponent {
+  count: number;          // 骰子数量
+  sides: number;          // 骰子面数（4/6/8/10/12）
+}
+
+/** 结构化伤害公式 */
+export interface DamageFormula {
+  dice: DamageDiceComponent[];
+  modifier: number;           // 固定加值
+  type: DamageType;           // physical / magical / direct
+}
+
+/** 敌人攻击定义 */
+export interface EnemyAttack {
+  name: string;
+  attribute: Attribute;       // 攻击使用的属性
+  distance: string;           // melee/nearby/close/far
+  damage: DamageFormula;      // 结构化伤害公式
+  targets?: 'single' | 'closeBlast' | 'farBlast' | 'all';  // 目标类型
+  bonusDamage?: DamageFormula; // 条件额外伤害（如对脆弱目标）
+  bonusDamageCondition?: string; // 额外伤害触发条件描述
+  stressDamage?: number;       // 附加压力伤害
+  conditionApplied?: string;   // 攻击附加的状态
+  conditionDuration?: number;  // 附加状态持续回合数
+}
 
 export interface EnemyStatBlock {
   id: string;
   name: string;
   nameEn: string;
   type: EnemyType;
-  difficulty: number;       // 玩家攻击的难度值
-  evasion: number;          // GM攻击的闪避值
+  behavior: EnemyBehaviorType;   // 行为类型——驱动自动战斗选择
+  difficulty: number;            // 玩家攻击的难度值
+  evasion: number;               // GM攻击的闪避值
   hp: number;
   maxHp: number;
   stress: number;
   maxStress: number;
-  attackDamage: string;     // 如 "2d8+3"
-  attackAttribute: Attribute;
-  attackDistance: string;
+  attacks: EnemyAttack[];        // 结构化攻击列表
   features: EnemyFeature[];
+  experiences?: EnemyExperienceData[];  // 敌人经历（加值情境）
   fearCost: number;
   loot?: string;
   description?: string;
   tier: number;
+  majorThreshold?: number;       // 重度伤害阈值（非minion必填）
+  severeThreshold?: number;      // 严重伤害阈值（非minion必填）
+  minionDefeatThreshold?: number; // 杂兵额外击败阈值：每造成X伤害额外击败一个（仅minion）
 }
 
 export interface EnemyFeature {
@@ -266,6 +308,25 @@ export interface EnemyFeature {
   type: 'action' | 'fear' | 'passive' | 'reaction';
   cost: number;
   description: string;
+  /** fear 类型特化的结构化效果（可选，供规则引擎读取） */
+  fearEffect?: {
+    target: 'self' | 'allPlayers' | 'singlePlayer' | 'allEnemies';
+    stressDamage?: number;
+    hpDamage?: DamageFormula;
+    conditionApplied?: string;
+    conditionDuration?: number;
+    moveDistance?: number;       // 移动距离
+    summonEnemyId?: string;     // 召唤的敌人ID
+    summonCount?: DamageFormula; // 召唤数量
+    contaminationIncrease?: number; // 污染增加
+  };
+}
+
+/** 敌人经历数据（规则书：敌人在特定情境下的加值） */
+export interface EnemyExperienceData {
+  name: string;
+  modifier: number;
+  situation: string;            // 适用情境描述
 }
 
 // ===== NPC =====

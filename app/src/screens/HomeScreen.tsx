@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import { useGameStore, type AdventureMessage } from '../store/gameStore';
-import { connectToServer, disconnect, rejoinSessionById } from '../hooks/useSocket';
+import { connectToServer, disconnect, rejoinSessionById, joinDefaultSession } from '../hooks/useSocket';
 import type { Character } from '@trpgmaster/shared';
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
@@ -15,6 +15,11 @@ interface Props {
 }
 
 const DEFAULT_SERVER_URL = 'http://localhost:3000';
+
+const SERVER_PRESETS = [
+  { label: '本机', url: 'http://localhost:3000' },
+  { label: '局域网', url: 'http://192.168.1.100:3000' },
+];
 
 interface SaveSlot {
   character: Character;
@@ -55,10 +60,14 @@ export function HomeScreen({ navigation }: Props) {
   const characterSessionHistory = useGameStore((s) => s.characterSessionHistory);
   const adventureMessagesBySession = useGameStore((s) => s.adventureMessagesBySession);
   const serverUrl = useGameStore((s) => s.serverUrl);
+  const pastRooms = useGameStore((s) => s.pastRooms);
+  const aiConfig = useGameStore((s) => s.aiConfig);
 
   const [inputServerUrl, setInputServerUrl] = useState(serverUrl || DEFAULT_SERVER_URL);
   const [connecting, setConnecting] = useState(false);
   const [loadingSlot, setLoadingSlot] = useState<string | null>(null);
+
+  const isFirstTime = characters.length === 0 && pastRooms.length === 0;
 
   const saveSlots = useMemo(
     () => getSaveSlots(characters, characterSessionHistory, adventureMessagesBySession),
@@ -70,7 +79,7 @@ export function HomeScreen({ navigation }: Props) {
 
     setConnecting(true);
     try {
-      const socketId = await connectToServer(inputServerUrl);
+      const socketId = await connectToServer(inputServerUrl, { autoJoin: false });
       console.log('[HomeScreen] Connected to server, socketId:', socketId);
     } catch (err: any) {
       console.error('[HomeScreen] Connection failed:', err);
@@ -119,6 +128,12 @@ export function HomeScreen({ navigation }: Props) {
   const handleNewAdventure = (slot: SaveSlot) => {
     const store = useGameStore.getState();
     store.loadSaveSlot(slot.character.id, null);
+
+    // If connected, join/create a default server session for solo play
+    if (isConnected) {
+      joinDefaultSession(slot.character);
+    }
+
     navigation.navigate('Main');
   };
 
@@ -132,6 +147,10 @@ export function HomeScreen({ navigation }: Props) {
 
   const handleMultiplayer = () => {
     navigation.navigate('SessionJoin');
+  };
+
+  const handleGoToSettings = () => {
+    navigation.navigate('Main');
   };
 
   const getClassIcon = (classId: string) => {
@@ -163,7 +182,7 @@ export function HomeScreen({ navigation }: Props) {
               style={styles.serverInput}
               value={inputServerUrl}
               onChangeText={setInputServerUrl}
-              placeholder="服务器地址"
+              placeholder="例如: http://192.168.1.100:3000"
               placeholderTextColor="#7f8c8d"
               autoCapitalize="none"
               autoCorrect={false}
@@ -191,6 +210,19 @@ export function HomeScreen({ navigation }: Props) {
               </TouchableOpacity>
             )}
           </View>
+          {!isConnected && !connecting && (
+            <View style={styles.presetRow}>
+              {SERVER_PRESETS.map((preset) => (
+                <TouchableOpacity
+                  key={preset.label}
+                  style={styles.presetChip}
+                  onPress={() => setInputServerUrl(preset.url)}
+                >
+                  <Text style={styles.presetChipText}>{preset.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
           <View style={styles.connectionStatus}>
             <View style={[styles.statusDot, isConnected ? styles.statusDotConnected : styles.statusDotDisconnected]} />
             <Text style={[styles.statusText, isConnected && styles.statusTextConnected]}>
@@ -198,6 +230,46 @@ export function HomeScreen({ navigation }: Props) {
             </Text>
           </View>
         </View>
+
+        {/* First-time onboarding guide */}
+        {isFirstTime && (
+          <View style={styles.onboardingCard}>
+            <Text style={styles.onboardingTitle}>开始你的冒险</Text>
+            <Text style={styles.onboardingSubtitle}>三步开启德拉肯海姆之旅</Text>
+            <View style={styles.onboardingSteps}>
+              <TouchableOpacity style={styles.onboardingStep} onPress={handleCreateCharacter}>
+                <View style={styles.onboardingStepNumber}>
+                  <Text style={styles.onboardingStepNumberText}>1</Text>
+                </View>
+                <View style={styles.onboardingStepContent}>
+                  <Text style={styles.onboardingStepTitle}>创建角色</Text>
+                  <Text style={styles.onboardingStepDesc}>选择职业、血脉与背景</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color="#7f8c8d" />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.onboardingStep} onPress={handleGoToSettings}>
+                <View style={styles.onboardingStepNumber}>
+                  <Text style={styles.onboardingStepNumberText}>2</Text>
+                </View>
+                <View style={styles.onboardingStepContent}>
+                  <Text style={styles.onboardingStepTitle}>配置AI管家</Text>
+                  <Text style={styles.onboardingStepDesc}>填入API密钥，激活AI叙事</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color="#7f8c8d" />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.onboardingStep} onPress={handleConnect}>
+                <View style={[styles.onboardingStepNumber, !aiConfig?.apiKey && styles.onboardingStepDisabled]}>
+                  <Text style={[styles.onboardingStepNumberText, !aiConfig?.apiKey && styles.onboardingStepNumberTextDisabled]}>3</Text>
+                </View>
+                <View style={styles.onboardingStepContent}>
+                  <Text style={styles.onboardingStepTitle}>连接并开始</Text>
+                  <Text style={styles.onboardingStepDesc}>连接服务器，进入冒险世界</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color="#7f8c8d" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Save slots */}
         <View style={styles.slotsSection}>
@@ -485,6 +557,84 @@ const styles = StyleSheet.create({
   },
   statusTextConnected: {
     color: '#2ecc71',
+  },
+  // Preset chips
+  presetRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 8,
+  },
+  presetChip: {
+    backgroundColor: '#16213e',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: '#2c3e50',
+  },
+  presetChipText: {
+    color: '#bdc3c7',
+    fontSize: 11,
+  },
+  // Onboarding
+  onboardingCard: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#9b59b644',
+  },
+  onboardingTitle: {
+    color: '#ecf0f1',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  onboardingSubtitle: {
+    color: '#9b59b6',
+    fontSize: 13,
+    marginBottom: 14,
+  },
+  onboardingSteps: {
+    gap: 10,
+  },
+  onboardingStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  onboardingStepNumber: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#9b59b6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  onboardingStepDisabled: {
+    backgroundColor: '#2c3e50',
+  },
+  onboardingStepNumberText: {
+    color: '#ecf0f1',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  onboardingStepNumberTextDisabled: {
+    color: '#7f8c8d',
+  },
+  onboardingStepContent: {
+    flex: 1,
+  },
+  onboardingStepTitle: {
+    color: '#ecf0f1',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  onboardingStepDesc: {
+    color: '#7f8c8d',
+    fontSize: 12,
+    marginTop: 1,
   },
   // Save slots section
   slotsSection: {

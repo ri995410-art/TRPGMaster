@@ -1,0 +1,365 @@
+=== 项目: TRPGMaster - Daggerheart TRPG ===
+=== 模块: 05-routes ===
+=== 生成时间: Sun Jun 28 14:42:31     2026 ===
+
+######## FILE: server/src/routes/ai.ts ########
+import { Router } from 'express';
+import type { AIGateway } from '../ai/AIGateway';
+import type { AIConfig } from '../ai/AIGateway';
+import { maskApiKey } from '../ai/AIConfigService';
+import { aiConfigUpdateSchema, validatePayload } from '../network/validation';
+
+export interface AIRouterState {
+  aiConfig: AIConfig | null;
+  aiGateway: AIGateway | undefined;
+  narratorModel: string;
+  combatModel: string;
+  temperature: number;
+  maxTokens: number;
+}
+
+export function createAiRouter(
+  getState: () => AIRouterState,
+  reinitializeAI: (updates: {
+    apiKey?: string;
+    baseUrl?: string;
+    defaultModel?: string;
+    narratorModel?: string;
+    combatModel?: string;
+    temperature?: number;
+    maxTokens?: number;
+  }) => { success: boolean; errors?: string[] },
+): Router {
+  const router = Router();
+
+  router.get('/api/ai/stats', (_req, res) => {
+    const { aiGateway } = getState();
+    if (aiGateway) {
+      res.json(aiGateway.getStats());
+    } else {
+      res.json({ error: 'AI Gateway not configured' });
+    }
+  });
+
+  router.get('/api/ai/config', (_req, res) => {
+    const { aiConfig, narratorModel, combatModel, temperature, maxTokens, aiGateway } = getState();
+    res.json({
+      apiKey: aiConfig ? maskApiKey(aiConfig.apiKey) : '',
+      baseUrl: aiConfig?.baseUrl || '',
+      defaultModel: aiConfig?.defaultModel || '',
+      narratorModel: narratorModel || aiConfig?.defaultModel || '',
+      combatModel: combatModel || aiConfig?.defaultModel || '',
+      temperature,
+      maxTokens,
+      aiConnected: !!aiGateway,
+    });
+  });
+
+  router.put('/api/ai/config', (req, res) => {
+    const validation = validatePayload(aiConfigUpdateSchema, req.body);
+    if (!validation.success) {
+      res.status(400).json({ success: false, errors: [validation.error] });
+      return;
+    }
+
+    const { apiKey, baseUrl, defaultModel, narratorModel, temperature, maxTokens } = validation.data;
+    const cleanApiKey = apiKey.includes('••••') ? undefined : apiKey;
+
+    const result = reinitializeAI({
+      apiKey: cleanApiKey,
+      baseUrl,
+      defaultModel,
+      narratorModel,
+      temperature,
+      maxTokens,
+    });
+
+    if (!result.success) {
+      res.status(400).json({ success: false, errors: result.errors });
+      return;
+    }
+
+    const state = getState();
+    res.json({
+      success: true,
+      config: {
+        apiKey: state.aiConfig ? maskApiKey(state.aiConfig.apiKey) : '',
+        baseUrl: state.aiConfig?.baseUrl || '',
+        defaultModel: state.aiConfig?.defaultModel || '',
+        narratorModel: state.narratorModel || '',
+        temperature: state.temperature,
+        maxTokens: state.maxTokens,
+        aiConnected: !!state.aiGateway,
+      },
+    });
+  });
+
+  router.post('/api/ai/test', async (_req, res) => {
+    const { aiGateway, aiConfig } = getState();
+    if (!aiGateway || !aiConfig) {
+      res.json({ success: false, error: 'AI未配置，请先设置API Key和模型' });
+      return;
+    }
+
+    try {
+      const startTime = Date.now();
+      const response = await aiGateway.sendRequest({
+        model: aiConfig.defaultModel,
+        messages: [
+          { role: 'system', content: 'You are a helpful assistant. Respond with exactly: OK' },
+          { role: 'user', content: 'Hello' },
+        ],
+        temperature: 0.1,
+        maxTokens: 16,
+        agentType: 'test',
+      });
+      const responseTime = Date.now() - startTime;
+
+      res.json({
+        success: true,
+        model: aiConfig.defaultModel,
+        responseTime,
+        tokenUsage: response.tokenUsage.totalTokens,
+      });
+    } catch (err: any) {
+      res.json({
+        success: false,
+        model: aiConfig.defaultModel,
+        error: err.message || '连接失败',
+      });
+    }
+  });
+
+  return router;
+}
+
+
+
+######## FILE: server/src/routes/character.ts ########
+import { Router } from 'express';
+import type { StateManager } from '../core/StateManager';
+import type { SocketServer } from '../network/SocketServer';
+import { CharacterCreator } from '../core/CharacterCreator';
+import { CharacterLevelUp } from '../core/CharacterLevelUp';
+import type { LevelUpRequest, LevelUpOptionType } from '../core/CharacterLevelUp';
+import type { Character, Attribute } from '@trpgmaster/shared';
+
+export function createCharacterRouter(
+  stateManager: StateManager,
+  socketServer: SocketServer,
+): Router {
+  const router = Router();
+
+  router.get('/api/character', (_req, res) => {
+    const char = stateManager.getCharacter();
+    if (char) {
+      res.json(char);
+    } else {
+      res.json(null);
+    }
+  });
+
+  router.put('/api/character', (req, res) => {
+    const character = req.body;
+    if (!character || !character.id || !character.name) {
+      res.status(400).json({ errors: ['无效的角色数据'] });
+      return;
+    }
+    stateManager.setCharacter(character);
+    socketServer.broadcastState(stateManager.getState());
+    console.log(`Character set: ${character.name} (${character.classId})`);
+    res.json({ character: stateManager.getCharacter() });
+  });
+
+  router.post('/api/character/validate', (req, res) => {
+    const { step, data } = req.body as { step: number; data: Record<string, unknown> };
+    const creator = new CharacterCreator();
+    creator.setStepData(data);
+    creator.goToStep(step);
+    const errors = creator.validateCurrentStep();
+    res.json({ valid: Object.keys(errors).length === 0, errors });
+  });
+
+  router.post('/api/character/create', (req, res) => {
+    const { data } = req.body as { data: Record<string, unknown> };
+    const creator = new CharacterCreator();
+    creator.setStepData(data);
+    const { character, errors } = creator.buildCharacter();
+    if (errors.length > 0) {
+      res.status(400).json({ errors });
+    } else {
+      stateManager.setCharacter(character);
+      socketServer.broadcastState(stateManager.getState());
+      res.json({ character });
+    }
+  });
+
+  router.post('/api/character/levelup', (req, res) => {
+    const { newLevel, options, attributeChoices, experienceChoices, domainCardChoice, domainCardSwap } =
+      req.body as {
+        newLevel: number;
+        options: string[];
+        attributeChoices?: [string, string];
+        experienceChoices?: [string, string];
+        domainCardChoice?: string;
+        domainCardSwap?: { add: string; remove: string };
+      };
+
+    const character = stateManager.getCharacter();
+    if (!character) {
+      res.status(404).json({ errors: ['角色不存在'] });
+      return;
+    }
+
+    const request: LevelUpRequest = {
+      characterId: character.id,
+      newLevel,
+      options: options as LevelUpOptionType[],
+      attributeChoices: attributeChoices as [Attribute, Attribute] | undefined,
+      experienceChoices,
+      domainCardChoice,
+      domainCardSwap,
+    };
+
+    const result = CharacterLevelUp.levelUp(character, request);
+    if (!result.success || !result.character) {
+      res.status(400).json({ errors: result.errors });
+      return;
+    }
+
+    stateManager.setCharacter(result.character);
+    socketServer.broadcastState(stateManager.getState());
+
+    res.json({
+      character: result.character,
+      tierChanged: result.tierChanged,
+      oldTier: result.oldTier,
+      newTier: result.newTier,
+    });
+  });
+
+  router.get('/api/character/levelup-options', (_req, res) => {
+    const character = stateManager.getCharacter();
+    if (!character) {
+      res.status(404).json({ errors: ['角色不存在'] });
+      return;
+    }
+    const options = CharacterLevelUp.getAvailableOptions(character);
+    const bonuses = CharacterLevelUp.getTierAdvancementBonuses(character.level + 1);
+    res.json({ options, nextLevel: character.level + 1, bonuses });
+  });
+
+  router.post('/api/character/inventory/add', (req, res) => {
+    const { itemId, name, quantity, description } = req.body as {
+      itemId?: string;
+      name?: string;
+      quantity?: number;
+      description?: string;
+    };
+
+    const character = stateManager.getCharacter();
+    if (!character) {
+      res.status(404).json({ errors: ['角色不存在'] });
+      return;
+    }
+
+    const item = {
+      id: itemId || `item_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: name || '未命名物品',
+      quantity: quantity || 1,
+      description: description || '',
+      equipped: false,
+    };
+
+    const existing = character.inventory.find(i => i.id === item.id);
+    if (existing) {
+      existing.quantity += item.quantity;
+    } else {
+      character.inventory.push(item);
+    }
+
+    stateManager.setCharacter(character);
+    socketServer.broadcastState(stateManager.getState());
+
+    res.json({ character, itemAdded: item });
+  });
+
+  router.post('/api/character/inventory/remove', (req, res) => {
+    const { itemId, quantity } = req.body as { itemId: string; quantity?: number };
+
+    const character = stateManager.getCharacter();
+    if (!character) {
+      res.status(404).json({ errors: ['角色不存在'] });
+      return;
+    }
+
+    const itemIndex = character.inventory.findIndex(i => i.id === itemId);
+    if (itemIndex < 0) {
+      res.status(404).json({ errors: ['物品不存在'] });
+      return;
+    }
+
+    const removeQty = quantity || character.inventory[itemIndex].quantity;
+    if (removeQty >= character.inventory[itemIndex].quantity) {
+      character.inventory.splice(itemIndex, 1);
+    } else {
+      character.inventory[itemIndex].quantity -= removeQty;
+    }
+
+    stateManager.setCharacter(character);
+    socketServer.broadcastState(stateManager.getState());
+
+    res.json({ character });
+  });
+
+  return router;
+}
+
+
+
+######## FILE: server/src/routes/data.ts ########
+import { Router } from 'express';
+import { getDataProvider } from '../rules/DataProviderRegistry';
+import { getRulesEngine, listRulesSystems } from '../rules/RulesEngineFactory';
+import factions from '../campaign/data/factions.json';
+import locations from '../campaign/data/locations.json';
+import npcs from '../campaign/data/npcs.json';
+
+export function createDataRouter(): Router {
+  const router = Router();
+  const data = getDataProvider('daggerheart').loadData();
+
+  router.get('/api/data/classes', (_req, res) => res.json(data.classes));
+  router.get('/api/data/ancestries', (_req, res) => res.json(data.ancestries));
+  router.get('/api/data/communities', (_req, res) => res.json(data.communities));
+  router.get('/api/data/weapons', (_req, res) => res.json(data.weapons));
+  router.get('/api/data/armor', (_req, res) => res.json(data.armor));
+  router.get('/api/data/domains', (_req, res) => res.json(data.domains));
+  router.get('/api/data/enemies', (_req, res) => res.json(data.enemies));
+  router.get('/api/data/subclasses', (_req, res) => res.json(data.subclasses));
+  router.get('/api/data/factions', (_req, res) => res.json(factions));
+  router.get('/api/data/locations', (_req, res) => res.json(locations));
+  router.get('/api/data/npcs', (_req, res) => res.json(npcs));
+  router.get('/api/data/loot', (_req, res) => res.json(data.loot));
+  router.get('/api/data/consumables', (_req, res) => res.json(data.consumables));
+
+  // Multi-rule system endpoints
+  router.get('/api/data/creation-flow', (req, res) => {
+    const systemId = (req.query.systemId as string) || 'daggerheart';
+    try {
+      const engine = getRulesEngine(systemId);
+      res.json(engine.getCreationFlow());
+    } catch {
+      res.status(404).json({ error: `Unknown rules system: ${systemId}` });
+    }
+  });
+
+  router.get('/api/data/systems', (_req, res) => {
+    res.json(listRulesSystems());
+  });
+
+  return router;
+}
+
+
+

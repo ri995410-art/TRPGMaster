@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../theme/theme';
 import type { SpotlightState } from '@trpgmaster/shared';
+import { passSpotlight } from '../hooks/useSocket';
 
 interface Props {
   spotlight: SpotlightState | null;
@@ -25,6 +26,9 @@ export function SpotlightIndicator({ spotlight, playerId, players, onRequestSpot
       <View style={styles.active}>
         <Ionicons name="eye" size={14} color={theme.color.success} />
         <Text style={styles.activeText}>轮到你了</Text>
+        <TouchableOpacity style={styles.passButton} onPress={() => passSpotlight()}>
+          <Text style={styles.passText}>让出聚光灯</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -91,6 +95,18 @@ const styles = StyleSheet.create({
   },
   requestText: {
     color: '#fff',
+    fontSize: 11,
+    fontWeight: 'bold',
+    fontFamily: theme.font.display,
+  },
+  passButton: {
+    backgroundColor: theme.color.fog,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
+  passText: {
+    color: theme.color.text,
     fontSize: 11,
     fontWeight: 'bold',
     fontFamily: theme.font.display,

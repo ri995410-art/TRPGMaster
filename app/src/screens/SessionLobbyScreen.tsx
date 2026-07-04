@@ -20,10 +20,37 @@ interface Props {
 }
 
 export function SessionLobbyScreen({ navigation, route }: Props) {
-  const { sessionCode, isHost } = route.params;
+  const { sessionCode: routeCode, isHost: routeIsHost } = route.params;
+  const storeSessionCode = useGameStore((s) => s.sessionCode);
+  const storeIsHost = useGameStore((s) => s.isHost);
   const players = useGameStore((s) => s.players);
   const character = useGameStore((s) => s.character);
   const isConnected = useGameStore((s) => s.isConnected);
+
+  const sessionCode = routeCode || storeSessionCode || '';
+  const isHost = routeIsHost || storeIsHost;
+
+  // Listen for session start to auto-navigate when host starts the game
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const navigateToGame = () => {
+      // Non-host players navigate here; host navigates in handleStart
+      if (!isHost) {
+        navigation.navigate('Main');
+      }
+    };
+
+    // Single-player: session:started
+    // Multi-player: session:sessionZeroStarted (enters Session Zero first)
+    socket.on('session:started', navigateToGame);
+    socket.on('session:sessionZeroStarted', navigateToGame);
+    return () => {
+      socket.off('session:started', navigateToGame);
+      socket.off('session:sessionZeroStarted', navigateToGame);
+    };
+  }, [navigation, isHost]);
 
   const handleShareCode = async () => {
     try {

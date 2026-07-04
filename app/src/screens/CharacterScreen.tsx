@@ -1,21 +1,30 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
+  TextInput,
+  Modal,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import type { CompositeNavigationProp } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RootStackParamList } from '../navigation/AppNavigator';
+import type { RootStackParamList, MainTabParamList } from '../navigation/AppNavigator';
 import { useGameStore } from '../store/gameStore';
-import type { Character } from '@trpgmaster/shared';
+import { sendCharacterResourceUpdate, sendCharacterSetValues } from '../hooks/useSocket';
+import type { Character, Attribute } from '@trpgmaster/shared';
 import { ATTRIBUTE_LABELS, CONDITION_LABELS } from '@trpgmaster/shared';
 
-type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+type NavigationProp = CompositeNavigationProp<
+  BottomTabNavigationProp<MainTabParamList>,
+  NativeStackNavigationProp<RootStackParamList>
+>;
 
 export function CharacterScreen() {
   const navigation = useNavigation<NavigationProp>();
@@ -24,6 +33,15 @@ export function CharacterScreen() {
   const updateCharacterStress = useGameStore((s) => s.updateCharacterStress);
   const updateCharacterHope = useGameStore((s) => s.updateCharacterHope);
   const updateCharacterArmorSlots = useGameStore((s) => s.updateCharacterArmorSlots);
+  const isHost = useGameStore((s) => s.isHost);
+
+  const [gmEditMode, setGmEditMode] = useState(false);
+  const [editModal, setEditModal] = useState<{
+    field: string;
+    label: string;
+    value: string;
+    type: 'number' | 'text';
+  } | null>(null);
 
   if (!character) {
     return (
@@ -42,6 +60,51 @@ export function CharacterScreen() {
     );
   }
 
+  const openEditModal = (field: string, label: string, currentValue: number | string, type: 'number' | 'text' = 'number') => {
+    setEditModal({ field, label, value: String(currentValue), type });
+  };
+
+  const saveEditModal = () => {
+    if (!editModal) return;
+    const { field, value, type } = editModal;
+    if (type === 'number') {
+      const num = parseInt(value, 10);
+      if (isNaN(num)) return;
+      // Handle nested attributes like "attributes.agility"
+      if (field.startsWith('attributes.')) {
+        const attr = field.replace('attributes.', '') as Attribute;
+        sendCharacterSetValues({ attributes: { ...character.attributes, [attr]: num } });
+      } else {
+        sendCharacterSetValues({ [field]: num });
+      }
+    } else {
+      sendCharacterSetValues({ [field]: value });
+    }
+    setEditModal(null);
+  };
+
+  const handleEmergencyReset = () => {
+    Alert.alert(
+      '紧急重置',
+      '将角色恢复到满HP、0压力、满希望，并清除所有状态。确定？',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '确定重置',
+          style: 'destructive',
+          onPress: () => {
+            sendCharacterSetValues({
+              hp: character.maxHp,
+              stress: 0,
+              hope: character.maxHope,
+              conditions: [],
+            });
+          },
+        },
+      ],
+    );
+  };
+
   const renderResourceBar = (
     label: string,
     current: number,
@@ -49,6 +112,7 @@ export function CharacterScreen() {
     color: string,
     onPlus: () => void,
     onMinus: () => void,
+    field?: string,
   ) => (
     <View style={styles.resourceRow}>
       <Text style={styles.resourceLabel}>{label}</Text>
@@ -64,9 +128,15 @@ export function CharacterScreen() {
         <TouchableOpacity style={styles.resourceButton} onPress={onMinus}>
           <Text style={styles.resourceButtonText}>-</Text>
         </TouchableOpacity>
-        <Text style={styles.resourceValue}>
-          {current}/{max}
-        </Text>
+        <TouchableOpacity
+          style={gmEditMode && field ? styles.resourceValueEditable : styles.resourceValue}
+          onPress={() => gmEditMode && field && openEditModal(field, label, current)}
+          disabled={!gmEditMode || !field}
+        >
+          <Text style={styles.resourceValueText}>
+            {current}/{max}
+          </Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.resourceButton} onPress={onPlus}>
           <Text style={styles.resourceButtonText}>+</Text>
         </TouchableOpacity>
@@ -80,15 +150,36 @@ export function CharacterScreen() {
       <View style={styles.thresholdRow}>
         <View style={styles.thresholdItem}>
           <Text style={styles.thresholdLabel}>轻度</Text>
-          <Text style={styles.thresholdValue}>{character.minorThreshold}</Text>
+          <TouchableOpacity
+            disabled={!gmEditMode}
+            onPress={() => gmEditMode && openEditModal('minorThreshold', '轻度阈值', character.minorThreshold)}
+          >
+            <Text style={[styles.thresholdValue, gmEditMode && styles.editableValue]}>
+              {character.minorThreshold}
+            </Text>
+          </TouchableOpacity>
         </View>
         <View style={styles.thresholdItem}>
           <Text style={styles.thresholdLabel}>重度</Text>
-          <Text style={styles.thresholdValue}>{character.majorThreshold}</Text>
+          <TouchableOpacity
+            disabled={!gmEditMode}
+            onPress={() => gmEditMode && openEditModal('majorThreshold', '重度阈值', character.majorThreshold)}
+          >
+            <Text style={[styles.thresholdValue, gmEditMode && styles.editableValue]}>
+              {character.majorThreshold}
+            </Text>
+          </TouchableOpacity>
         </View>
         <View style={styles.thresholdItem}>
           <Text style={styles.thresholdLabel}>严重</Text>
-          <Text style={styles.thresholdValue}>{character.severeThreshold}</Text>
+          <TouchableOpacity
+            disabled={!gmEditMode}
+            onPress={() => gmEditMode && openEditModal('severeThreshold', '严重阈值', character.severeThreshold)}
+          >
+            <Text style={[styles.thresholdValue, gmEditMode && styles.editableValue]}>
+              {character.severeThreshold}
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
     </View>
@@ -98,21 +189,27 @@ export function CharacterScreen() {
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>属性</Text>
       <View style={styles.attributesGrid}>
-        {(Object.entries(character.attributes) as [keyof typeof ATTRIBUTE_LABELS, number][]).map(
+        {(Object.entries(character.attributes) as [Attribute, number][]).map(
           ([attr, value]) => (
-            <View key={attr} style={styles.attributeChip}>
+            <TouchableOpacity
+              key={attr}
+              style={styles.attributeChip}
+              disabled={!gmEditMode}
+              onPress={() => gmEditMode && openEditModal(`attributes.${attr}`, ATTRIBUTE_LABELS[attr], value)}
+            >
               <Text style={styles.attributeName}>{ATTRIBUTE_LABELS[attr]}</Text>
               <Text
                 style={[
                   styles.attributeValue,
                   value > 0 && styles.positive,
                   value < 0 && styles.negative,
+                  gmEditMode && styles.editableValue,
                 ]}
               >
                 {value > 0 ? '+' : ''}
                 {value}
               </Text>
-            </View>
+            </TouchableOpacity>
           ),
         )}
       </View>
@@ -120,19 +217,35 @@ export function CharacterScreen() {
   );
 
   const renderConditions = () => {
-    if (character.conditions.length === 0) return null;
+    if (character.conditions.length === 0 && !gmEditMode) return null;
     return (
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>状态</Text>
-        <View style={styles.conditionsRow}>
-          {character.conditions.map((cond) => (
-            <View key={cond.condition} style={styles.conditionBadge}>
-              <Text style={styles.conditionText}>
-                {CONDITION_LABELS[cond.condition] || cond.condition}
-              </Text>
-            </View>
-          ))}
-        </View>
+        {character.conditions.length === 0 ? (
+          <Text style={styles.emptyText}>无状态效果</Text>
+        ) : (
+          <View style={styles.conditionsRow}>
+            {character.conditions.map((cond) => (
+              <View key={cond.condition} style={styles.conditionBadge}>
+                <Text style={styles.conditionText}>
+                  {CONDITION_LABELS[cond.condition] || cond.condition}
+                </Text>
+                {gmEditMode && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      sendCharacterSetValues({
+                        conditions: character.conditions.filter(c => c.condition !== cond.condition),
+                      });
+                    }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="close-circle" size={14} color="#e74c3c" />
+                  </TouchableOpacity>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
       </View>
     );
   };
@@ -191,18 +304,89 @@ export function CharacterScreen() {
         {character.experiences.map((exp, i) => (
           <View key={i} style={styles.experienceRow}>
             <Text style={styles.experienceName}>{exp.name}</Text>
-            <Text style={styles.experienceValue}>
-              {exp.modifier > 0 ? '+' : ''}
-              {exp.modifier}
-            </Text>
+            <TouchableOpacity
+              disabled={!gmEditMode}
+              onPress={() => gmEditMode && openEditModal(
+                `experiences.${i}.modifier`,
+                `${exp.name} 修正`,
+                exp.modifier,
+              )}
+            >
+              <Text style={[styles.experienceValue, gmEditMode && styles.editableValue]}>
+                {exp.modifier > 0 ? '+' : ''}
+                {exp.modifier}
+              </Text>
+            </TouchableOpacity>
           </View>
         ))}
       </View>
     );
   };
 
+  const renderGmEditBar = () => {
+    if (!isHost) return null;
+    return (
+      <View style={styles.gmBar}>
+        <TouchableOpacity
+          style={[styles.gmToggle, gmEditMode && styles.gmToggleActive]}
+          onPress={() => setGmEditMode(!gmEditMode)}
+        >
+          <Ionicons name="construct" size={16} color={gmEditMode ? '#fff' : '#f39c12'} />
+          <Text style={[styles.gmToggleText, gmEditMode && styles.gmToggleTextActive]}>
+            GM修正
+          </Text>
+        </TouchableOpacity>
+        {gmEditMode && (
+          <TouchableOpacity
+            style={styles.emergencyButton}
+            onPress={handleEmergencyReset}
+          >
+            <Ionicons name="medkit" size={16} color="#fff" />
+            <Text style={styles.emergencyButtonText}>紧急重置</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
+
+  const renderEditModal = () => {
+    if (!editModal) return null;
+    return (
+      <Modal transparent visible animationType="fade" onRequestClose={() => setEditModal(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>设置 {editModal.label}</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={editModal.value}
+              onChangeText={(text) => setEditModal({ ...editModal, value: text })}
+              keyboardType={editModal.type === 'number' ? 'number-pad' : 'default'}
+              autoFocus
+              selectTextOnFocus
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalCancel]}
+                onPress={() => setEditModal(null)}
+              >
+                <Text style={styles.modalButtonText}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalConfirm]}
+                onPress={saveEditModal}
+              >
+                <Text style={styles.modalButtonText}>确定</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
+      {renderGmEditBar()}
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Header */}
         <View style={styles.header}>
@@ -220,14 +404,22 @@ export function CharacterScreen() {
         {/* Evasion */}
         <View style={styles.evasionRow}>
           <Ionicons name="remove-circle-outline" size={16} color="#2ecc71" />
-          <Text style={styles.evasionText}>闪避值: {character.evasion}</Text>
+          <Text style={styles.evasionText}>闪避值: </Text>
+          <TouchableOpacity
+            disabled={!gmEditMode}
+            onPress={() => gmEditMode && openEditModal('evasion', '闪避值', character.evasion)}
+          >
+            <Text style={[styles.evasionValue, gmEditMode && styles.editableValue]}>
+              {character.evasion}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Resources */}
-        {renderResourceBar('生命', character.hp, character.maxHp, '#e74c3c', () => updateCharacterHp(1), () => updateCharacterHp(-1))}
-        {renderResourceBar('压力', character.stress, character.maxStress, '#e67e22', () => updateCharacterStress(1), () => updateCharacterStress(-1))}
-        {renderResourceBar('希望', character.hope, character.maxHope, '#3498db', () => updateCharacterHope(1), () => updateCharacterHope(-1))}
-        {renderResourceBar('护甲', character.armorSlots, character.maxArmorSlots, '#95a5a6', () => updateCharacterArmorSlots(1), () => updateCharacterArmorSlots(-1))}
+        {renderResourceBar('生命', character.hp, character.maxHp, '#e74c3c', () => { updateCharacterHp(1); sendCharacterResourceUpdate('hp', 1); }, () => { updateCharacterHp(-1); sendCharacterResourceUpdate('hp', -1); }, 'hp')}
+        {renderResourceBar('压力', character.stress, character.maxStress, '#e67e22', () => { updateCharacterStress(1); sendCharacterResourceUpdate('stress', 1); }, () => { updateCharacterStress(-1); sendCharacterResourceUpdate('stress', -1); }, 'stress')}
+        {renderResourceBar('希望', character.hope, character.maxHope, '#3498db', () => { updateCharacterHope(1); sendCharacterResourceUpdate('hope', 1); }, () => { updateCharacterHope(-1); sendCharacterResourceUpdate('hope', -1); }, 'hope')}
+        {renderResourceBar('护甲', character.armorSlots, character.maxArmorSlots, '#95a5a6', () => { updateCharacterArmorSlots(1); sendCharacterResourceUpdate('armorSlots', 1); }, () => { updateCharacterArmorSlots(-1); sendCharacterResourceUpdate('armorSlots', -1); })}
 
         {/* Thresholds */}
         {renderThresholds()}
@@ -247,6 +439,7 @@ export function CharacterScreen() {
         {/* Experiences */}
         {renderExperiences()}
       </ScrollView>
+      {renderEditModal()}
     </SafeAreaView>
   );
 }
@@ -282,6 +475,57 @@ const styles = StyleSheet.create({
     color: '#ecf0f1',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  // GM edit bar
+  gmBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#16213e',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a1a3e',
+  },
+  gmToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#f39c12',
+  },
+  gmToggleActive: {
+    backgroundColor: '#f39c12',
+  },
+  gmToggleText: {
+    color: '#f39c12',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  gmToggleTextActive: {
+    color: '#fff',
+  },
+  emergencyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#e74c3c',
+  },
+  emergencyButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  // Editable value highlight
+  editableValue: {
+    textDecorationLine: 'underline',
+    textDecorationColor: '#f39c12',
   },
   // Header
   header: {
@@ -321,6 +565,11 @@ const styles = StyleSheet.create({
   evasionText: {
     color: '#2ecc71',
     fontSize: 14,
+  },
+  evasionValue: {
+    color: '#2ecc71',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   // Resource bar
   resourceRow: {
@@ -364,6 +613,13 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   resourceValue: {
+    // container for the value text
+  },
+  resourceValueEditable: {
+    backgroundColor: '#f39c1222',
+    borderRadius: 4,
+  },
+  resourceValueText: {
     color: '#ecf0f1',
     fontSize: 12,
     width: 40,
@@ -381,6 +637,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: 'bold',
     marginBottom: 8,
+  },
+  emptyText: {
+    color: '#7f8c8d',
+    fontSize: 13,
   },
   // Thresholds
   thresholdRow: {
@@ -437,6 +697,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   conditionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     backgroundColor: '#e74c3c33',
     borderRadius: 4,
     paddingHorizontal: 6,
@@ -497,5 +760,55 @@ const styles = StyleSheet.create({
     color: '#f39c12',
     fontSize: 13,
     fontWeight: 'bold',
+  },
+  // Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 12,
+    padding: 20,
+    width: '80%',
+    maxWidth: 320,
+  },
+  modalTitle: {
+    color: '#ecf0f1',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 12,
+  },
+  modalInput: {
+    backgroundColor: '#16213e',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#ecf0f1',
+    fontSize: 16,
+    marginBottom: 16,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'flex-end',
+  },
+  modalButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  modalCancel: {
+    backgroundColor: '#2c3e50',
+  },
+  modalConfirm: {
+    backgroundColor: '#3498db',
+  },
+  modalButtonText: {
+    color: '#ecf0f1',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

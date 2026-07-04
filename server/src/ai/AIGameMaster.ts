@@ -23,6 +23,8 @@ import { AIGateway } from './AIGateway';
 import type { AIConfig, AIMessage as GatewayMessage } from './AIGateway';
 import type { DualityDiceResult } from '../rules/systems/DaggerHeartRules';
 import type { SessionStore, HistoryEntry } from '../core/SessionStore';
+import type { PromptProviderConfig } from './IPromptProvider';
+import { daggerheartPromptProvider } from './prompt-providers';
 
 // ===== AI 管家配置 =====
 
@@ -32,6 +34,8 @@ export interface AIGMConfig {
   combatModel: string;
   maxTokensPerResponse: number;
   temperature: number;
+  /** Prompt provider configuration; defaults to DaggerheartPromptProvider if omitted */
+  promptProvider?: PromptProviderConfig;
 }
 
 // ===== 场景分析结果 =====
@@ -53,12 +57,14 @@ export class AIGameMaster {
   private config: AIGMConfig;
   private sessionStore: SessionStore;
   private worldLore: WorldLore | null;
+  private promptProvider: PromptProviderConfig;
 
   constructor(config: AIGMConfig, sessionStore: SessionStore) {
     this.config = config;
     this.gateway = new AIGateway(config.gateway);
     this.sessionStore = sessionStore;
     this.worldLore = null;
+    this.promptProvider = config.promptProvider ?? daggerheartPromptProvider;
   }
 
   // ===== 核心方法 =====
@@ -283,9 +289,12 @@ ${npc.name}当前压力：${npc.currentStress}/${npc.stressSlots}
       return this.processPlayerAction(context, combatAction);
     }
 
-    const enemiesDesc = combat.enemies.map(e =>
-      `${e.name}（HP:${e.currentHp}/${e.maxHp} 压力:${e.currentStress}/${e.maxStress}${e.isFocused ? ' [聚焦]' : ''}）`
-    ).join('、');
+    const enemiesDesc = combat.enemies.map(e => {
+      const features = e.features?.length
+        ? ` 特性:${e.features.map(f => `${f.name}${f.type === 'fear' ? `[恐惧${f.cost}]` : ''}`).join(',')}`
+        : '';
+      return `${e.name}（HP:${e.currentHp}/${e.maxHp} 压力:${e.currentStress}/${e.maxStress}${e.isFocused ? ' [聚焦]' : ''}${features}）`;
+    }).join('、');
 
     const prompt = `战斗进行中。
 回合：${combat.round}
@@ -294,6 +303,18 @@ ${npc.name}当前压力：${npc.currentStress}/${npc.stressSlots}
 玩家行动："${combatAction}"
 
 请描述战斗场景和敌人反应。如果需要掷骰判定，标明属性和难度。`;
+
+    return this.processPlayerAction(context, prompt);
+  }
+
+  /**
+   * 生成遭遇开场叙事 — 当遭遇生成器创建敌人后调用
+   */
+  async narrateEncounterIntro(
+    context: AIGMContext,
+    narrationPrompt: string,
+  ): Promise<AIGMResponse> {
+    const prompt = `${narrationPrompt}\n\n战斗刚刚开始！请为这场遭遇写一段开场叙事，描述敌人出场和战斗开始时的紧张气氛。`;
 
     return this.processPlayerAction(context, prompt);
   }
@@ -340,20 +361,10 @@ ${npc.name}当前压力：${npc.currentStress}/${npc.stressSlots}
     step: number,
     previousChoices: Record<string, unknown>,
   ): Promise<{ prompt: string; choices?: AIChoice[] }> {
-    const stepPrompts: Record<number, string> = {
-      1: '欢迎来到匕首之心！首先，选择你的职业。你将成为什么样的冒险者？',
-      2: '很好！接下来选择你的种族。你的血脉来自何方？',
-      3: '你来自哪个社群？你的成长环境塑造了你。',
-      4: '分配你的属性值。将+2,+1,+1,0,0,-1分配给六大属性（敏捷、力量、灵巧、本能、风度、知识）。',
-      5: '记录你的基础资源：闪避值、生命点、压力点、希望恐惧点。',
-      6: '选择你的装备：主武器、副武器（可选）和护甲。',
-      7: '创作你的背景故事。你为何踏上冒险之旅？',
-      8: '选择两张1级领域卡作为你的初始能力。',
-      9: '创作你的人际关系。与谁有羁绊？',
-    };
+    const stepPrompt = this.promptProvider.characterCreationSteps[step] || '继续角色创建...';
 
     return {
-      prompt: stepPrompts[step] || '继续角色创建...',
+      prompt: stepPrompt,
     };
   }
 
@@ -448,7 +459,9 @@ ${npc.name}当前压力：${npc.currentStress}/${npc.stressSlots}
       `  - ${c.name}（${c.classId} ${c.ancestryId}）`
     ).join('\n');
 
-    const basePrompt = `你是匕首之心（Daggerheart）的AI游戏主持人，正在进行 Session Zero（第零次会议）。
+    const provider = this.promptProvider;
+
+    const basePrompt = `你是${provider.sessionZeroIdentity}，正在进行 Session Zero（第零次会议）。
 这是游戏正式开始前的共创环节，目的是让所有玩家共同建立这场战役的基础。
 
 当前参与的角色：
@@ -485,16 +498,9 @@ ${characterList}
 
 ## 阶段 2/5：世界观共创
 
-目标：让玩家共同塑造德拉肯海姆的细节。
+目标：让玩家共同塑造${provider.campaignName}的细节。
 
-德拉肯海姆是坐落在灰烬荒原边缘的废墟城市，被神秘的陨石雨摧毁。幸存者们在残骸中搜寻，而各种势力争夺着陨石碎片的秘密。
-
-请提出2-3个开放式问题，邀请玩家创造这个世界的细节。例如：
-- "你们在来德拉肯海姆的路上，看到了什么令人印象深刻的景象？"
-- "这座城市中有一个你们都知道的传闻——那是什么？"
-- "有一处地方让你感到不安，但你又忍不住想去——那是哪里？"
-
-将玩家的回答融入世界描述。他们的创意是正典。`,
+${provider.sessionZeroWorldbuilding}`,
 
       connections: `${basePrompt}
 
@@ -548,78 +554,30 @@ ${characterList}
 
   private buildSystemPrompt(context: AIGMContext): string {
     const isMultiplayer = context.characters && context.characters.length > 1;
+    const provider = this.promptProvider;
 
-    let prompt = `你是TRPGMaster的AI管家（GM），负责运行一场基于匕首之心（Daggerheart）规则的德拉肯海姆（Drakkenheim）战役。
+    let prompt = `你是${provider.gmIdentity}
 
 ## 你的职责
-- **叙事管理**：描述场景、推进剧情、营造氛围
-- **规则裁判**：判定行动、设定难度、计算结果
-- **NPC扮演**：扮演所有NPC，保持性格一致
-- **战斗管理**：控制敌人行动、消耗恐惧点、管理聚焦系统
-- **派系政治**：追踪5个派系的关系变化
-- **环境描述**：描述德拉肯海姆的迷雾、污染、翠晶
-- **战役推进**：推进个人任务、派系任务、主线剧情
+${provider.gmResponsibilities.join('\n')}
 
-## 核心规则
-- 二元骰系统：2d12（希望骰+恐惧骰），5种结果类型：
-  - 关键成功（双骰相同且≥6）：大成功，GM不得花恐惧点
-  - 希望成功（希望骰>恐惧骰）：成功，玩家获得1希望点
-  - 恐惧成功（恐惧骰>希望骰）：成功但代价，GM获得1恐惧点
-  - 希望失败（希望骰>恐惧骰但未达难度）：失败但希望，玩家获得1希望点
-  - 恐惧失败（恐惧骰>希望骰且未达难度）：失败且恶化，GM获得1恐惧点
-- 伤害计算：轻度=1HP，重度=2HP，严重=3HP；护甲槽可降低伤害等级（消耗1护甲槽降1级）
-- 压力点：压力满时自动变为脆弱状态，溢出标记生命点
-- 死亡行动：光荣就义/回避死亡/孤注一掷
+${provider.rulesDescription}
 
-## 恐惧点经济（GM资源）
-你作为GM拥有恐惧点池（当前数量见状态摘要）。
-### 获取恐惧点
-- 恐惧骰>希望骰时（恐惧成功/恐惧失败）：+1恐惧点
-- 玩家短休时：+1d4恐惧点
-- 玩家长休时：+1d4恐惧点
-### 花费恐惧点
-- 1点：打断玩家行动，执行敌人行动
-- 1点：执行额外GM行动（场景效果等）
-- 1点：聚焦另一个敌人（切换当前聚焦目标）
-- 1点：使用敌人的恐惧特性
-- 1点：使用环境的恐惧效果
-- 花费恐惧点时不需要在输出中标记，系统会自动处理
+${provider.settingDescription}
 
-## 德拉肯海姆设定
-- 5派系：提灯团、女王之仆、白银骑士团、陨火信徒、紫晶学院
-- 污染系统：0-6级，3级和5级抽变异卡，6级=异变
-- 迷雾：探索倒计时，暴露需反应掷骰
-- 翠晶：有价值的魔法矿物，但拾取有污染风险
-- 封印：德拉肯海姆封印是重要剧情物品
-
-## 叙事风格
-- 沉浸式描述，注重感官细节
-- 保持德拉肯海姆的暗黑奇幻氛围
-- 失败也是有趣的故事
-- 不要过度解释规则，让叙事驱动
+${provider.narrativeStyle}
 
 ## 叙事模式与输出格式
 
-你遵循匕首之心"共创世界"的哲学——你带来问题，而非预设的故事。玩家的回答塑造世界。
+你遵循${provider.systemName}"共创世界"的哲学——你带来问题，而非预设的故事。玩家的回答塑造世界。
 
 每次响应使用以下模式之一（根据情境选择最合适的）：
 
-### 模式 A：开放式提问（最常用，约50%时间）
-描述场景或情境，然后提出开放式问题，邀请玩家创造性地描述行动或感知。
-示例："你推开旧图书馆的门，尘埃在阳光中飞舞。书架延伸到天花板，但有一本书似乎被最近翻阅过——你注意到了什么？"
-
-### 模式 B：情境提示（约25%时间）
-将玩家置于需要回应的情境中，提出"如何"或"为何"的问题。
-示例："守卫挡住了你的去路，手按在剑柄上。'没人能未经许可进入。' 你如何应对这种情况？"
-
-### 模式 C：邀请世界构建（约15%时间）
-请求玩家发明关于世界、背景或NPC的细节。
-示例："你认出了这个徽章——它属于你过去打过交道的派系。告诉我，你对这个组织了解什么？"
-
-### 模式 D：选择选项（约10%时间，仅在需要果断行动时使用）
-当玩家必须做出明确的战术选择时（战斗行动、休息选择、明确岔路口），使用编号选项。
-格式：1) xxx  2) xxx  3) xxx
-仅在真正需要离散选择时使用此模式。不要用括号【】或圆圈①②③。
+${provider.narrativeModes.map((mode, i) => {
+  const label = String.fromCharCode(65 + i); // A, B, C, D...
+  const weightNote = mode.weight >= 10 ? `约${mode.weight}%时间` : `约${mode.weight}%时间`;
+  return `### 模式 ${label}：${mode.name}（${weightNote}）\n${mode.description}`;
+}).join('\n\n')}
 
 ### 模式选择指南：
 - 探索、社交和叙事 → 模式 A 或 B
@@ -871,7 +829,8 @@ ${buildCharStatus(char, true)}
     let summary = `【骰子判定结果（已结算）】${label}：希望骰${result.hopeDie} 恐惧骰${result.fearDie} 总计${result.total} vs 难度${result.difficulty}`;
     if (result.hopeGain > 0) summary += `，角色希望+${result.hopeGain}`;
     if (result.fearGain > 0) summary += `，GM恐惧+${result.fearGain}`;
-    if (result.isCritical) summary += '（暴击：双骰相同，自动成功）';
+    if (result.stressCleared > 0) summary += `，角色压力-${result.stressCleared}`;
+    if (result.isCritical) summary += '（暴击：双骰相同，自动成功，角色可执行免费行动）';
     summary += '。请基于此既定结果进行叙事。';
     return summary;
   }

@@ -1,0 +1,284 @@
+=== 项目: TRPGMaster - Daggerheart TRPG ===
+=== 模块: 09-server-entry ===
+=== 生成时间: Sun Jun 28 14:42:33     2026 ===
+
+######## FILE: server/src/index.ts ########
+import 'dotenv/config';
+import express from 'express';
+import { createServer } from 'http';
+import { AIGateway } from './ai/AIGateway';
+import { AIGameMasterPool } from './ai/AIGameMasterPool';
+import { buildWorldLore } from './campaign/buildWorldLore';
+import { getAIConfig, loadPersistedConfig, savePersistedConfig, deletePersistedConfig, maskApiKey } from './ai/AIConfigService';
+import type { AIConfig } from './ai/AIGateway';
+import { StateManager } from './core/StateManager';
+import { SessionRegistry } from './core/SessionRegistry';
+import { SocketServer } from './network/SocketServer';
+import { loadSessionData } from './core/SessionPersistence';
+import { FileSessionStore } from './core/FileSessionStore';
+import type { SessionStore } from './core/SessionStore';
+import { createSessionRouter } from './routes/session';
+import { createCharacterRouter } from './routes/character';
+import { createAiRouter } from './routes/ai';
+import type { AIRouterState } from './routes/ai';
+import { createDataRouter } from './routes/data';
+import { validateAllData, logValidationResults } from './rules/data/dataValidator';
+import daggerheartData from './rules/data/daggerheart';
+import type { ClassData, AncestryData, CommunityData, WeaponData, ArmorData, DomainCard, EnemyStatBlock, SubclassData } from '@trpgmaster/shared';
+
+const PORT = parseInt(process.env.PORT || '3000', 10);
+
+async function main() {
+  const app = express();
+  const httpServer = createServer(app);
+
+  app.use(express.json());
+  app.use((_req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type');
+    if (_req.method === 'OPTIONS') { res.sendStatus(204); return; }
+    next();
+  });
+
+  // Session store (history persistence + turn lock)
+  const sessionStore: SessionStore = new FileSessionStore();
+
+  // Validate game data at startup
+  const validationResult = validateAllData({
+    classes: daggerheartData.classes as ClassData[],
+    ancestries: daggerheartData.ancestries as AncestryData[],
+    communities: daggerheartData.communities as CommunityData[],
+    weapons: daggerheartData.weapons as WeaponData[],
+    armor: daggerheartData.armor as ArmorData[],
+    domains: daggerheartData.domains as DomainCard[],
+    enemies: daggerheartData.enemies as EnemyStatBlock[],
+    subclasses: daggerheartData.subclasses as SubclassData[],
+  });
+  logValidationResults(validationResult);
+
+  // Initialize AI
+  let aiConfig = getAIConfig();
+  let aiGateway = aiConfig ? new AIGateway(aiConfig) : undefined;
+
+  const persisted = loadPersistedConfig();
+  let currentNarratorModel = persisted?.narratorModel || process.env.AI_NARRATOR_MODEL || (aiConfig?.defaultModel || '');
+  let currentCombatModel = persisted?.combatModel || process.env.AI_COMBAT_MODEL || (aiConfig?.defaultModel || '');
+  let currentTemperature = persisted?.temperature ?? 0.8;
+  let currentMaxTokens = persisted?.maxTokens ?? 4096;
+
+  if (aiGateway && aiConfig) {
+    console.log(`AI Gateway initialized (${aiConfig.baseUrl})`);
+  } else {
+    console.log('Warning: No SILICONFLOW_API_KEY set, AI GM will use fallback responses');
+  }
+
+  let gmPool = aiGateway && aiConfig
+    ? new AIGameMasterPool({
+        gateway: aiConfig,
+        narratorModel: currentNarratorModel || aiConfig.defaultModel,
+        combatModel: currentCombatModel || aiConfig.defaultModel,
+        maxTokensPerResponse: currentMaxTokens,
+        temperature: currentTemperature,
+      }, sessionStore)
+    : undefined;
+  gmPool?.setWorldLore(buildWorldLore());
+
+  // Session registry
+  const sessionRegistry = new SessionRegistry();
+  const persistedData = loadSessionData();
+  let stateManager: StateManager;
+
+  if (persistedData && Object.keys(persistedData.sessions).length > 0) {
+    for (const [sessionId, sessionData] of Object.entries(persistedData.sessions)) {
+      sessionRegistry.createSessionFromPersisted(sessionData);
+    }
+    const defaultSessionId = persistedData.defaultSessionId || Object.keys(persistedData.sessions)[0];
+    const restoredDefault = sessionRegistry.findById(defaultSessionId);
+    if (restoredDefault) {
+      stateManager = restoredDefault;
+      console.log(`Default session restored: ${defaultSessionId}`);
+    } else {
+      const newSession = sessionRegistry.createSession();
+      stateManager = newSession.stateManager;
+      console.log(`Default session created: ${newSession.sessionId} (code: ${newSession.code})`);
+    }
+    console.log(`Restored ${Object.keys(persistedData.sessions).length} session(s)`);
+
+    // Pre-warm AI conversation history from disk for all restored sessions
+    if (sessionStore) {
+      for (const sessionId of Object.keys(persistedData.sessions)) {
+        sessionStore.getHistory(sessionId).then(entries => {
+          if (entries.length > 0) {
+            console.log(`[Startup] Pre-warmed ${entries.length} history entries for ${sessionId}`);
+          }
+        }).catch(() => {});
+      }
+    }
+  } else {
+    const defaultSession = sessionRegistry.createSession();
+    stateManager = defaultSession.stateManager;
+    console.log(`Default session created: ${defaultSession.sessionId} (code: ${defaultSession.code})`);
+  }
+
+  // Socket.IO
+  const socketServer = new SocketServer(httpServer, sessionRegistry, gmPool);
+  socketServer.setSessionStore(sessionStore);
+
+  // Register onChange for ALL sessions (once per session, including default)
+  for (const sessionInfo of sessionRegistry.getAllSessions()) {
+    const sm = sessionRegistry.findById(sessionInfo.sessionId);
+    if (sm) {
+      sm.onChange('state', (state) => {
+        socketServer.broadcastState(state);
+        sessionRegistry.markDirty(state.sessionId);
+      });
+    }
+  }
+
+  // AI hot-reload
+  function reinitializeAI(updates: {
+    apiKey?: string; baseUrl?: string; defaultModel?: string;
+    narratorModel?: string; combatModel?: string;
+    temperature?: number; maxTokens?: number;
+  }): { success: boolean; errors?: string[] } {
+    const errors: string[] = [];
+    if (updates.apiKey !== undefined && updates.apiKey.length === 0) errors.push('API Key 不能为空');
+    if (updates.baseUrl !== undefined && !/^https?:\/\/.+/.test(updates.baseUrl)) errors.push('API 地址格式无效');
+    if (updates.temperature !== undefined && (updates.temperature < 0 || updates.temperature > 2)) errors.push('温度值需在 0-2 之间');
+    if (updates.maxTokens !== undefined && (updates.maxTokens < 256 || updates.maxTokens > 1048576)) errors.push('最大Token需在 256-1048576 之间');
+    if (errors.length > 0) return { success: false, errors };
+
+    const newApiKey = updates.apiKey ?? aiConfig?.apiKey ?? '';
+    const newBaseUrl = updates.baseUrl || aiConfig?.baseUrl || 'https://api.siliconflow.cn/v1';
+    const newDefaultModel = updates.defaultModel || aiConfig?.defaultModel || 'deepseek-ai/DeepSeek-V4-Flash';
+    if (updates.narratorModel !== undefined) currentNarratorModel = updates.narratorModel;
+    if (updates.combatModel !== undefined) currentCombatModel = updates.combatModel;
+    if (updates.temperature !== undefined) currentTemperature = updates.temperature;
+    if (updates.maxTokens !== undefined) currentMaxTokens = updates.maxTokens;
+
+    if (!newApiKey) {
+      aiConfig = null; aiGateway = undefined; gmPool = undefined;
+      socketServer.setGMPool(undefined);
+      deletePersistedConfig();
+      console.log('AI disabled: no API key');
+      return { success: true };
+    }
+
+    aiConfig = { apiKey: newApiKey, baseUrl: newBaseUrl, defaultModel: newDefaultModel, maxRetries: 3, retryDelay: 1000, maxConcurrent: 5 };
+    aiGateway = new AIGateway(aiConfig);
+    gmPool = new AIGameMasterPool({ gateway: aiConfig, narratorModel: currentNarratorModel || aiConfig.defaultModel, combatModel: currentCombatModel || aiConfig.defaultModel, maxTokensPerResponse: currentMaxTokens, temperature: currentTemperature }, sessionStore);
+    gmPool.setWorldLore(buildWorldLore());
+    socketServer.setGMPool(gmPool);
+
+    savePersistedConfig({ apiKey: newApiKey, baseUrl: newBaseUrl, defaultModel: newDefaultModel, narratorModel: currentNarratorModel, combatModel: currentCombatModel, temperature: currentTemperature, maxTokens: currentMaxTokens });
+    console.log(`AI Gateway re-initialized (${aiConfig.baseUrl}, model: ${aiConfig.defaultModel})`);
+    return { success: true };
+  }
+
+  // Mount routers
+  app.get('/health', (_req, res) => {
+    res.json({ status: 'ok', timestamp: Date.now(), aiConnected: !!aiGateway, version: '2.0.0', rules: 'Daggerheart', campaign: 'Drakkenheim' });
+  });
+
+  app.use(createSessionRouter(sessionRegistry, socketServer, () => stateManager));
+  app.use(createCharacterRouter(stateManager, socketServer));
+  app.use(createAiRouter(() => ({ aiConfig, aiGateway, narratorModel: currentNarratorModel, combatModel: currentCombatModel, temperature: currentTemperature, maxTokens: currentMaxTokens }), reinitializeAI));
+  app.use(createDataRouter());
+
+  // Start
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    const defaultSessionId = sessionRegistry.getDefaultSessionId() || stateManager.getState().sessionId;
+    console.log(`\n========================================`);
+    console.log(`  TRPGMaster Server v2.0.0`);
+    console.log(`  Rules: Daggerheart`);
+    console.log(`  Campaign: Drakkenheim`);
+    console.log(`  Default Session: ${defaultSessionId}`);
+    console.log(`  Port: ${PORT}`);
+    console.log(`  AI: ${aiGateway && aiConfig ? `Connected (${aiConfig.defaultModel})` : 'Fallback Mode'}`);
+    console.log(`========================================\n`);
+    console.log('Waiting for players to connect...');
+  });
+
+  // Graceful shutdown handler — persists all data before exiting
+  function gracefulShutdown(signal: string): void {
+    console.log(`\nReceived ${signal}, shutting down...`);
+    try {
+      sessionRegistry.persistAll();
+      console.log('Session data saved.');
+    } catch (err) {
+      console.error('Failed to persist session data during shutdown:', err);
+    }
+    socketServer.close();
+    httpServer.close();
+    process.exit(0);
+  }
+
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+  // Catch unhandled errors — persist data before crashing
+  process.on('uncaughtException', (err) => {
+    console.error('Uncaught exception:', err);
+    try {
+      sessionRegistry.persistAll();
+      console.log('Session data saved after uncaught exception.');
+    } catch (persistErr) {
+      console.error('Failed to persist after uncaught exception:', persistErr);
+    }
+    process.exit(1);
+  });
+
+  process.on('unhandledRejection', (reason) => {
+    console.error('Unhandled rejection:', reason);
+    try {
+      sessionRegistry.persistAll();
+      console.log('Session data saved after unhandled rejection.');
+    } catch (persistErr) {
+      console.error('Failed to persist after unhandled rejection:', persistErr);
+    }
+    process.exit(1);
+  });
+}
+
+main().catch(console.error);
+
+
+
+######## FILE: server/package.json ########
+{
+  "name": "@trpgmaster/server",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "jest --config jest.config.js",
+    "eval": "npx ts-node ../evals/test-runner.ts",
+    "eval:state": "npx ts-node ../evals/state-test.ts"
+  },
+  "dependencies": {
+    "@trpgmaster/shared": "file:../shared",
+    "dotenv": "^16.4.7",
+    "express": "^4.18.0",
+    "socket.io": "^4.7.0",
+    "uuid": "^9.0.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.0",
+    "@types/jest": "^29.5.0",
+    "@types/supertest": "^7.2.0",
+    "@types/uuid": "^9.0.0",
+    "jest": "^29.7.0",
+    "supertest": "^7.2.2",
+    "ts-jest": "^29.4.0",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.4.0"
+  }
+}
+
+
+

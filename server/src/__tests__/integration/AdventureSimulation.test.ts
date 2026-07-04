@@ -26,10 +26,14 @@ import {
   getDamageSeverity,
   getHpLossFromSeverity,
 } from '@trpgmaster/shared';
-import { extractGmEffects, playerInputSuggestsCombat, extractEnemyNameFromNarration } from '../../ai/extractGmEffects';
+import { extractGmEffects, playerInputSuggestsCombat } from '../../ai/extractGmEffects';
 import type { Character, GmEffect, RollDeclaration, ActionDeclaration, CombatEnemy } from '@trpgmaster/shared';
 import { StateManager } from '../../core/StateManager';
 import { rollSceneSearchLoot, rollLootTable } from '../../rules/lootResolver';
+
+function getChar(sm: StateManager): Character {
+  return getChar(sm)!;
+}
 
 // ===== Mock Character Builder =====
 
@@ -224,7 +228,7 @@ async function runSimulation(): Promise<void> {
   logStep({
     phase: '探索',
     action: '应用检定后的希望/恐惧',
-    result: `希望:${sm.getCharacter().hope} 恐惧池:${sm.getState().fearPoints}`,
+    result: `希望:${getChar(sm).hope} 恐惧池:${sm.getState().fearPoints}`,
     stateAfter: getStateSnapshot(sm),
     passed: true,
   });
@@ -243,8 +247,8 @@ async function runSimulation(): Promise<void> {
     action: '第一次搜索城门',
     result: loot1.items.length > 0 ? `找到 ${loot1.items.map(i => i.name).join('、')}` : `找到 ${loot1.gold?.coins || 0} 金币`,
     stateAfter: getStateSnapshot(sm),
-    passed: sm.getCharacter().inventory.length >= 0, // Even 0 items is valid
-    notes: `物品数:${sm.getCharacter().inventory.length} 金币:${sm.getCharacter().gold.coins}`,
+    passed: getChar(sm).inventory.length >= 0, // Even 0 items is valid
+    notes: `物品数:${getChar(sm).inventory.length} 金币:${getChar(sm).gold.coins}`,
   });
 
   // Simulate addItem GM effect (from AI narration)
@@ -268,7 +272,7 @@ async function runSimulation(): Promise<void> {
     action: 'AI叙事中发现物品',
     result: `获得 "${addItemEffect.itemName}"`,
     stateAfter: getStateSnapshot(sm),
-    passed: sm.getCharacter().inventory.some(i => i.name === '古老的铜钥匙'),
+    passed: getChar(sm).inventory.some(i => i.name === '古老的铜钥匙'),
     notes: '通过 addItem GmEffect 从叙事中获取的物品',
   });
 
@@ -295,6 +299,9 @@ async function runSimulation(): Promise<void> {
     isFocused: false,
     hasActed: false,
     evasion: 10,
+    behavior: 'bruiser',
+    attacks: [{ name: '短刀乱斩', attribute: 'agility', distance: 'melee', damage: { dice: [{ count: 1, sides: 6 }], modifier: 0, type: 'physical' }, targets: 'single' }],
+    features: [],
   };
   sm.addCombatEnemy(enemy);
 
@@ -329,7 +336,7 @@ async function runSimulation(): Promise<void> {
 
   // Apply attack results
   if (attackResult.hopeGain > 0) {
-    const char = sm.getCharacter();
+    const char = getChar(sm);
     sm.updateCharacterHope(attackResult.hopeGain);
   }
   if (attackResult.fearGain > 0) {
@@ -350,16 +357,12 @@ async function runSimulation(): Promise<void> {
       : '哥布林被击败!',
     stateAfter: getStateSnapshot(sm),
     passed: true,
-    notes: `希望:${sm.getCharacter().hope} 恐惧池:${sm.getState().fearPoints}`,
+    notes: `希望:${getChar(sm).hope} 恐惧池:${sm.getState().fearPoints}`,
   });
 
-  // Enemy attacks player via GmEffect
-  const enemyAttackEffect: GmEffect = {
-    type: 'enemyAttack',
-    amount: 3,
-    source: '哥布林劫掠者',
-  };
-  const dmgResult = resolveDamageToCharacter(sm.getCharacter(), enemyAttackEffect.amount ?? 0);
+  // Enemy attacks player — now handled by rules engine directly
+  const rawDamage = 3;
+  const dmgResult = resolveDamageToCharacter(getChar(sm), rawDamage);
   sm.updateCharacterHp(-dmgResult.hpLoss);
   if (dmgResult.armorSlotsSpent > 0) {
     sm.adjustCharacterArmorSlots(-dmgResult.armorSlotsSpent);
@@ -370,31 +373,30 @@ async function runSimulation(): Promise<void> {
     action: '敌人攻击玩家',
     result: `原始伤害:${dmgResult.rawDamage} → ${dmgResult.severityAfterArmor}伤害 失去${dmgResult.hpLoss}HP 护甲消耗:${dmgResult.armorSlotsSpent}`,
     stateAfter: getStateSnapshot(sm),
-    passed: dmgResult.hpLoss >= 0 && sm.getCharacter().hp <= character.maxHp,
+    passed: dmgResult.hpLoss >= 0 && getChar(sm).hp <= character.maxHp,
     notes: dmgResult.narrationHint,
   });
 
-  // Stress from combat
-  const stressEffect: GmEffect = { type: 'stressToPlayer', amount: 1 };
-  sm.updateCharacterStress(stressEffect.amount!);
+  // Stress from combat — handled directly
+  sm.updateCharacterStress(1);
 
   logStep({
     phase: '战斗',
     action: '获得压力',
-    result: `压力:${sm.getCharacter().stress}/${sm.getCharacter().maxStress}`,
+    result: `压力:${getChar(sm).stress}/${getChar(sm).maxStress}`,
     stateAfter: getStateSnapshot(sm),
-    passed: sm.getCharacter().stress === 1,
+    passed: getChar(sm).stress === 1,
   });
 
   // ===== Phase 5: Domain Card Usage =====
   console.log('\n🃏 Phase 5: Domain Card Usage\n');
 
-  const charBeforeFeature = { ...sm.getCharacter() };
+  const charBeforeFeature = { ...getChar(sm) };
   // Use domain card "斩击" (hope cost: 1)
   const card = character.domainCardConfig.loadout[0];
   const hopeCost = card.hopeCost ?? 0;
   sm.updateCharacterHope(-hopeCost);
-  const uses = { ...sm.getCharacter().featureUses };
+  const uses = { ...getChar(sm).featureUses };
   if (uses[card.id] !== undefined) {
     uses[card.id] = (uses[card.id] as number) - 1;
   }
@@ -406,21 +408,21 @@ async function runSimulation(): Promise<void> {
     attribute: 'strength',
     difficulty: sm.getSceneDifficulty(),
   };
-  const featureRollResult = resolveAbilityCheck(sm.getCharacter(), featureRollDecl);
+  const featureRollResult = resolveAbilityCheck(getChar(sm), featureRollDecl);
 
   logStep({
     phase: '领域卡',
     action: `使用"${card.name}" (希望消耗:${hopeCost})`,
-    result: `希望:${charBeforeFeature.hope}→${sm.getCharacter().hope} 使用次数:${(charBeforeFeature.featureUses as any)?.[card.id]}→${(sm.getCharacter().featureUses as any)?.[card.id]}`,
+    result: `希望:${charBeforeFeature.hope}→${getChar(sm).hope} 使用次数:${(charBeforeFeature.featureUses as any)?.[card.id]}→${(getChar(sm).featureUses as any)?.[card.id]}`,
     stateAfter: getStateSnapshot(sm),
-    passed: sm.getCharacter().hope === charBeforeFeature.hope - hopeCost && (sm.getCharacter().featureUses as any)[card.id] === ((charBeforeFeature.featureUses as any)?.[card.id] ?? 0) - 1,
+    passed: getChar(sm).hope === charBeforeFeature.hope - hopeCost && (getChar(sm).featureUses as any)[card.id] === ((charBeforeFeature.featureUses as any)?.[card.id] ?? 0) - 1,
     notes: `检定: ${featureRollResult.outcome} 总计${featureRollResult.total} vs ${featureRollResult.difficulty}`,
   });
 
   // ===== Phase 6: Rest =====
   console.log('\n💤 Phase 6: Rest\n');
 
-  const charBeforeRest = { ...sm.getCharacter() };
+  const charBeforeRest = { ...getChar(sm) };
   const fearBeforeRest = sm.getState().fearPoints;
 
   // Short rest: recover some HP, gain fear
@@ -433,9 +435,9 @@ async function runSimulation(): Promise<void> {
   logStep({
     phase: '休整',
     action: '短休',
-    result: `HP:${charBeforeRest.hp}→${sm.getCharacter().hp} 压力:${charBeforeRest.stress}→${sm.getCharacter().stress} 恐惧池:+${fearFromRest}`,
+    result: `HP:${charBeforeRest.hp}→${getChar(sm).hp} 压力:${charBeforeRest.stress}→${getChar(sm).stress} 恐惧池:+${fearFromRest}`,
     stateAfter: getStateSnapshot(sm),
-    passed: sm.getCharacter().hp > charBeforeRest.hp && sm.getCharacter().stress < charBeforeRest.stress && sm.getState().fearPoints > fearBeforeRest,
+    passed: getChar(sm).hp > charBeforeRest.hp && getChar(sm).stress < charBeforeRest.stress && sm.getState().fearPoints > fearBeforeRest,
     notes: `短休次数(长休前):${sm.getShortRestsSinceLong()}`,
   });
 
@@ -449,7 +451,7 @@ async function runSimulation(): Promise<void> {
     attribute: 'knowledge',
     difficulty: sm.getSceneDifficulty(),
   };
-  const puzzleResult = resolveAbilityCheck(sm.getCharacter(), puzzleDecl);
+  const puzzleResult = resolveAbilityCheck(getChar(sm), puzzleDecl);
 
   logStep({
     phase: '解密',
@@ -486,40 +488,30 @@ async function runSimulation(): Promise<void> {
     });
   }
 
-  // Test enemy name extraction
-  const nameTests = [
-    { narration: '一个哥布林劫掠者冲了出来', expected: '哥布林劫掠者' },
-    { narration: '一名骷髅战士向你逼近', expectedContains: '骷髅战士' },
-    { narration: '那只巨狼咆哮着扑来', expectedContains: '巨狼' },
-    { narration: '你发现了一把钥匙', expectedNull: true },
-  ];
-
-  for (const test of nameTests) {
-    const result = extractEnemyNameFromNarration(test.narration);
-    const passed = test.expectedNull
-      ? result === null
-      : (test.expected ? result === test.expected : result?.includes(test.expectedContains!));
-    logStep({
-      phase: '敌人名提取',
-      action: `"${test.narration}"`,
-      result: `提取="${result}"`,
-      passed: !!passed,
-      notes: test.expectedNull ? '应无敌人' : `预期包含"${test.expected || test.expectedContains}"`,
-    });
-  }
+  // Test enemy name extraction — REMOVED
+  // Enemy names now come from structured addEnemy effects with enemyStatBlockId,
+  // not from regex matching of narrative text. This eliminates the fragile
+  // extractEnemyNameFromNarration regex dependency (Phase 5.3).
+  logStep({
+    phase: '敌人名提取',
+    action: '已移除正则依赖',
+    result: '敌人名从结构化 addEnemy 效果的 enemyStatBlockId 获取',
+    passed: true,
+    notes: 'Phase 5.3: 不再从叙事文本中正则匹配敌人名称',
+  });
 
   // ===== Phase 9: Stress Overflow =====
   console.log('\n💥 Phase 9: Stress Overflow\n');
 
-  const charBeforeOverflow = sm.getCharacter();
+  const charBeforeOverflow = getChar(sm);
   sm.updateCharacterStress(5); // Max stress is 3, should overflow to HP
 
   logStep({
     phase: '压力溢出',
     action: '压力溢出至HP',
-    result: `压力:${charBeforeOverflow.stress}→${sm.getCharacter().stress}/${sm.getCharacter().maxStress} HP:${charBeforeOverflow.hp}→${sm.getCharacter().hp}`,
+    result: `压力:${charBeforeOverflow.stress}→${getChar(sm).stress}/${getChar(sm).maxStress} HP:${charBeforeOverflow.hp}→${getChar(sm).hp}`,
     stateAfter: getStateSnapshot(sm),
-    passed: sm.getCharacter().stress === sm.getCharacter().maxStress && sm.getCharacter().hp < charBeforeOverflow.hp,
+    passed: getChar(sm).stress === getChar(sm).maxStress && getChar(sm).hp < charBeforeOverflow.hp,
     notes: '压力超过上限后溢出为HP伤害',
   });
 
@@ -538,8 +530,8 @@ async function runSimulation(): Promise<void> {
     action: '战斗结束后获取战利品',
     result: combatLoot.items.length > 0 ? `获得 ${combatLoot.items.map(i => i.name).join('、')}` : '无物品掉落',
     stateAfter: getStateSnapshot(sm),
-    passed: sm.getCharacter().inventory.length > 0 || sm.getCharacter().gold.coins > 0,
-    notes: `物品:${sm.getCharacter().inventory.length}件 金币:${sm.getCharacter().gold.coins}`,
+    passed: getChar(sm).inventory.length > 0 || getChar(sm).gold.coins > 0,
+    notes: `物品:${getChar(sm).inventory.length}件 金币:${getChar(sm).gold.coins}`,
   });
 
   // ===== Phase 11: Difficulty Evaluation =====
@@ -580,7 +572,7 @@ async function runSimulation(): Promise<void> {
   });
 
   // Character final state
-  const finalChar = sm.getCharacter();
+  const finalChar = getChar(sm);
   logStep({
     phase: '角色状态',
     action: '角色最终状态',

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { AIGateway } from '../ai/AIGateway';
 import type { AIConfig } from '../ai/AIGateway';
 import { maskApiKey } from '../ai/AIConfigService';
+import { aiConfigUpdateSchema, validatePayload } from '../network/validation';
 
 export interface AIRouterState {
   aiConfig: AIConfig | null;
@@ -50,16 +51,14 @@ export function createAiRouter(
   });
 
   router.put('/api/ai/config', (req, res) => {
-    const { apiKey, baseUrl, defaultModel, narratorModel, temperature, maxTokens } = req.body as {
-      apiKey?: string;
-      baseUrl?: string;
-      defaultModel?: string;
-      narratorModel?: string;
-      temperature?: number;
-      maxTokens?: number;
-    };
+    const validation = validatePayload(aiConfigUpdateSchema, req.body);
+    if (!validation.success) {
+      res.status(400).json({ success: false, errors: [validation.error] });
+      return;
+    }
 
-    const cleanApiKey = apiKey && apiKey.includes('••••') ? undefined : apiKey;
+    const { apiKey, baseUrl, defaultModel, narratorModel, temperature, maxTokens } = validation.data;
+    const cleanApiKey = apiKey.includes('••••') ? undefined : apiKey;
 
     const result = reinitializeAI({
       apiKey: cleanApiKey,

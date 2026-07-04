@@ -1,0 +1,5155 @@
+{
+  "version": "1.0.0",
+  "generatedAt": "2026-06-29T16:40:42.852Z",
+  "totalEnemies": 38,
+  "byTier": {
+    "1": 14,
+    "2": 10,
+    "3": 9,
+    "4": 5
+  },
+  "byType": {
+    "minion": 6,
+    "standard": 4,
+    "horde": 2,
+    "leader": 3,
+    "skulker": 3,
+    "ranged": 1,
+    "bruiser": 7,
+    "support": 2,
+    "solo": 10
+  },
+  "enemies": [
+    {
+      "id": "enemy_1782751242851_0_3188",
+      "statBlockId": "goblin-raider",
+      "name": "哥布林劫掠者",
+      "currentHp": 1,
+      "maxHp": 1,
+      "currentStress": 0,
+      "maxStress": 1,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 10,
+      "behavior": "bruiser",
+      "attacks": [
+        {
+          "name": "短刀乱斩",
+          "attribute": "agility",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 6
+              }
+            ],
+            "modifier": 0,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "群聚攻击",
+          "type": "passive",
+          "cost": 0,
+          "description": "当多个哥布林劫掠者攻击同一目标时，每个额外的哥布林使攻击获得优势。"
+        }
+      ],
+      "experiences": [],
+      "fearTraits": [],
+      "type": "minion",
+      "minionDefeatThreshold": 3,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_1_7962",
+      "statBlockId": "skeleton-warrior",
+      "name": "骷髅战士",
+      "currentHp": 3,
+      "maxHp": 3,
+      "currentStress": 0,
+      "maxStress": 2,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 9,
+      "behavior": "bruiser",
+      "attacks": [
+        {
+          "name": "锈剑劈砍",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 6
+              }
+            ],
+            "modifier": 2,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "亡灵坚韧",
+          "type": "passive",
+          "cost": 0,
+          "description": "免疫中毒和点燃状态。"
+        }
+      ],
+      "experiences": [
+        {
+          "name": "行军",
+          "modifier": 2,
+          "situation": "在队伍中战斗时"
+        }
+      ],
+      "fearTraits": [],
+      "type": "standard",
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_2_4770",
+      "statBlockId": "wolf",
+      "name": "狼",
+      "currentHp": 1,
+      "maxHp": 1,
+      "currentStress": 0,
+      "maxStress": 1,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 12,
+      "behavior": "bruiser",
+      "attacks": [
+        {
+          "name": "撕咬",
+          "attribute": "instinct",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 6
+              }
+            ],
+            "modifier": 0,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "群猎",
+          "type": "passive",
+          "cost": 0,
+          "description": "当两个或更多狼攻击同一目标时，获得优势。"
+        }
+      ],
+      "experiences": [],
+      "fearTraits": [],
+      "type": "minion",
+      "minionDefeatThreshold": 3,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_3_1971",
+      "statBlockId": "zombie",
+      "name": "僵尸",
+      "currentHp": 1,
+      "maxHp": 1,
+      "currentStress": 0,
+      "maxStress": 1,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 7,
+      "behavior": "bruiser",
+      "attacks": [
+        {
+          "name": "腐手拍击",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 6
+              }
+            ],
+            "modifier": 0,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "不死者",
+          "type": "passive",
+          "cost": 0,
+          "description": "免疫中毒、点燃和恐惧效果。"
+        }
+      ],
+      "experiences": [],
+      "fearTraits": [],
+      "type": "minion",
+      "minionDefeatThreshold": 3,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_4_6713",
+      "statBlockId": "rat-swarm",
+      "name": "鼠群",
+      "currentHp": 4,
+      "maxHp": 4,
+      "currentStress": 0,
+      "maxStress": 3,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 11,
+      "behavior": "bruiser",
+      "attacks": [
+        {
+          "name": "啃咬狂潮",
+          "attribute": "instinct",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 6
+              }
+            ],
+            "modifier": 1,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "鼠潮",
+          "type": "passive",
+          "cost": 0,
+          "description": "免疫束缚和震慑状态。受到范围攻击时额外标记1压力。"
+        }
+      ],
+      "experiences": [
+        {
+          "name": "集群",
+          "modifier": 2,
+          "situation": "在下水道或废墟中战斗时"
+        }
+      ],
+      "fearTraits": [],
+      "type": "horde",
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "hordeDamage": 2,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_5_334",
+      "statBlockId": "bandit",
+      "name": "强盗",
+      "currentHp": 5,
+      "maxHp": 5,
+      "currentStress": 0,
+      "maxStress": 3,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 11,
+      "behavior": "ambusher",
+      "attacks": [
+        {
+          "name": "弯刀劈砍",
+          "attribute": "agility",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 8
+              }
+            ],
+            "modifier": 1,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "卑劣打击",
+          "type": "action",
+          "cost": 0,
+          "description": "当目标处于脆弱状态时，攻击造成额外1d6伤害。"
+        },
+        {
+          "name": "脱战",
+          "type": "fear",
+          "cost": 1,
+          "description": "花费1恐惧点，强盗脱离战斗并移动至远距离。",
+          "fearEffect": {
+            "target": "self",
+            "moveDistance": 3
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "劫道",
+          "modifier": 2,
+          "situation": "伏击旅人时"
+        }
+      ],
+      "fearTraits": [
+        {
+          "name": "脱战",
+          "cost": 1,
+          "description": "花费1恐惧点，强盗脱离战斗并移动至远距离。"
+        }
+      ],
+      "type": "standard",
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_6_5971",
+      "statBlockId": "cultist",
+      "name": "邪教徒",
+      "currentHp": 5,
+      "maxHp": 5,
+      "currentStress": 0,
+      "maxStress": 4,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 10,
+      "behavior": "leader",
+      "attacks": [
+        {
+          "name": "匕首刺击",
+          "attribute": "presence",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 6
+              }
+            ],
+            "modifier": 2,
+            "type": "physical"
+          },
+          "targets": "single"
+        },
+        {
+          "name": "黑暗祈祷",
+          "attribute": "presence",
+          "distance": "nearby",
+          "damage": {
+            "dice": [],
+            "modifier": 0,
+            "type": "direct"
+          },
+          "targets": "all",
+          "stressDamage": 1
+        }
+      ],
+      "features": [
+        {
+          "name": "黑暗祈祷",
+          "type": "action",
+          "cost": 0,
+          "description": "对近距离内所有目标施加1点压力。"
+        },
+        {
+          "name": "邪教仪式",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，召唤1d4只僵尸增援。",
+          "fearEffect": {
+            "target": "self",
+            "summonEnemyId": "zombie",
+            "summonCount": {
+              "dice": [
+                {
+                  "count": 1,
+                  "sides": 4
+                }
+              ],
+              "modifier": 0,
+              "type": "direct"
+            }
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "邪教仪式",
+          "modifier": 2,
+          "situation": "在祭坛或圣所内战斗时"
+        }
+      ],
+      "fearTraits": [
+        {
+          "name": "邪教仪式",
+          "cost": 2,
+          "description": "花费2恐惧点，召唤1d4只僵尸增援。"
+        }
+      ],
+      "type": "leader",
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_7_3314",
+      "statBlockId": "forest-spider",
+      "name": "森林蜘蛛",
+      "currentHp": 4,
+      "maxHp": 4,
+      "currentStress": 0,
+      "maxStress": 3,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 13,
+      "behavior": "ambusher",
+      "attacks": [
+        {
+          "name": "毒牙噬咬",
+          "attribute": "instinct",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 8
+              }
+            ],
+            "modifier": 1,
+            "type": "physical"
+          },
+          "targets": "single",
+          "conditionApplied": "poisoned",
+          "conditionDuration": 2
+        },
+        {
+          "name": "蛛网喷射",
+          "attribute": "instinct",
+          "distance": "nearby",
+          "damage": {
+            "dice": [],
+            "modifier": 0,
+            "type": "direct"
+          },
+          "targets": "single",
+          "conditionApplied": "restrained",
+          "conditionDuration": 2
+        }
+      ],
+      "features": [
+        {
+          "name": "毒液",
+          "type": "passive",
+          "cost": 0,
+          "description": "毒牙噬咬命中的目标进入中毒状态2回合。"
+        },
+        {
+          "name": "蛛网陷阱",
+          "type": "action",
+          "cost": 0,
+          "description": "对近距离内单一目标施加束缚状态2回合。"
+        }
+      ],
+      "experiences": [
+        {
+          "name": "伏击猎手",
+          "modifier": 2,
+          "situation": "从隐藏状态攻击时"
+        }
+      ],
+      "fearTraits": [],
+      "type": "skulker",
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_8_4258",
+      "statBlockId": "mercenary-archer",
+      "name": "佣兵弓手",
+      "currentHp": 4,
+      "maxHp": 4,
+      "currentStress": 0,
+      "maxStress": 3,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 11,
+      "behavior": "caster",
+      "attacks": [
+        {
+          "name": "精准射击",
+          "attribute": "finesse",
+          "distance": "far",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 8
+              }
+            ],
+            "modifier": 2,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "瞄准",
+          "type": "action",
+          "cost": 0,
+          "description": "下次攻击获得优势。"
+        },
+        {
+          "name": "撤退射击",
+          "type": "fear",
+          "cost": 1,
+          "description": "花费1恐惧点，后退并射击，移动至远距离并造成1d8伤害。",
+          "fearEffect": {
+            "target": "self",
+            "moveDistance": 3
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "远程作战",
+          "modifier": 2,
+          "situation": "攻击远距离目标时"
+        }
+      ],
+      "fearTraits": [
+        {
+          "name": "撤退射击",
+          "cost": 1,
+          "description": "花费1恐惧点，后退并射击，移动至远距离并造成1d8伤害。"
+        }
+      ],
+      "type": "ranged",
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_9_8413",
+      "statBlockId": "orc-brute",
+      "name": "兽人暴徒",
+      "currentHp": 7,
+      "maxHp": 7,
+      "currentStress": 0,
+      "maxStress": 2,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 8,
+      "behavior": "bruiser",
+      "attacks": [
+        {
+          "name": "巨锤猛击",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 12
+              }
+            ],
+            "modifier": 2,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "横扫",
+          "type": "action",
+          "cost": 0,
+          "description": "近战范围内攻击额外一名角色，造成1d8伤害。"
+        },
+        {
+          "name": "暴怒冲锋",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，冲向目标造成额外1d10伤害并施加惊讶状态。",
+          "fearEffect": {
+            "target": "singlePlayer",
+            "conditionApplied": "surprised",
+            "conditionDuration": 1
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "蛮力",
+          "modifier": 2,
+          "situation": "使用力量击破障碍时"
+        }
+      ],
+      "fearTraits": [
+        {
+          "name": "暴怒冲锋",
+          "cost": 2,
+          "description": "花费2恐惧点，冲向目标造成额外1d10伤害并施加惊讶状态。"
+        }
+      ],
+      "type": "bruiser",
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_10_6536",
+      "statBlockId": "swamp-lurker",
+      "name": "沼泽潜伏者",
+      "currentHp": 4,
+      "maxHp": 4,
+      "currentStress": 0,
+      "maxStress": 3,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 10,
+      "behavior": "ambusher",
+      "attacks": [
+        {
+          "name": "泥浆喷吐",
+          "attribute": "instinct",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 6
+              }
+            ],
+            "modifier": 1,
+            "type": "physical"
+          },
+          "targets": "single",
+          "conditionApplied": "blind",
+          "conditionDuration": 1
+        }
+      ],
+      "features": [
+        {
+          "name": "泥沼伪装",
+          "type": "passive",
+          "cost": 0,
+          "description": "在沼泽地形中获得隐藏状态。"
+        }
+      ],
+      "experiences": [
+        {
+          "name": "沼泽猎手",
+          "modifier": 2,
+          "situation": "在湿地或沼泽中战斗时"
+        }
+      ],
+      "fearTraits": [],
+      "type": "horde",
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "hordeDamage": 2,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_11_3181",
+      "statBlockId": "goblin-shaman",
+      "name": "哥布林萨满",
+      "currentHp": 3,
+      "maxHp": 3,
+      "currentStress": 0,
+      "maxStress": 3,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 10,
+      "behavior": "support",
+      "attacks": [
+        {
+          "name": "骨杖敲击",
+          "attribute": "presence",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 6
+              }
+            ],
+            "modifier": 1,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "哥布林鼓舞",
+          "type": "action",
+          "cost": 0,
+          "description": "为一名友方敌人清除1压力。"
+        },
+        {
+          "name": "诅咒图腾",
+          "type": "fear",
+          "cost": 1,
+          "description": "花费1恐惧点，对单一目标施加1点压力。",
+          "fearEffect": {
+            "target": "singlePlayer",
+            "stressDamage": 1
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "部落巫术",
+          "modifier": 2,
+          "situation": "在哥布林领地施法时"
+        }
+      ],
+      "fearTraits": [
+        {
+          "name": "诅咒图腾",
+          "cost": 1,
+          "description": "花费1恐惧点，对单一目标施加1点压力。"
+        }
+      ],
+      "type": "support",
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_12_2528",
+      "statBlockId": "cave-bear",
+      "name": "洞穴熊",
+      "currentHp": 7,
+      "maxHp": 7,
+      "currentStress": 0,
+      "maxStress": 2,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 9,
+      "behavior": "bruiser",
+      "attacks": [
+        {
+          "name": "巨爪撕裂",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 8
+              }
+            ],
+            "modifier": 3,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "狂暴",
+          "type": "passive",
+          "cost": 0,
+          "description": "当标记2压力时，攻击获得优势。"
+        }
+      ],
+      "experiences": [],
+      "fearTraits": [],
+      "type": "bruiser",
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_13_2024",
+      "statBlockId": "acid-burrower",
+      "name": "酸液掘虫",
+      "currentHp": 8,
+      "maxHp": 8,
+      "currentStress": 0,
+      "maxStress": 3,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 10,
+      "behavior": "solo",
+      "attacks": [
+        {
+          "name": "酸液喷吐",
+          "attribute": "instinct",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 12
+              }
+            ],
+            "modifier": 2,
+            "type": "magical"
+          },
+          "targets": "single",
+          "conditionApplied": "corroded",
+          "conditionDuration": 2
+        },
+        {
+          "name": "利爪横扫",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 10
+              }
+            ],
+            "modifier": 2,
+            "type": "physical"
+          },
+          "targets": "closeBlast"
+        }
+      ],
+      "features": [
+        {
+          "name": "掘地突袭",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，从地下突袭，对近距离内一名角色施加2压力。",
+          "fearEffect": {
+            "target": "singlePlayer",
+            "stressDamage": 2
+          }
+        },
+        {
+          "name": "酸血",
+          "type": "passive",
+          "cost": 0,
+          "description": "近战范围内攻击酸液掘虫的角色标记1压力。"
+        }
+      ],
+      "experiences": [],
+      "fearTraits": [
+        {
+          "name": "掘地突袭",
+          "cost": 2,
+          "description": "花费2恐惧点，从地下突袭，对近距离内一名角色施加2压力。"
+        }
+      ],
+      "type": "solo",
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "relentlessCount": 1,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_14_8603",
+      "statBlockId": "shadow-mage",
+      "name": "暗影法师",
+      "currentHp": 4,
+      "maxHp": 4,
+      "currentStress": 0,
+      "maxStress": 3,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 11,
+      "behavior": "caster",
+      "attacks": [
+        {
+          "name": "暗影箭",
+          "attribute": "knowledge",
+          "distance": "far",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 6
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "暗影步",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，消失在阴影中并出现在任意位置。",
+          "fearEffect": {
+            "target": "self",
+            "moveDistance": 5
+          }
+        },
+        {
+          "name": "暗影庇护",
+          "type": "passive",
+          "cost": 0,
+          "description": "在黑暗环境中获得闪避+2。"
+        }
+      ],
+      "experiences": [
+        {
+          "name": "暗影术",
+          "modifier": 2,
+          "situation": "在黑暗环境中施法时"
+        }
+      ],
+      "fearTraits": [
+        {
+          "name": "暗影步",
+          "cost": 2,
+          "description": "花费2恐惧点，消失在阴影中并出现在任意位置。"
+        }
+      ],
+      "type": "standard",
+      "majorThreshold": 10,
+      "severeThreshold": 20,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_15_742",
+      "statBlockId": "knight-of-ashes",
+      "name": "灰烬骑士",
+      "currentHp": 7,
+      "maxHp": 7,
+      "currentStress": 0,
+      "maxStress": 5,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 9,
+      "behavior": "bruiser",
+      "attacks": [
+        {
+          "name": "焚灭斩",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 8
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "single",
+          "stressDamage": 1
+        }
+      ],
+      "features": [
+        {
+          "name": "灰烬之盾",
+          "type": "passive",
+          "cost": 0,
+          "description": "每次受到伤害时，可标记1压力减少1点HP标记。"
+        },
+        {
+          "name": "灰烬爆发",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，释放灰烬波，近战范围内所有角色标记2压力。",
+          "fearEffect": {
+            "target": "allPlayers",
+            "stressDamage": 2
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "德拉肯海姆老兵",
+          "modifier": 2,
+          "situation": "在德拉肯海姆废墟中战斗时"
+        }
+      ],
+      "fearTraits": [
+        {
+          "name": "灰烬爆发",
+          "cost": 2,
+          "description": "花费2恐惧点，释放灰烬波，近战范围内所有角色标记2压力。"
+        }
+      ],
+      "type": "bruiser",
+      "majorThreshold": 10,
+      "severeThreshold": 20,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_16_6867",
+      "statBlockId": "hobgoblin-captain",
+      "name": "大地精队长",
+      "currentHp": 7,
+      "maxHp": 7,
+      "currentStress": 0,
+      "maxStress": 5,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 11,
+      "behavior": "leader",
+      "attacks": [
+        {
+          "name": "长剑连斩",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 8
+              }
+            ],
+            "modifier": 4,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "战场指挥",
+          "type": "action",
+          "cost": 0,
+          "description": "指挥一名友方敌人立即执行一次攻击。"
+        },
+        {
+          "name": "号令冲锋",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，所有友方敌人获得优势直到下一轮。",
+          "fearEffect": {
+            "target": "allEnemies"
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "军事战术",
+          "modifier": 2,
+          "situation": "指挥部队作战时"
+        }
+      ],
+      "fearTraits": [
+        {
+          "name": "号令冲锋",
+          "cost": 2,
+          "description": "花费2恐惧点，所有友方敌人获得优势直到下一轮。"
+        }
+      ],
+      "type": "leader",
+      "majorThreshold": 10,
+      "severeThreshold": 20,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_17_406",
+      "statBlockId": "dark-priest",
+      "name": "暗黑祭司",
+      "currentHp": 5,
+      "maxHp": 5,
+      "currentStress": 0,
+      "maxStress": 5,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 10,
+      "behavior": "support",
+      "attacks": [
+        {
+          "name": "暗言术",
+          "attribute": "presence",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 6
+              }
+            ],
+            "modifier": 2,
+            "type": "magical"
+          },
+          "targets": "single",
+          "stressDamage": 1
+        }
+      ],
+      "features": [
+        {
+          "name": "暗影庇护",
+          "type": "action",
+          "cost": 0,
+          "description": "为一名友方敌人清除1压力或1个状态。"
+        },
+        {
+          "name": "黑暗祝福",
+          "type": "fear",
+          "cost": 1,
+          "description": "花费1恐惧点，一名友方敌人恢复2HP。",
+          "fearEffect": {
+            "target": "allEnemies"
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "暗黑神术",
+          "modifier": 2,
+          "situation": "在神殿或祭坛中施法时"
+        }
+      ],
+      "fearTraits": [
+        {
+          "name": "黑暗祝福",
+          "cost": 1,
+          "description": "花费1恐惧点，一名友方敌人恢复2HP。"
+        }
+      ],
+      "type": "support",
+      "majorThreshold": 10,
+      "severeThreshold": 20,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_18_7817",
+      "statBlockId": "fire-elemental",
+      "name": "火元素",
+      "currentHp": 9,
+      "maxHp": 9,
+      "currentStress": 0,
+      "maxStress": 3,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 12,
+      "behavior": "solo",
+      "attacks": [
+        {
+          "name": "烈焰鞭笞",
+          "attribute": "knowledge",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 8
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "single",
+          "conditionApplied": "ignited",
+          "conditionDuration": 2
+        },
+        {
+          "name": "火焰爆发",
+          "attribute": "knowledge",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 6
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "closeBlast",
+          "conditionApplied": "ignited",
+          "conditionDuration": 1
+        }
+      ],
+      "features": [
+        {
+          "name": "烈焰之躯",
+          "type": "passive",
+          "cost": 0,
+          "description": "对物理伤害具有抗性。近战范围攻击火元素的角色标记1压力。"
+        },
+        {
+          "name": "元素暴怒",
+          "type": "fear",
+          "cost": 3,
+          "description": "花费3恐惧点，释放灼热波，近战范围内所有角色标记2压力并点燃。",
+          "fearEffect": {
+            "target": "allPlayers",
+            "stressDamage": 2,
+            "conditionApplied": "ignited",
+            "conditionDuration": 2
+          }
+        }
+      ],
+      "experiences": [],
+      "fearTraits": [
+        {
+          "name": "元素暴怒",
+          "cost": 3,
+          "description": "花费3恐惧点，释放灼热波，近战范围内所有角色标记2压力并点燃。"
+        }
+      ],
+      "type": "solo",
+      "majorThreshold": 10,
+      "severeThreshold": 20,
+      "relentlessCount": 2,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_19_7939",
+      "statBlockId": "giant-spider-broodmother",
+      "name": "巨型蜘蛛母后",
+      "currentHp": 9,
+      "maxHp": 9,
+      "currentStress": 0,
+      "maxStress": 3,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 11,
+      "behavior": "solo",
+      "attacks": [
+        {
+          "name": "毒牙噬咬",
+          "attribute": "instinct",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 8
+              }
+            ],
+            "modifier": 2,
+            "type": "physical"
+          },
+          "targets": "single",
+          "conditionApplied": "poisoned",
+          "conditionDuration": 3
+        },
+        {
+          "name": "蛛网喷射",
+          "attribute": "instinct",
+          "distance": "nearby",
+          "damage": {
+            "dice": [],
+            "modifier": 0,
+            "type": "direct"
+          },
+          "targets": "all",
+          "conditionApplied": "restrained",
+          "conditionDuration": 2
+        }
+      ],
+      "features": [
+        {
+          "name": "召唤幼蛛",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，召唤1d4只森林蜘蛛增援。",
+          "fearEffect": {
+            "target": "self",
+            "summonEnemyId": "forest-spider",
+            "summonCount": {
+              "dice": [
+                {
+                  "count": 1,
+                  "sides": 4
+                }
+              ],
+              "modifier": 0,
+              "type": "direct"
+            }
+          }
+        },
+        {
+          "name": "蛛巢之主",
+          "type": "passive",
+          "cost": 0,
+          "description": "在蜘蛛巢穴中战斗时获得2个优势来源。"
+        }
+      ],
+      "experiences": [
+        {
+          "name": "伏击大师",
+          "modifier": 2,
+          "situation": "在巢穴中伏击时"
+        }
+      ],
+      "fearTraits": [
+        {
+          "name": "召唤幼蛛",
+          "cost": 2,
+          "description": "花费2恐惧点，召唤1d4只森林蜘蛛增援。"
+        }
+      ],
+      "type": "solo",
+      "majorThreshold": 10,
+      "severeThreshold": 20,
+      "relentlessCount": 2,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_20_4574",
+      "statBlockId": "wraith",
+      "name": "幽魂",
+      "currentHp": 5,
+      "maxHp": 5,
+      "currentStress": 0,
+      "maxStress": 4,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 13,
+      "behavior": "ambusher",
+      "attacks": [
+        {
+          "name": "寒冰之触",
+          "attribute": "presence",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 6
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "single",
+          "stressDamage": 1
+        }
+      ],
+      "features": [
+        {
+          "name": "虚体",
+          "type": "passive",
+          "cost": 0,
+          "description": "对物理伤害具有抗性。免疫束缚和中毒。"
+        },
+        {
+          "name": "穿墙遁影",
+          "type": "fear",
+          "cost": 1,
+          "description": "花费1恐惧点，穿过墙壁消失，获得隐藏状态。",
+          "fearEffect": {
+            "target": "self"
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "恐惧",
+          "modifier": 2,
+          "situation": "在墓地或亡灵之地战斗时"
+        }
+      ],
+      "fearTraits": [
+        {
+          "name": "穿墙遁影",
+          "cost": 1,
+          "description": "花费1恐惧点，穿过墙壁消失，获得隐藏状态。"
+        }
+      ],
+      "type": "skulker",
+      "majorThreshold": 10,
+      "severeThreshold": 20,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_21_1252",
+      "statBlockId": "stone-golem",
+      "name": "石像魔像",
+      "currentHp": 7,
+      "maxHp": 7,
+      "currentStress": 0,
+      "maxStress": 5,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 7,
+      "behavior": "bruiser",
+      "attacks": [
+        {
+          "name": "巨拳轰击",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 10
+              }
+            ],
+            "modifier": 4,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "石肤",
+          "type": "passive",
+          "cost": 0,
+          "description": "免疫中毒、点燃和魅惑。所有受到的物理伤害减少1点HP标记。"
+        },
+        {
+          "name": "迟缓",
+          "type": "passive",
+          "cost": 0,
+          "description": "需要被聚焦2次才能行动。"
+        }
+      ],
+      "experiences": [],
+      "fearTraits": [],
+      "type": "bruiser",
+      "majorThreshold": 10,
+      "severeThreshold": 20,
+      "isSlow": true,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_22_4295",
+      "statBlockId": "cult-initiate",
+      "name": "邪教信徒",
+      "currentHp": 1,
+      "maxHp": 1,
+      "currentStress": 0,
+      "maxStress": 1,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 10,
+      "behavior": "support",
+      "attacks": [
+        {
+          "name": "匕首刺击",
+          "attribute": "agility",
+          "distance": "melee",
+          "damage": {
+            "dice": [],
+            "modifier": 5,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "狂信",
+          "type": "passive",
+          "cost": 0,
+          "description": "在场上有邪教领袖时攻击获得优势。"
+        }
+      ],
+      "experiences": [],
+      "fearTraits": [],
+      "type": "minion",
+      "minionDefeatThreshold": 6,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_23_2830",
+      "statBlockId": "elite-soldier",
+      "name": "精锐士兵",
+      "currentHp": 4,
+      "maxHp": 4,
+      "currentStress": 0,
+      "maxStress": 3,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 11,
+      "behavior": "bruiser",
+      "attacks": [
+        {
+          "name": "精锐斩击",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 8
+              }
+            ],
+            "modifier": 4,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "坚阵",
+          "type": "passive",
+          "cost": 0,
+          "description": "相邻有友方敌人时闪避+2。"
+        }
+      ],
+      "experiences": [],
+      "fearTraits": [],
+      "type": "standard",
+      "majorThreshold": 10,
+      "severeThreshold": 20,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_24_9895",
+      "statBlockId": "haze-horror",
+      "name": "污霭恐惧者",
+      "currentHp": 10,
+      "maxHp": 10,
+      "currentStress": 0,
+      "maxStress": 5,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 9,
+      "behavior": "solo",
+      "attacks": [
+        {
+          "name": "恐惧凝视",
+          "attribute": "instinct",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 3,
+                "sides": 8
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "single",
+          "stressDamage": 2
+        },
+        {
+          "name": "污霭触手",
+          "attribute": "instinct",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 12
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "污霭护甲",
+          "type": "passive",
+          "cost": 0,
+          "description": "对非魔法伤害具有抗性。"
+        },
+        {
+          "name": "污霭爆发",
+          "type": "fear",
+          "cost": 3,
+          "description": "花费3恐惧点，释放浓雾，所有角色标记1压力并束缚1轮。",
+          "fearEffect": {
+            "target": "allPlayers",
+            "stressDamage": 1,
+            "conditionApplied": "restrained",
+            "conditionDuration": 1
+          }
+        },
+        {
+          "name": "腐化之触",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，命中目标额外增加1级污染等级。",
+          "fearEffect": {
+            "target": "singlePlayer",
+            "contaminationIncrease": 1
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "恐惧化身",
+          "modifier": 3,
+          "situation": "恐吓或威慑时"
+        },
+        {
+          "name": "污霭之子",
+          "modifier": 2,
+          "situation": "在浓雾或污染区域中战斗时"
+        }
+      ],
+      "fearTraits": [
+        {
+          "name": "污霭爆发",
+          "cost": 3,
+          "description": "花费3恐惧点，释放浓雾，所有角色标记1压力并束缚1轮。"
+        },
+        {
+          "name": "腐化之触",
+          "cost": 2,
+          "description": "花费2恐惧点，命中目标额外增加1级污染等级。"
+        }
+      ],
+      "type": "solo",
+      "majorThreshold": 20,
+      "severeThreshold": 32,
+      "relentlessCount": 2,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_25_1477",
+      "statBlockId": "spore-drake",
+      "name": "孢子龙",
+      "currentHp": 10,
+      "maxHp": 10,
+      "currentStress": 0,
+      "maxStress": 5,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 11,
+      "behavior": "solo",
+      "attacks": [
+        {
+          "name": "利爪撕裂",
+          "attribute": "agility",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 3,
+                "sides": 8
+              }
+            ],
+            "modifier": 3,
+            "type": "physical"
+          },
+          "targets": "single"
+        },
+        {
+          "name": "酸性吐息",
+          "attribute": "agility",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 3,
+                "sides": 10
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "closeBlast"
+        }
+      ],
+      "features": [
+        {
+          "name": "孢子云",
+          "type": "passive",
+          "cost": 0,
+          "description": "近战范围内攻击孢子龙的角色标记1压力。"
+        },
+        {
+          "name": "孢子爆发",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，释放孢子云团，近距离内所有角色标记2压力。",
+          "fearEffect": {
+            "target": "allPlayers",
+            "stressDamage": 2
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "空中猎手",
+          "modifier": 2,
+          "situation": "攻击飞行或高处目标时"
+        },
+        {
+          "name": "孢子之躯",
+          "modifier": 2,
+          "situation": "在潮湿或真菌环境中战斗时"
+        }
+      ],
+      "fearTraits": [
+        {
+          "name": "孢子爆发",
+          "cost": 2,
+          "description": "花费2恐惧点，释放孢子云团，近距离内所有角色标记2压力。"
+        }
+      ],
+      "type": "solo",
+      "majorThreshold": 20,
+      "severeThreshold": 32,
+      "relentlessCount": 2,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_26_953",
+      "statBlockId": "vampire-lord",
+      "name": "吸血鬼领主",
+      "currentHp": 10,
+      "maxHp": 10,
+      "currentStress": 0,
+      "maxStress": 5,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 13,
+      "behavior": "solo",
+      "attacks": [
+        {
+          "name": "鲜血之爪",
+          "attribute": "agility",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 3,
+                "sides": 8
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "single",
+          "stressDamage": 1
+        },
+        {
+          "name": "鲜血支配",
+          "attribute": "presence",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 10
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "all",
+          "stressDamage": 1
+        }
+      ],
+      "features": [
+        {
+          "name": "吸血回复",
+          "type": "passive",
+          "cost": 0,
+          "description": "每次造成严重伤害时恢复1HP。"
+        },
+        {
+          "name": "魅惑凝视",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，对单一目标施加魅惑状态2轮。",
+          "fearEffect": {
+            "target": "singlePlayer",
+            "conditionApplied": "charmed",
+            "conditionDuration": 2
+          }
+        },
+        {
+          "name": "血雾",
+          "type": "fear",
+          "cost": 3,
+          "description": "花费3恐惧点，变为血雾移动至任意位置并恢复2HP。",
+          "fearEffect": {
+            "target": "self",
+            "moveDistance": 5
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "暗夜君王",
+          "modifier": 3,
+          "situation": "在夜晚或黑暗环境中战斗时"
+        }
+      ],
+      "fearTraits": [
+        {
+          "name": "魅惑凝视",
+          "cost": 2,
+          "description": "花费2恐惧点，对单一目标施加魅惑状态2轮。"
+        },
+        {
+          "name": "血雾",
+          "cost": 3,
+          "description": "花费3恐惧点，变为血雾移动至任意位置并恢复2HP。"
+        }
+      ],
+      "type": "solo",
+      "majorThreshold": 20,
+      "severeThreshold": 32,
+      "relentlessCount": 2,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242851_27_7805",
+      "statBlockId": "demon-of-wrath",
+      "name": "愤怒恶魔",
+      "currentHp": 7,
+      "maxHp": 7,
+      "currentStress": 0,
+      "maxStress": 5,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 9,
+      "behavior": "bruiser",
+      "attacks": [
+        {
+          "name": "怒拳",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 3,
+                "sides": 8
+              }
+            ],
+            "modifier": 1,
+            "type": "magical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "狂怒",
+          "type": "passive",
+          "cost": 0,
+          "description": "当标记压力时，攻击获得优势。"
+        },
+        {
+          "name": "暴怒冲击",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，冲向目标造成额外2d8伤害。",
+          "fearEffect": {
+            "target": "singlePlayer",
+            "hpDamage": {
+              "dice": [
+                {
+                  "count": 2,
+                  "sides": 8
+                }
+              ],
+              "modifier": 0,
+              "type": "magical"
+            }
+          }
+        }
+      ],
+      "experiences": [],
+      "fearTraits": [
+        {
+          "name": "暴怒冲击",
+          "cost": 2,
+          "description": "花费2恐惧点，冲向目标造成额外2d8伤害。"
+        }
+      ],
+      "type": "bruiser",
+      "majorThreshold": 20,
+      "severeThreshold": 32,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242852_28_7850",
+      "statBlockId": "hydra",
+      "name": "九头蛇",
+      "currentHp": 10,
+      "maxHp": 10,
+      "currentStress": 0,
+      "maxStress": 5,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 10,
+      "behavior": "solo",
+      "attacks": [
+        {
+          "name": "多头噬咬",
+          "attribute": "instinct",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 12
+              }
+            ],
+            "modifier": 2,
+            "type": "physical"
+          },
+          "targets": "single"
+        },
+        {
+          "name": "酸液喷溅",
+          "attribute": "instinct",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 3,
+                "sides": 8
+              }
+            ],
+            "modifier": 2,
+            "type": "magical"
+          },
+          "targets": "closeBlast",
+          "conditionApplied": "corroded",
+          "conditionDuration": 2
+        }
+      ],
+      "features": [
+        {
+          "name": "再生",
+          "type": "passive",
+          "cost": 0,
+          "description": "每轮开始时恢复1HP。"
+        },
+        {
+          "name": "多头攻击",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，攻击近距离内额外2名目标。",
+          "fearEffect": {
+            "target": "allPlayers",
+            "stressDamage": 1
+          }
+        }
+      ],
+      "experiences": [],
+      "fearTraits": [
+        {
+          "name": "多头攻击",
+          "cost": 2,
+          "description": "花费2恐惧点，攻击近距离内额外2名目标。"
+        }
+      ],
+      "type": "solo",
+      "majorThreshold": 20,
+      "severeThreshold": 32,
+      "relentlessCount": 2,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242852_29_2567",
+      "statBlockId": "war-troll",
+      "name": "战争巨魔",
+      "currentHp": 7,
+      "maxHp": 7,
+      "currentStress": 0,
+      "maxStress": 5,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 8,
+      "behavior": "bruiser",
+      "attacks": [
+        {
+          "name": "巨棒粉碎",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 3,
+                "sides": 8
+              }
+            ],
+            "modifier": 3,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "再生",
+          "type": "passive",
+          "cost": 0,
+          "description": "每轮开始时恢复1HP。点燃状态时无法再生。"
+        },
+        {
+          "name": "蛮横冲撞",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，冲撞一名角色至远距离并施加脆弱。",
+          "fearEffect": {
+            "target": "singlePlayer",
+            "conditionApplied": "vulnerable",
+            "conditionDuration": 1
+          }
+        }
+      ],
+      "experiences": [],
+      "fearTraits": [
+        {
+          "name": "蛮横冲撞",
+          "cost": 2,
+          "description": "花费2恐惧点，冲撞一名角色至远距离并施加脆弱。"
+        }
+      ],
+      "type": "bruiser",
+      "majorThreshold": 20,
+      "severeThreshold": 32,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242852_30_6925",
+      "statBlockId": "shadow-assassin",
+      "name": "暗影刺客",
+      "currentHp": 5,
+      "maxHp": 5,
+      "currentStress": 0,
+      "maxStress": 4,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 14,
+      "behavior": "ambusher",
+      "attacks": [
+        {
+          "name": "暗杀之刃",
+          "attribute": "finesse",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 3,
+                "sides": 6
+              }
+            ],
+            "modifier": 3,
+            "type": "physical"
+          },
+          "targets": "single",
+          "bonusDamage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 8
+              }
+            ],
+            "modifier": 0,
+            "type": "physical"
+          },
+          "bonusDamageCondition": "目标处于脆弱或惊讶状态"
+        }
+      ],
+      "features": [
+        {
+          "name": "暗影融合",
+          "type": "passive",
+          "cost": 0,
+          "description": "攻击后自动获得隐藏状态。"
+        },
+        {
+          "name": "致命一击",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，对脆弱目标造成额外2d8伤害。",
+          "fearEffect": {
+            "target": "singlePlayer",
+            "hpDamage": {
+              "dice": [
+                {
+                  "count": 2,
+                  "sides": 8
+                }
+              ],
+              "modifier": 0,
+              "type": "physical"
+            }
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "暗杀",
+          "modifier": 3,
+          "situation": "从隐藏状态攻击时"
+        }
+      ],
+      "fearTraits": [
+        {
+          "name": "致命一击",
+          "cost": 2,
+          "description": "花费2恐惧点，对脆弱目标造成额外2d8伤害。"
+        }
+      ],
+      "type": "skulker",
+      "majorThreshold": 20,
+      "severeThreshold": 32,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242852_31_2162",
+      "statBlockId": "corrupted-archdruid",
+      "name": "堕落大德鲁伊",
+      "currentHp": 7,
+      "maxHp": 7,
+      "currentStress": 0,
+      "maxStress": 5,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 11,
+      "behavior": "leader",
+      "attacks": [
+        {
+          "name": "腐化藤蔓",
+          "attribute": "knowledge",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 3,
+                "sides": 6
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "single",
+          "conditionApplied": "restrained",
+          "conditionDuration": 2
+        }
+      ],
+      "features": [
+        {
+          "name": "自然之怒",
+          "type": "action",
+          "cost": 0,
+          "description": "召唤1d4只森林蜘蛛增援。"
+        },
+        {
+          "name": "腐化大地",
+          "type": "fear",
+          "cost": 3,
+          "description": "花费3恐惧点，近距离内所有角色标记2压力。",
+          "fearEffect": {
+            "target": "allPlayers",
+            "stressDamage": 2
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "腐化自然",
+          "modifier": 3,
+          "situation": "在森林或荒野中战斗时"
+        }
+      ],
+      "fearTraits": [
+        {
+          "name": "腐化大地",
+          "cost": 3,
+          "description": "花费3恐惧点，近距离内所有角色标记2压力。"
+        }
+      ],
+      "type": "leader",
+      "majorThreshold": 20,
+      "severeThreshold": 32,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242852_32_5893",
+      "statBlockId": "elemental-spark",
+      "name": "元素火花",
+      "currentHp": 1,
+      "maxHp": 1,
+      "currentStress": 0,
+      "maxStress": 1,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 12,
+      "behavior": "caster",
+      "attacks": [
+        {
+          "name": "电弧",
+          "attribute": "knowledge",
+          "distance": "nearby",
+          "damage": {
+            "dice": [],
+            "modifier": 5,
+            "type": "magical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "元素链接",
+          "type": "passive",
+          "cost": 0,
+          "description": "当同一元素生物在近距离时，攻击获得优势。"
+        }
+      ],
+      "experiences": [],
+      "fearTraits": [],
+      "type": "minion",
+      "minionDefeatThreshold": 9,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242852_33_3856",
+      "statBlockId": "demon-general",
+      "name": "恶魔将军",
+      "currentHp": 11,
+      "maxHp": 11,
+      "currentStress": 0,
+      "maxStress": 5,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 12,
+      "behavior": "solo",
+      "attacks": [
+        {
+          "name": "末日之刃",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 4,
+                "sides": 12
+              }
+            ],
+            "modifier": 10,
+            "type": "magical"
+          },
+          "targets": "single"
+        },
+        {
+          "name": "地狱烈焰",
+          "attribute": "presence",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 4,
+                "sides": 8
+              }
+            ],
+            "modifier": 10,
+            "type": "magical"
+          },
+          "targets": "closeBlast",
+          "conditionApplied": "ignited",
+          "conditionDuration": 3
+        }
+      ],
+      "features": [
+        {
+          "name": "恶魔统御",
+          "type": "passive",
+          "cost": 0,
+          "description": "所有友方恶魔获得攻击优势。"
+        },
+        {
+          "name": "末日降临",
+          "type": "fear",
+          "cost": 3,
+          "description": "花费3恐惧点，对近战范围内所有角色造成4d8伤害并施加2压力。",
+          "fearEffect": {
+            "target": "allPlayers",
+            "stressDamage": 2,
+            "hpDamage": {
+              "dice": [
+                {
+                  "count": 4,
+                  "sides": 8
+                }
+              ],
+              "modifier": 0,
+              "type": "magical"
+            }
+          }
+        },
+        {
+          "name": "地狱召唤",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，召唤1d4只恶魔杂兵增援。",
+          "fearEffect": {
+            "target": "self",
+            "summonEnemyId": "demon-grunt",
+            "summonCount": {
+              "dice": [
+                {
+                  "count": 1,
+                  "sides": 4
+                }
+              ],
+              "modifier": 0,
+              "type": "direct"
+            }
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "战争之道",
+          "modifier": 3,
+          "situation": "统帅恶魔军团作战时"
+        }
+      ],
+      "fearTraits": [
+        {
+          "name": "末日降临",
+          "cost": 3,
+          "description": "花费3恐惧点，对近战范围内所有角色造成4d8伤害并施加2压力。"
+        },
+        {
+          "name": "地狱召唤",
+          "cost": 2,
+          "description": "花费2恐惧点，召唤1d4只恶魔杂兵增援。"
+        }
+      ],
+      "type": "solo",
+      "majorThreshold": 25,
+      "severeThreshold": 45,
+      "relentlessCount": 3,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242852_34_8647",
+      "statBlockId": "demon-grunt",
+      "name": "恶魔杂兵",
+      "currentHp": 1,
+      "maxHp": 1,
+      "currentStress": 0,
+      "maxStress": 1,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 10,
+      "behavior": "bruiser",
+      "attacks": [
+        {
+          "name": "地狱之爪",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [],
+            "modifier": 5,
+            "type": "magical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "恶魔之力",
+          "type": "passive",
+          "cost": 0,
+          "description": "在恶魔将军附近时攻击获得优势。"
+        }
+      ],
+      "experiences": [],
+      "fearTraits": [],
+      "type": "minion",
+      "minionDefeatThreshold": 12,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242852_35_929",
+      "statBlockId": "dragon-lich",
+      "name": "龙巫妖",
+      "currentHp": 11,
+      "maxHp": 11,
+      "currentStress": 0,
+      "maxStress": 8,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 11,
+      "behavior": "solo",
+      "attacks": [
+        {
+          "name": "死亡之爪",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 4,
+                "sides": 12
+              }
+            ],
+            "modifier": 13,
+            "type": "magical"
+          },
+          "targets": "single"
+        },
+        {
+          "name": "亡灵吐息",
+          "attribute": "presence",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 4,
+                "sides": 10
+              }
+            ],
+            "modifier": 10,
+            "type": "magical"
+          },
+          "targets": "closeBlast",
+          "stressDamage": 2
+        }
+      ],
+      "features": [
+        {
+          "name": "亡灵之躯",
+          "type": "passive",
+          "cost": 0,
+          "description": "免疫中毒、点燃、魅惑和束缚。对非魔法伤害具有抗性。"
+        },
+        {
+          "name": "灵魂汲取",
+          "type": "fear",
+          "cost": 3,
+          "description": "花费3恐惧点，对单一目标造成4d10伤害并恢复2HP。",
+          "fearEffect": {
+            "target": "singlePlayer",
+            "hpDamage": {
+              "dice": [
+                {
+                  "count": 4,
+                  "sides": 10
+                }
+              ],
+              "modifier": 0,
+              "type": "magical"
+            }
+          }
+        },
+        {
+          "name": "亡灵复苏",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，复活战场上被击败的亡灵敌人为1d4只骷髅战士。",
+          "fearEffect": {
+            "target": "self",
+            "summonEnemyId": "skeleton-warrior",
+            "summonCount": {
+              "dice": [
+                {
+                  "count": 1,
+                  "sides": 4
+                }
+              ],
+              "modifier": 0,
+              "type": "direct"
+            }
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "远古智慧",
+          "modifier": 3,
+          "situation": "使用知识或奥术时"
+        }
+      ],
+      "fearTraits": [
+        {
+          "name": "灵魂汲取",
+          "cost": 3,
+          "description": "花费3恐惧点，对单一目标造成4d10伤害并恢复2HP。"
+        },
+        {
+          "name": "亡灵复苏",
+          "cost": 2,
+          "description": "花费2恐惧点，复活战场上被击败的亡灵敌人为1d4只骷髅战士。"
+        }
+      ],
+      "type": "solo",
+      "majorThreshold": 25,
+      "severeThreshold": 45,
+      "relentlessCount": 3,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242852_36_2584",
+      "statBlockId": "void-serpent",
+      "name": "虚空巨蛇",
+      "currentHp": 11,
+      "maxHp": 11,
+      "currentStress": 0,
+      "maxStress": 5,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 13,
+      "behavior": "solo",
+      "attacks": [
+        {
+          "name": "虚空吞噬",
+          "attribute": "instinct",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 4,
+                "sides": 12
+              }
+            ],
+            "modifier": 10,
+            "type": "magical"
+          },
+          "targets": "single",
+          "stressDamage": 1
+        },
+        {
+          "name": "维度裂隙",
+          "attribute": "instinct",
+          "distance": "far",
+          "damage": {
+            "dice": [
+              {
+                "count": 4,
+                "sides": 8
+              }
+            ],
+            "modifier": 10,
+            "type": "magical"
+          },
+          "targets": "farBlast",
+          "conditionApplied": "dazed",
+          "conditionDuration": 2
+        }
+      ],
+      "features": [
+        {
+          "name": "虚空之躯",
+          "type": "passive",
+          "cost": 0,
+          "description": "对物理伤害具有免疫。免疫束缚、中毒和震慑。"
+        },
+        {
+          "name": "维度穿梭",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，传送至任意位置并对新位置近距离内所有角色造成2压力。",
+          "fearEffect": {
+            "target": "allPlayers",
+            "stressDamage": 2
+          }
+        },
+        {
+          "name": "湮灭凝视",
+          "type": "fear",
+          "cost": 3,
+          "description": "花费3恐惧点，对单一目标施加震慑状态1轮。",
+          "fearEffect": {
+            "target": "singlePlayer",
+            "conditionApplied": "stunned",
+            "conditionDuration": 1
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "虚空感知",
+          "modifier": 3,
+          "situation": "在异次元空间或传送门附近时"
+        }
+      ],
+      "fearTraits": [
+        {
+          "name": "维度穿梭",
+          "cost": 2,
+          "description": "花费2恐惧点，传送至任意位置并对新位置近距离内所有角色造成2压力。"
+        },
+        {
+          "name": "湮灭凝视",
+          "cost": 3,
+          "description": "花费3恐惧点，对单一目标施加震慑状态1轮。"
+        }
+      ],
+      "type": "solo",
+      "majorThreshold": 25,
+      "severeThreshold": 45,
+      "relentlessCount": 3,
+      "timesFocusedThisTurn": 0
+    },
+    {
+      "id": "enemy_1782751242852_37_9591",
+      "statBlockId": "pit-fiend",
+      "name": "深渊大魔",
+      "currentHp": 7,
+      "maxHp": 7,
+      "currentStress": 0,
+      "maxStress": 5,
+      "conditions": [],
+      "isFocused": false,
+      "hasActed": false,
+      "evasion": 10,
+      "behavior": "bruiser",
+      "attacks": [
+        {
+          "name": "深渊之锤",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 4,
+                "sides": 10
+              }
+            ],
+            "modifier": 10,
+            "type": "magical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "地狱烈焰",
+          "type": "passive",
+          "cost": 0,
+          "description": "近战范围内攻击深渊大魔的角色标记1压力并点燃1轮。"
+        },
+        {
+          "name": "深渊咆哮",
+          "type": "fear",
+          "cost": 3,
+          "description": "花费3恐惧点，近战范围内所有角色标记3压力。",
+          "fearEffect": {
+            "target": "allPlayers",
+            "stressDamage": 3
+          }
+        }
+      ],
+      "experiences": [],
+      "fearTraits": [
+        {
+          "name": "深渊咆哮",
+          "cost": 3,
+          "description": "花费3恐惧点，近战范围内所有角色标记3压力。"
+        }
+      ],
+      "type": "bruiser",
+      "majorThreshold": 25,
+      "severeThreshold": 45,
+      "timesFocusedThisTurn": 0
+    }
+  ],
+  "statBlocks": [
+    {
+      "id": "goblin-raider",
+      "name": "哥布林劫掠者",
+      "nameEn": "Goblin Raider",
+      "type": "minion",
+      "behavior": "bruiser",
+      "difficulty": 11,
+      "evasion": 10,
+      "hp": 1,
+      "maxHp": 1,
+      "stress": 1,
+      "maxStress": 1,
+      "attacks": [
+        {
+          "name": "短刀乱斩",
+          "attribute": "agility",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 6
+              }
+            ],
+            "modifier": 0,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "群聚攻击",
+          "type": "passive",
+          "cost": 0,
+          "description": "当多个哥布林劫掠者攻击同一目标时，每个额外的哥布林使攻击获得优势。"
+        }
+      ],
+      "fearCost": 0,
+      "tier": 1,
+      "minionDefeatThreshold": 3,
+      "description": "成群结队出没的弱小但狡猾的敌人。"
+    },
+    {
+      "id": "skeleton-warrior",
+      "name": "骷髅战士",
+      "nameEn": "Skeleton Warrior",
+      "type": "standard",
+      "behavior": "bruiser",
+      "difficulty": 10,
+      "evasion": 9,
+      "hp": 3,
+      "maxHp": 3,
+      "stress": 2,
+      "maxStress": 2,
+      "attacks": [
+        {
+          "name": "锈剑劈砍",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 6
+              }
+            ],
+            "modifier": 2,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "亡灵坚韧",
+          "type": "passive",
+          "cost": 0,
+          "description": "免疫中毒和点燃状态。"
+        }
+      ],
+      "experiences": [
+        {
+          "name": "行军",
+          "modifier": 2,
+          "situation": "在队伍中战斗时"
+        }
+      ],
+      "fearCost": 0,
+      "tier": 1,
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "description": "被黑暗力量驱动的无脑亡灵战士。"
+    },
+    {
+      "id": "wolf",
+      "name": "狼",
+      "nameEn": "Wolf",
+      "type": "minion",
+      "behavior": "bruiser",
+      "difficulty": 11,
+      "evasion": 12,
+      "hp": 1,
+      "maxHp": 1,
+      "stress": 1,
+      "maxStress": 1,
+      "attacks": [
+        {
+          "name": "撕咬",
+          "attribute": "instinct",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 6
+              }
+            ],
+            "modifier": 0,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "群猎",
+          "type": "passive",
+          "cost": 0,
+          "description": "当两个或更多狼攻击同一目标时，获得优势。"
+        }
+      ],
+      "fearCost": 0,
+      "tier": 1,
+      "minionDefeatThreshold": 3,
+      "description": "荒野中的群猎掠食者。"
+    },
+    {
+      "id": "zombie",
+      "name": "僵尸",
+      "nameEn": "Zombie",
+      "type": "minion",
+      "behavior": "bruiser",
+      "difficulty": 10,
+      "evasion": 7,
+      "hp": 1,
+      "maxHp": 1,
+      "stress": 1,
+      "maxStress": 1,
+      "attacks": [
+        {
+          "name": "腐手拍击",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 6
+              }
+            ],
+            "modifier": 0,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "不死者",
+          "type": "passive",
+          "cost": 0,
+          "description": "免疫中毒、点燃和恐惧效果。"
+        }
+      ],
+      "fearCost": 0,
+      "tier": 1,
+      "minionDefeatThreshold": 3,
+      "description": "缓慢但不知疲倦的亡灵，数量多时极其危险。"
+    },
+    {
+      "id": "rat-swarm",
+      "name": "鼠群",
+      "nameEn": "Rat Swarm",
+      "type": "horde",
+      "behavior": "bruiser",
+      "difficulty": 10,
+      "evasion": 11,
+      "hp": 4,
+      "maxHp": 4,
+      "stress": 3,
+      "maxStress": 3,
+      "attacks": [
+        {
+          "name": "啃咬狂潮",
+          "attribute": "instinct",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 6
+              }
+            ],
+            "modifier": 1,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "鼠潮",
+          "type": "passive",
+          "cost": 0,
+          "description": "免疫束缚和震慑状态。受到范围攻击时额外标记1压力。"
+        }
+      ],
+      "experiences": [
+        {
+          "name": "集群",
+          "modifier": 2,
+          "situation": "在下水道或废墟中战斗时"
+        }
+      ],
+      "fearCost": 0,
+      "tier": 1,
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "hordeDamage": 2,
+      "description": "汹涌的黑鼠洪流，每只鼠都不堪一击，但合在一起令人窒息。"
+    },
+    {
+      "id": "bandit",
+      "name": "强盗",
+      "nameEn": "Bandit",
+      "type": "standard",
+      "behavior": "ambusher",
+      "difficulty": 12,
+      "evasion": 11,
+      "hp": 5,
+      "maxHp": 5,
+      "stress": 3,
+      "maxStress": 3,
+      "attacks": [
+        {
+          "name": "弯刀劈砍",
+          "attribute": "agility",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 8
+              }
+            ],
+            "modifier": 1,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "卑劣打击",
+          "type": "action",
+          "cost": 0,
+          "description": "当目标处于脆弱状态时，攻击造成额外1d6伤害。"
+        },
+        {
+          "name": "脱战",
+          "type": "fear",
+          "cost": 1,
+          "description": "花费1恐惧点，强盗脱离战斗并移动至远距离。",
+          "fearEffect": {
+            "target": "self",
+            "moveDistance": 3
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "劫道",
+          "modifier": 2,
+          "situation": "伏击旅人时"
+        }
+      ],
+      "fearCost": 1,
+      "tier": 1,
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "description": "经验丰富的道路劫匪，擅长趁人之危。"
+    },
+    {
+      "id": "cultist",
+      "name": "邪教徒",
+      "nameEn": "Cultist",
+      "type": "leader",
+      "behavior": "leader",
+      "difficulty": 12,
+      "evasion": 10,
+      "hp": 5,
+      "maxHp": 5,
+      "stress": 4,
+      "maxStress": 4,
+      "attacks": [
+        {
+          "name": "匕首刺击",
+          "attribute": "presence",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 6
+              }
+            ],
+            "modifier": 2,
+            "type": "physical"
+          },
+          "targets": "single"
+        },
+        {
+          "name": "黑暗祈祷",
+          "attribute": "presence",
+          "distance": "nearby",
+          "damage": {
+            "dice": [],
+            "modifier": 0,
+            "type": "direct"
+          },
+          "targets": "all",
+          "stressDamage": 1
+        }
+      ],
+      "features": [
+        {
+          "name": "黑暗祈祷",
+          "type": "action",
+          "cost": 0,
+          "description": "对近距离内所有目标施加1点压力。"
+        },
+        {
+          "name": "邪教仪式",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，召唤1d4只僵尸增援。",
+          "fearEffect": {
+            "target": "self",
+            "summonEnemyId": "zombie",
+            "summonCount": {
+              "dice": [
+                {
+                  "count": 1,
+                  "sides": 4
+                }
+              ],
+              "modifier": 0,
+              "type": "direct"
+            }
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "邪教仪式",
+          "modifier": 2,
+          "situation": "在祭坛或圣所内战斗时"
+        }
+      ],
+      "fearCost": 2,
+      "tier": 1,
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "description": "沉迷黑暗仪式的狂信者，擅长操控战场。"
+    },
+    {
+      "id": "forest-spider",
+      "name": "森林蜘蛛",
+      "nameEn": "Forest Spider",
+      "type": "skulker",
+      "behavior": "ambusher",
+      "difficulty": 11,
+      "evasion": 13,
+      "hp": 4,
+      "maxHp": 4,
+      "stress": 3,
+      "maxStress": 3,
+      "attacks": [
+        {
+          "name": "毒牙噬咬",
+          "attribute": "instinct",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 8
+              }
+            ],
+            "modifier": 1,
+            "type": "physical"
+          },
+          "targets": "single",
+          "conditionApplied": "poisoned",
+          "conditionDuration": 2
+        },
+        {
+          "name": "蛛网喷射",
+          "attribute": "instinct",
+          "distance": "nearby",
+          "damage": {
+            "dice": [],
+            "modifier": 0,
+            "type": "direct"
+          },
+          "targets": "single",
+          "conditionApplied": "restrained",
+          "conditionDuration": 2
+        }
+      ],
+      "features": [
+        {
+          "name": "毒液",
+          "type": "passive",
+          "cost": 0,
+          "description": "毒牙噬咬命中的目标进入中毒状态2回合。"
+        },
+        {
+          "name": "蛛网陷阱",
+          "type": "action",
+          "cost": 0,
+          "description": "对近距离内单一目标施加束缚状态2回合。"
+        }
+      ],
+      "experiences": [
+        {
+          "name": "伏击猎手",
+          "modifier": 2,
+          "situation": "从隐藏状态攻击时"
+        }
+      ],
+      "fearCost": 1,
+      "tier": 1,
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "description": "潜伏在密林中的巨型蜘蛛，以蛛网和毒液猎杀猎物。"
+    },
+    {
+      "id": "mercenary-archer",
+      "name": "佣兵弓手",
+      "nameEn": "Mercenary Archer",
+      "type": "ranged",
+      "behavior": "caster",
+      "difficulty": 12,
+      "evasion": 11,
+      "hp": 4,
+      "maxHp": 4,
+      "stress": 3,
+      "maxStress": 3,
+      "attacks": [
+        {
+          "name": "精准射击",
+          "attribute": "finesse",
+          "distance": "far",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 8
+              }
+            ],
+            "modifier": 2,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "瞄准",
+          "type": "action",
+          "cost": 0,
+          "description": "下次攻击获得优势。"
+        },
+        {
+          "name": "撤退射击",
+          "type": "fear",
+          "cost": 1,
+          "description": "花费1恐惧点，后退并射击，移动至远距离并造成1d8伤害。",
+          "fearEffect": {
+            "target": "self",
+            "moveDistance": 3
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "远程作战",
+          "modifier": 2,
+          "situation": "攻击远距离目标时"
+        }
+      ],
+      "fearCost": 1,
+      "tier": 1,
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "description": "受雇的远程杀手，善于保持距离精准打击。"
+    },
+    {
+      "id": "orc-brute",
+      "name": "兽人暴徒",
+      "nameEn": "Orc Brute",
+      "type": "bruiser",
+      "behavior": "bruiser",
+      "difficulty": 14,
+      "evasion": 8,
+      "hp": 7,
+      "maxHp": 7,
+      "stress": 2,
+      "maxStress": 2,
+      "attacks": [
+        {
+          "name": "巨锤猛击",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 12
+              }
+            ],
+            "modifier": 2,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "横扫",
+          "type": "action",
+          "cost": 0,
+          "description": "近战范围内攻击额外一名角色，造成1d8伤害。"
+        },
+        {
+          "name": "暴怒冲锋",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，冲向目标造成额外1d10伤害并施加惊讶状态。",
+          "fearEffect": {
+            "target": "singlePlayer",
+            "conditionApplied": "surprised",
+            "conditionDuration": 1
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "蛮力",
+          "modifier": 2,
+          "situation": "使用力量击破障碍时"
+        }
+      ],
+      "fearCost": 2,
+      "tier": 1,
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "description": "肌肉虬结的兽人战士，一锤足以粉碎盾牌。"
+    },
+    {
+      "id": "swamp-lurker",
+      "name": "沼泽潜伏者",
+      "nameEn": "Swamp Lurker",
+      "type": "horde",
+      "behavior": "ambusher",
+      "difficulty": 12,
+      "evasion": 10,
+      "hp": 4,
+      "maxHp": 4,
+      "stress": 3,
+      "maxStress": 3,
+      "attacks": [
+        {
+          "name": "泥浆喷吐",
+          "attribute": "instinct",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 6
+              }
+            ],
+            "modifier": 1,
+            "type": "physical"
+          },
+          "targets": "single",
+          "conditionApplied": "blind",
+          "conditionDuration": 1
+        }
+      ],
+      "features": [
+        {
+          "name": "泥沼伪装",
+          "type": "passive",
+          "cost": 0,
+          "description": "在沼泽地形中获得隐藏状态。"
+        }
+      ],
+      "experiences": [
+        {
+          "name": "沼泽猎手",
+          "modifier": 2,
+          "situation": "在湿地或沼泽中战斗时"
+        }
+      ],
+      "fearCost": 1,
+      "tier": 1,
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "hordeDamage": 2,
+      "description": "栖息在沼泽深处的软体生物，喷吐腐蚀性泥浆使猎物失明。"
+    },
+    {
+      "id": "goblin-shaman",
+      "name": "哥布林萨满",
+      "nameEn": "Goblin Shaman",
+      "type": "support",
+      "behavior": "support",
+      "difficulty": 11,
+      "evasion": 10,
+      "hp": 3,
+      "maxHp": 3,
+      "stress": 3,
+      "maxStress": 3,
+      "attacks": [
+        {
+          "name": "骨杖敲击",
+          "attribute": "presence",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 6
+              }
+            ],
+            "modifier": 1,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "哥布林鼓舞",
+          "type": "action",
+          "cost": 0,
+          "description": "为一名友方敌人清除1压力。"
+        },
+        {
+          "name": "诅咒图腾",
+          "type": "fear",
+          "cost": 1,
+          "description": "花费1恐惧点，对单一目标施加1点压力。",
+          "fearEffect": {
+            "target": "singlePlayer",
+            "stressDamage": 1
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "部落巫术",
+          "modifier": 2,
+          "situation": "在哥布林领地施法时"
+        }
+      ],
+      "fearCost": 1,
+      "tier": 1,
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "description": "哥布林部落的巫医，以图腾和诅咒辅助族群作战。"
+    },
+    {
+      "id": "cave-bear",
+      "name": "洞穴熊",
+      "nameEn": "Cave Bear",
+      "type": "bruiser",
+      "behavior": "bruiser",
+      "difficulty": 14,
+      "evasion": 9,
+      "hp": 7,
+      "maxHp": 7,
+      "stress": 2,
+      "maxStress": 2,
+      "attacks": [
+        {
+          "name": "巨爪撕裂",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 8
+              }
+            ],
+            "modifier": 3,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "狂暴",
+          "type": "passive",
+          "cost": 0,
+          "description": "当标记2压力时，攻击获得优势。"
+        }
+      ],
+      "fearCost": 1,
+      "tier": 1,
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "description": "栖息在山洞深处的巨熊，被激怒后极其凶猛。"
+    },
+    {
+      "id": "acid-burrower",
+      "name": "酸液掘虫",
+      "nameEn": "Acid Burrower",
+      "type": "solo",
+      "behavior": "solo",
+      "difficulty": 14,
+      "evasion": 10,
+      "hp": 8,
+      "maxHp": 8,
+      "stress": 3,
+      "maxStress": 3,
+      "attacks": [
+        {
+          "name": "酸液喷吐",
+          "attribute": "instinct",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 12
+              }
+            ],
+            "modifier": 2,
+            "type": "magical"
+          },
+          "targets": "single",
+          "conditionApplied": "corroded",
+          "conditionDuration": 2
+        },
+        {
+          "name": "利爪横扫",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 1,
+                "sides": 10
+              }
+            ],
+            "modifier": 2,
+            "type": "physical"
+          },
+          "targets": "closeBlast"
+        }
+      ],
+      "features": [
+        {
+          "name": "掘地突袭",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，从地下突袭，对近距离内一名角色施加2压力。",
+          "fearEffect": {
+            "target": "singlePlayer",
+            "stressDamage": 2
+          }
+        },
+        {
+          "name": "酸血",
+          "type": "passive",
+          "cost": 0,
+          "description": "近战范围内攻击酸液掘虫的角色标记1压力。"
+        }
+      ],
+      "fearCost": 2,
+      "tier": 1,
+      "relentlessCount": 1,
+      "majorThreshold": 7,
+      "severeThreshold": 12,
+      "description": "从地底掘出的巨型虫类，酸液腐蚀一切。1级小队Boss级威胁。"
+    },
+    {
+      "id": "shadow-mage",
+      "name": "暗影法师",
+      "nameEn": "Shadow Mage",
+      "type": "standard",
+      "behavior": "caster",
+      "difficulty": 14,
+      "evasion": 11,
+      "hp": 4,
+      "maxHp": 4,
+      "stress": 3,
+      "maxStress": 3,
+      "attacks": [
+        {
+          "name": "暗影箭",
+          "attribute": "knowledge",
+          "distance": "far",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 6
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "暗影步",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，消失在阴影中并出现在任意位置。",
+          "fearEffect": {
+            "target": "self",
+            "moveDistance": 5
+          }
+        },
+        {
+          "name": "暗影庇护",
+          "type": "passive",
+          "cost": 0,
+          "description": "在黑暗环境中获得闪避+2。"
+        }
+      ],
+      "experiences": [
+        {
+          "name": "暗影术",
+          "modifier": 2,
+          "situation": "在黑暗环境中施法时"
+        }
+      ],
+      "fearCost": 2,
+      "tier": 2,
+      "majorThreshold": 10,
+      "severeThreshold": 20,
+      "description": "操纵暗影魔法的阴险施法者。"
+    },
+    {
+      "id": "knight-of-ashes",
+      "name": "灰烬骑士",
+      "nameEn": "Knight of Ashes",
+      "type": "bruiser",
+      "behavior": "bruiser",
+      "difficulty": 16,
+      "evasion": 9,
+      "hp": 7,
+      "maxHp": 7,
+      "stress": 5,
+      "maxStress": 5,
+      "attacks": [
+        {
+          "name": "焚灭斩",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 8
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "single",
+          "stressDamage": 1
+        }
+      ],
+      "features": [
+        {
+          "name": "灰烬之盾",
+          "type": "passive",
+          "cost": 0,
+          "description": "每次受到伤害时，可标记1压力减少1点HP标记。"
+        },
+        {
+          "name": "灰烬爆发",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，释放灰烬波，近战范围内所有角色标记2压力。",
+          "fearEffect": {
+            "target": "allPlayers",
+            "stressDamage": 2
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "德拉肯海姆老兵",
+          "modifier": 2,
+          "situation": "在德拉肯海姆废墟中战斗时"
+        }
+      ],
+      "fearCost": 2,
+      "tier": 2,
+      "majorThreshold": 10,
+      "severeThreshold": 20,
+      "description": "被德拉肯海姆污霭腐化的堕落骑士，浑身燃烧着不灭的灰烬之火。"
+    },
+    {
+      "id": "hobgoblin-captain",
+      "name": "大地精队长",
+      "nameEn": "Hobgoblin Captain",
+      "type": "leader",
+      "behavior": "leader",
+      "difficulty": 15,
+      "evasion": 11,
+      "hp": 7,
+      "maxHp": 7,
+      "stress": 5,
+      "maxStress": 5,
+      "attacks": [
+        {
+          "name": "长剑连斩",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 8
+              }
+            ],
+            "modifier": 4,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "战场指挥",
+          "type": "action",
+          "cost": 0,
+          "description": "指挥一名友方敌人立即执行一次攻击。"
+        },
+        {
+          "name": "号令冲锋",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，所有友方敌人获得优势直到下一轮。",
+          "fearEffect": {
+            "target": "allEnemies"
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "军事战术",
+          "modifier": 2,
+          "situation": "指挥部队作战时"
+        }
+      ],
+      "fearCost": 2,
+      "tier": 2,
+      "majorThreshold": 10,
+      "severeThreshold": 20,
+      "description": "纪律严明的大地精军官，以铁腕指挥麾下士兵。"
+    },
+    {
+      "id": "dark-priest",
+      "name": "暗黑祭司",
+      "nameEn": "Dark Priest",
+      "type": "support",
+      "behavior": "support",
+      "difficulty": 14,
+      "evasion": 10,
+      "hp": 5,
+      "maxHp": 5,
+      "stress": 5,
+      "maxStress": 5,
+      "attacks": [
+        {
+          "name": "暗言术",
+          "attribute": "presence",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 6
+              }
+            ],
+            "modifier": 2,
+            "type": "magical"
+          },
+          "targets": "single",
+          "stressDamage": 1
+        }
+      ],
+      "features": [
+        {
+          "name": "暗影庇护",
+          "type": "action",
+          "cost": 0,
+          "description": "为一名友方敌人清除1压力或1个状态。"
+        },
+        {
+          "name": "黑暗祝福",
+          "type": "fear",
+          "cost": 1,
+          "description": "花费1恐惧点，一名友方敌人恢复2HP。",
+          "fearEffect": {
+            "target": "allEnemies"
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "暗黑神术",
+          "modifier": 2,
+          "situation": "在神殿或祭坛中施法时"
+        }
+      ],
+      "fearCost": 1,
+      "tier": 2,
+      "majorThreshold": 10,
+      "severeThreshold": 20,
+      "description": "侍奉黑暗神祇的祭司，能为盟友疗伤并提供庇护。"
+    },
+    {
+      "id": "fire-elemental",
+      "name": "火元素",
+      "nameEn": "Fire Elemental",
+      "type": "solo",
+      "behavior": "solo",
+      "difficulty": 15,
+      "evasion": 12,
+      "hp": 9,
+      "maxHp": 9,
+      "stress": 3,
+      "maxStress": 3,
+      "attacks": [
+        {
+          "name": "烈焰鞭笞",
+          "attribute": "knowledge",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 8
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "single",
+          "conditionApplied": "ignited",
+          "conditionDuration": 2
+        },
+        {
+          "name": "火焰爆发",
+          "attribute": "knowledge",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 6
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "closeBlast",
+          "conditionApplied": "ignited",
+          "conditionDuration": 1
+        }
+      ],
+      "features": [
+        {
+          "name": "烈焰之躯",
+          "type": "passive",
+          "cost": 0,
+          "description": "对物理伤害具有抗性。近战范围攻击火元素的角色标记1压力。"
+        },
+        {
+          "name": "元素暴怒",
+          "type": "fear",
+          "cost": 3,
+          "description": "花费3恐惧点，释放灼热波，近战范围内所有角色标记2压力并点燃。",
+          "fearEffect": {
+            "target": "allPlayers",
+            "stressDamage": 2,
+            "conditionApplied": "ignited",
+            "conditionDuration": 2
+          }
+        }
+      ],
+      "fearCost": 3,
+      "tier": 2,
+      "relentlessCount": 2,
+      "majorThreshold": 10,
+      "severeThreshold": 20,
+      "description": "由纯粹火焰构成的元素生命，每一次攻击都伴随着灼热的爆裂。"
+    },
+    {
+      "id": "giant-spider-broodmother",
+      "name": "巨型蜘蛛母后",
+      "nameEn": "Giant Spider Broodmother",
+      "type": "solo",
+      "behavior": "solo",
+      "difficulty": 15,
+      "evasion": 11,
+      "hp": 9,
+      "maxHp": 9,
+      "stress": 3,
+      "maxStress": 3,
+      "attacks": [
+        {
+          "name": "毒牙噬咬",
+          "attribute": "instinct",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 8
+              }
+            ],
+            "modifier": 2,
+            "type": "physical"
+          },
+          "targets": "single",
+          "conditionApplied": "poisoned",
+          "conditionDuration": 3
+        },
+        {
+          "name": "蛛网喷射",
+          "attribute": "instinct",
+          "distance": "nearby",
+          "damage": {
+            "dice": [],
+            "modifier": 0,
+            "type": "direct"
+          },
+          "targets": "all",
+          "conditionApplied": "restrained",
+          "conditionDuration": 2
+        }
+      ],
+      "features": [
+        {
+          "name": "召唤幼蛛",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，召唤1d4只森林蜘蛛增援。",
+          "fearEffect": {
+            "target": "self",
+            "summonEnemyId": "forest-spider",
+            "summonCount": {
+              "dice": [
+                {
+                  "count": 1,
+                  "sides": 4
+                }
+              ],
+              "modifier": 0,
+              "type": "direct"
+            }
+          }
+        },
+        {
+          "name": "蛛巢之主",
+          "type": "passive",
+          "cost": 0,
+          "description": "在蜘蛛巢穴中战斗时获得2个优势来源。"
+        }
+      ],
+      "experiences": [
+        {
+          "name": "伏击大师",
+          "modifier": 2,
+          "situation": "在巢穴中伏击时"
+        }
+      ],
+      "fearCost": 2,
+      "tier": 2,
+      "relentlessCount": 2,
+      "majorThreshold": 10,
+      "severeThreshold": 20,
+      "description": "盘踞在黑暗巢穴深处的巨型蜘蛛，周围环绕着数不清的幼蛛。"
+    },
+    {
+      "id": "wraith",
+      "name": "幽魂",
+      "nameEn": "Wraith",
+      "type": "skulker",
+      "behavior": "ambusher",
+      "difficulty": 15,
+      "evasion": 13,
+      "hp": 5,
+      "maxHp": 5,
+      "stress": 4,
+      "maxStress": 4,
+      "attacks": [
+        {
+          "name": "寒冰之触",
+          "attribute": "presence",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 6
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "single",
+          "stressDamage": 1
+        }
+      ],
+      "features": [
+        {
+          "name": "虚体",
+          "type": "passive",
+          "cost": 0,
+          "description": "对物理伤害具有抗性。免疫束缚和中毒。"
+        },
+        {
+          "name": "穿墙遁影",
+          "type": "fear",
+          "cost": 1,
+          "description": "花费1恐惧点，穿过墙壁消失，获得隐藏状态。",
+          "fearEffect": {
+            "target": "self"
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "恐惧",
+          "modifier": 2,
+          "situation": "在墓地或亡灵之地战斗时"
+        }
+      ],
+      "fearCost": 1,
+      "tier": 2,
+      "majorThreshold": 10,
+      "severeThreshold": 20,
+      "description": "怨念不散的亡灵，半透明的身影可穿墙而过，触碰汲取生命力。"
+    },
+    {
+      "id": "stone-golem",
+      "name": "石像魔像",
+      "nameEn": "Stone Golem",
+      "type": "bruiser",
+      "behavior": "bruiser",
+      "difficulty": 17,
+      "evasion": 7,
+      "hp": 7,
+      "maxHp": 7,
+      "stress": 5,
+      "maxStress": 5,
+      "attacks": [
+        {
+          "name": "巨拳轰击",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 10
+              }
+            ],
+            "modifier": 4,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "石肤",
+          "type": "passive",
+          "cost": 0,
+          "description": "免疫中毒、点燃和魅惑。所有受到的物理伤害减少1点HP标记。"
+        },
+        {
+          "name": "迟缓",
+          "type": "passive",
+          "cost": 0,
+          "description": "需要被聚焦2次才能行动。"
+        }
+      ],
+      "fearCost": 0,
+      "tier": 2,
+      "isSlow": true,
+      "majorThreshold": 10,
+      "severeThreshold": 20,
+      "description": "由古代魔法驱动的巨石构造体，虽行动迟缓但坚不可摧。"
+    },
+    {
+      "id": "cult-initiate",
+      "name": "邪教信徒",
+      "nameEn": "Cult Initiate",
+      "type": "minion",
+      "behavior": "support",
+      "difficulty": 13,
+      "evasion": 10,
+      "hp": 1,
+      "maxHp": 1,
+      "stress": 1,
+      "maxStress": 1,
+      "attacks": [
+        {
+          "name": "匕首刺击",
+          "attribute": "agility",
+          "distance": "melee",
+          "damage": {
+            "dice": [],
+            "modifier": 5,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "狂信",
+          "type": "passive",
+          "cost": 0,
+          "description": "在场上有邪教领袖时攻击获得优势。"
+        }
+      ],
+      "fearCost": 0,
+      "tier": 2,
+      "minionDefeatThreshold": 6,
+      "description": "邪教组织的底层信众，被洗脑后悍不畏死。"
+    },
+    {
+      "id": "elite-soldier",
+      "name": "精锐士兵",
+      "nameEn": "Elite Soldier",
+      "type": "standard",
+      "behavior": "bruiser",
+      "difficulty": 15,
+      "evasion": 11,
+      "hp": 4,
+      "maxHp": 4,
+      "stress": 3,
+      "maxStress": 3,
+      "attacks": [
+        {
+          "name": "精锐斩击",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 8
+              }
+            ],
+            "modifier": 4,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "坚阵",
+          "type": "passive",
+          "cost": 0,
+          "description": "相邻有友方敌人时闪避+2。"
+        }
+      ],
+      "fearCost": 0,
+      "tier": 2,
+      "majorThreshold": 10,
+      "severeThreshold": 20,
+      "description": "训练有素的专业战士，配合默契难以击破。"
+    },
+    {
+      "id": "haze-horror",
+      "name": "污霭恐惧者",
+      "nameEn": "Haze Horror",
+      "type": "solo",
+      "behavior": "solo",
+      "difficulty": 18,
+      "evasion": 9,
+      "hp": 10,
+      "maxHp": 10,
+      "stress": 5,
+      "maxStress": 5,
+      "attacks": [
+        {
+          "name": "恐惧凝视",
+          "attribute": "instinct",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 3,
+                "sides": 8
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "single",
+          "stressDamage": 2
+        },
+        {
+          "name": "污霭触手",
+          "attribute": "instinct",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 12
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "污霭护甲",
+          "type": "passive",
+          "cost": 0,
+          "description": "对非魔法伤害具有抗性。"
+        },
+        {
+          "name": "污霭爆发",
+          "type": "fear",
+          "cost": 3,
+          "description": "花费3恐惧点，释放浓雾，所有角色标记1压力并束缚1轮。",
+          "fearEffect": {
+            "target": "allPlayers",
+            "stressDamage": 1,
+            "conditionApplied": "restrained",
+            "conditionDuration": 1
+          }
+        },
+        {
+          "name": "腐化之触",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，命中目标额外增加1级污染等级。",
+          "fearEffect": {
+            "target": "singlePlayer",
+            "contaminationIncrease": 1
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "恐惧化身",
+          "modifier": 3,
+          "situation": "恐吓或威慑时"
+        },
+        {
+          "name": "污霭之子",
+          "modifier": 2,
+          "situation": "在浓雾或污染区域中战斗时"
+        }
+      ],
+      "fearCost": 3,
+      "tier": 3,
+      "relentlessCount": 2,
+      "majorThreshold": 20,
+      "severeThreshold": 32,
+      "description": "从德拉肯海姆浓厚污霭中诞生的恐惧实体，它的存在本身就是污染的扩散。"
+    },
+    {
+      "id": "spore-drake",
+      "name": "孢子龙",
+      "nameEn": "Spore Drake",
+      "type": "solo",
+      "behavior": "solo",
+      "difficulty": 17,
+      "evasion": 11,
+      "hp": 10,
+      "maxHp": 10,
+      "stress": 5,
+      "maxStress": 5,
+      "attacks": [
+        {
+          "name": "利爪撕裂",
+          "attribute": "agility",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 3,
+                "sides": 8
+              }
+            ],
+            "modifier": 3,
+            "type": "physical"
+          },
+          "targets": "single"
+        },
+        {
+          "name": "酸性吐息",
+          "attribute": "agility",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 3,
+                "sides": 10
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "closeBlast"
+        }
+      ],
+      "features": [
+        {
+          "name": "孢子云",
+          "type": "passive",
+          "cost": 0,
+          "description": "近战范围内攻击孢子龙的角色标记1压力。"
+        },
+        {
+          "name": "孢子爆发",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，释放孢子云团，近距离内所有角色标记2压力。",
+          "fearEffect": {
+            "target": "allPlayers",
+            "stressDamage": 2
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "空中猎手",
+          "modifier": 2,
+          "situation": "攻击飞行或高处目标时"
+        },
+        {
+          "name": "孢子之躯",
+          "modifier": 2,
+          "situation": "在潮湿或真菌环境中战斗时"
+        }
+      ],
+      "fearCost": 2,
+      "tier": 3,
+      "relentlessCount": 2,
+      "majorThreshold": 20,
+      "severeThreshold": 32,
+      "description": "被真菌寄生的龙类变异体，腐朽的翅膀仍能短距离飞行，口喷酸液和致幻孢子。"
+    },
+    {
+      "id": "vampire-lord",
+      "name": "吸血鬼领主",
+      "nameEn": "Vampire Lord",
+      "type": "solo",
+      "behavior": "solo",
+      "difficulty": 19,
+      "evasion": 13,
+      "hp": 10,
+      "maxHp": 10,
+      "stress": 5,
+      "maxStress": 5,
+      "attacks": [
+        {
+          "name": "鲜血之爪",
+          "attribute": "agility",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 3,
+                "sides": 8
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "single",
+          "stressDamage": 1
+        },
+        {
+          "name": "鲜血支配",
+          "attribute": "presence",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 10
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "all",
+          "stressDamage": 1
+        }
+      ],
+      "features": [
+        {
+          "name": "吸血回复",
+          "type": "passive",
+          "cost": 0,
+          "description": "每次造成严重伤害时恢复1HP。"
+        },
+        {
+          "name": "魅惑凝视",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，对单一目标施加魅惑状态2轮。",
+          "fearEffect": {
+            "target": "singlePlayer",
+            "conditionApplied": "charmed",
+            "conditionDuration": 2
+          }
+        },
+        {
+          "name": "血雾",
+          "type": "fear",
+          "cost": 3,
+          "description": "花费3恐惧点，变为血雾移动至任意位置并恢复2HP。",
+          "fearEffect": {
+            "target": "self",
+            "moveDistance": 5
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "暗夜君王",
+          "modifier": 3,
+          "situation": "在夜晚或黑暗环境中战斗时"
+        }
+      ],
+      "fearCost": 3,
+      "tier": 3,
+      "relentlessCount": 2,
+      "majorThreshold": 20,
+      "severeThreshold": 32,
+      "description": "统治黑夜的古老血族，以鲜血为食，以恐惧为乐。"
+    },
+    {
+      "id": "demon-of-wrath",
+      "name": "愤怒恶魔",
+      "nameEn": "Demon of Wrath",
+      "type": "bruiser",
+      "behavior": "bruiser",
+      "difficulty": 17,
+      "evasion": 9,
+      "hp": 7,
+      "maxHp": 7,
+      "stress": 5,
+      "maxStress": 5,
+      "attacks": [
+        {
+          "name": "怒拳",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 3,
+                "sides": 8
+              }
+            ],
+            "modifier": 1,
+            "type": "magical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "狂怒",
+          "type": "passive",
+          "cost": 0,
+          "description": "当标记压力时，攻击获得优势。"
+        },
+        {
+          "name": "暴怒冲击",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，冲向目标造成额外2d8伤害。",
+          "fearEffect": {
+            "target": "singlePlayer",
+            "hpDamage": {
+              "dice": [
+                {
+                  "count": 2,
+                  "sides": 8
+                }
+              ],
+              "modifier": 0,
+              "type": "magical"
+            }
+          }
+        }
+      ],
+      "fearCost": 2,
+      "tier": 3,
+      "majorThreshold": 20,
+      "severeThreshold": 32,
+      "description": "由纯粹愤怒凝聚的恶魔，越受伤越凶残。"
+    },
+    {
+      "id": "hydra",
+      "name": "九头蛇",
+      "nameEn": "Hydra",
+      "type": "solo",
+      "behavior": "solo",
+      "difficulty": 18,
+      "evasion": 10,
+      "hp": 10,
+      "maxHp": 10,
+      "stress": 5,
+      "maxStress": 5,
+      "attacks": [
+        {
+          "name": "多头噬咬",
+          "attribute": "instinct",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 12
+              }
+            ],
+            "modifier": 2,
+            "type": "physical"
+          },
+          "targets": "single"
+        },
+        {
+          "name": "酸液喷溅",
+          "attribute": "instinct",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 3,
+                "sides": 8
+              }
+            ],
+            "modifier": 2,
+            "type": "magical"
+          },
+          "targets": "closeBlast",
+          "conditionApplied": "corroded",
+          "conditionDuration": 2
+        }
+      ],
+      "features": [
+        {
+          "name": "再生",
+          "type": "passive",
+          "cost": 0,
+          "description": "每轮开始时恢复1HP。"
+        },
+        {
+          "name": "多头攻击",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，攻击近距离内额外2名目标。",
+          "fearEffect": {
+            "target": "allPlayers",
+            "stressDamage": 1
+          }
+        }
+      ],
+      "fearCost": 2,
+      "tier": 3,
+      "relentlessCount": 2,
+      "majorThreshold": 20,
+      "severeThreshold": 32,
+      "description": "多头巨蛇，断头再生，酸液蚀骨。"
+    },
+    {
+      "id": "war-troll",
+      "name": "战争巨魔",
+      "nameEn": "War Troll",
+      "type": "bruiser",
+      "behavior": "bruiser",
+      "difficulty": 17,
+      "evasion": 8,
+      "hp": 7,
+      "maxHp": 7,
+      "stress": 5,
+      "maxStress": 5,
+      "attacks": [
+        {
+          "name": "巨棒粉碎",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 3,
+                "sides": 8
+              }
+            ],
+            "modifier": 3,
+            "type": "physical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "再生",
+          "type": "passive",
+          "cost": 0,
+          "description": "每轮开始时恢复1HP。点燃状态时无法再生。"
+        },
+        {
+          "name": "蛮横冲撞",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，冲撞一名角色至远距离并施加脆弱。",
+          "fearEffect": {
+            "target": "singlePlayer",
+            "conditionApplied": "vulnerable",
+            "conditionDuration": 1
+          }
+        }
+      ],
+      "fearCost": 2,
+      "tier": 3,
+      "majorThreshold": 20,
+      "severeThreshold": 32,
+      "description": "体型巨大的战争巨魔，再生能力使其极难击杀。"
+    },
+    {
+      "id": "shadow-assassin",
+      "name": "暗影刺客",
+      "nameEn": "Shadow Assassin",
+      "type": "skulker",
+      "behavior": "ambusher",
+      "difficulty": 17,
+      "evasion": 14,
+      "hp": 5,
+      "maxHp": 5,
+      "stress": 4,
+      "maxStress": 4,
+      "attacks": [
+        {
+          "name": "暗杀之刃",
+          "attribute": "finesse",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 3,
+                "sides": 6
+              }
+            ],
+            "modifier": 3,
+            "type": "physical"
+          },
+          "targets": "single",
+          "bonusDamage": {
+            "dice": [
+              {
+                "count": 2,
+                "sides": 8
+              }
+            ],
+            "modifier": 0,
+            "type": "physical"
+          },
+          "bonusDamageCondition": "目标处于脆弱或惊讶状态"
+        }
+      ],
+      "features": [
+        {
+          "name": "暗影融合",
+          "type": "passive",
+          "cost": 0,
+          "description": "攻击后自动获得隐藏状态。"
+        },
+        {
+          "name": "致命一击",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，对脆弱目标造成额外2d8伤害。",
+          "fearEffect": {
+            "target": "singlePlayer",
+            "hpDamage": {
+              "dice": [
+                {
+                  "count": 2,
+                  "sides": 8
+                }
+              ],
+              "modifier": 0,
+              "type": "physical"
+            }
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "暗杀",
+          "modifier": 3,
+          "situation": "从隐藏状态攻击时"
+        }
+      ],
+      "fearCost": 2,
+      "tier": 3,
+      "majorThreshold": 20,
+      "severeThreshold": 32,
+      "description": "与暗影融为一体的杀手，出手即致命。"
+    },
+    {
+      "id": "corrupted-archdruid",
+      "name": "堕落大德鲁伊",
+      "nameEn": "Corrupted Archdruid",
+      "type": "leader",
+      "behavior": "leader",
+      "difficulty": 17,
+      "evasion": 11,
+      "hp": 7,
+      "maxHp": 7,
+      "stress": 5,
+      "maxStress": 5,
+      "attacks": [
+        {
+          "name": "腐化藤蔓",
+          "attribute": "knowledge",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 3,
+                "sides": 6
+              }
+            ],
+            "modifier": 3,
+            "type": "magical"
+          },
+          "targets": "single",
+          "conditionApplied": "restrained",
+          "conditionDuration": 2
+        }
+      ],
+      "features": [
+        {
+          "name": "自然之怒",
+          "type": "action",
+          "cost": 0,
+          "description": "召唤1d4只森林蜘蛛增援。"
+        },
+        {
+          "name": "腐化大地",
+          "type": "fear",
+          "cost": 3,
+          "description": "花费3恐惧点，近距离内所有角色标记2压力。",
+          "fearEffect": {
+            "target": "allPlayers",
+            "stressDamage": 2
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "腐化自然",
+          "modifier": 3,
+          "situation": "在森林或荒野中战斗时"
+        }
+      ],
+      "fearCost": 3,
+      "tier": 3,
+      "majorThreshold": 20,
+      "severeThreshold": 32,
+      "description": "被污霭腐蚀的大德鲁伊，操控扭曲的自然之力。"
+    },
+    {
+      "id": "elemental-spark",
+      "name": "元素火花",
+      "nameEn": "Elemental Spark",
+      "type": "minion",
+      "behavior": "caster",
+      "difficulty": 15,
+      "evasion": 12,
+      "hp": 1,
+      "maxHp": 1,
+      "stress": 1,
+      "maxStress": 1,
+      "attacks": [
+        {
+          "name": "电弧",
+          "attribute": "knowledge",
+          "distance": "nearby",
+          "damage": {
+            "dice": [],
+            "modifier": 5,
+            "type": "magical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "元素链接",
+          "type": "passive",
+          "cost": 0,
+          "description": "当同一元素生物在近距离时，攻击获得优势。"
+        }
+      ],
+      "fearCost": 0,
+      "tier": 3,
+      "minionDefeatThreshold": 9,
+      "description": "从元素裂隙中涌出的火花，虽弱小但数量众多。"
+    },
+    {
+      "id": "demon-general",
+      "name": "恶魔将军",
+      "nameEn": "Demon General",
+      "type": "solo",
+      "behavior": "solo",
+      "difficulty": 20,
+      "evasion": 12,
+      "hp": 11,
+      "maxHp": 11,
+      "stress": 5,
+      "maxStress": 5,
+      "attacks": [
+        {
+          "name": "末日之刃",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 4,
+                "sides": 12
+              }
+            ],
+            "modifier": 10,
+            "type": "magical"
+          },
+          "targets": "single"
+        },
+        {
+          "name": "地狱烈焰",
+          "attribute": "presence",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 4,
+                "sides": 8
+              }
+            ],
+            "modifier": 10,
+            "type": "magical"
+          },
+          "targets": "closeBlast",
+          "conditionApplied": "ignited",
+          "conditionDuration": 3
+        }
+      ],
+      "features": [
+        {
+          "name": "恶魔统御",
+          "type": "passive",
+          "cost": 0,
+          "description": "所有友方恶魔获得攻击优势。"
+        },
+        {
+          "name": "末日降临",
+          "type": "fear",
+          "cost": 3,
+          "description": "花费3恐惧点，对近战范围内所有角色造成4d8伤害并施加2压力。",
+          "fearEffect": {
+            "target": "allPlayers",
+            "stressDamage": 2,
+            "hpDamage": {
+              "dice": [
+                {
+                  "count": 4,
+                  "sides": 8
+                }
+              ],
+              "modifier": 0,
+              "type": "magical"
+            }
+          }
+        },
+        {
+          "name": "地狱召唤",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，召唤1d4只恶魔杂兵增援。",
+          "fearEffect": {
+            "target": "self",
+            "summonEnemyId": "demon-grunt",
+            "summonCount": {
+              "dice": [
+                {
+                  "count": 1,
+                  "sides": 4
+                }
+              ],
+              "modifier": 0,
+              "type": "direct"
+            }
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "战争之道",
+          "modifier": 3,
+          "situation": "统帅恶魔军团作战时"
+        }
+      ],
+      "fearCost": 3,
+      "tier": 4,
+      "relentlessCount": 3,
+      "majorThreshold": 25,
+      "severeThreshold": 45,
+      "description": "统领地狱军团的至高恶魔，它的利刃可斩断灵魂。"
+    },
+    {
+      "id": "demon-grunt",
+      "name": "恶魔杂兵",
+      "nameEn": "Demon Grunt",
+      "type": "minion",
+      "behavior": "bruiser",
+      "difficulty": 18,
+      "evasion": 10,
+      "hp": 1,
+      "maxHp": 1,
+      "stress": 1,
+      "maxStress": 1,
+      "attacks": [
+        {
+          "name": "地狱之爪",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [],
+            "modifier": 5,
+            "type": "magical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "恶魔之力",
+          "type": "passive",
+          "cost": 0,
+          "description": "在恶魔将军附近时攻击获得优势。"
+        }
+      ],
+      "fearCost": 0,
+      "tier": 4,
+      "minionDefeatThreshold": 12,
+      "description": "地狱军团的底层恶魔，被将军的意志驱使。"
+    },
+    {
+      "id": "dragon-lich",
+      "name": "龙巫妖",
+      "nameEn": "Dragon Lich",
+      "type": "solo",
+      "behavior": "solo",
+      "difficulty": 20,
+      "evasion": 11,
+      "hp": 11,
+      "maxHp": 11,
+      "stress": 8,
+      "maxStress": 8,
+      "attacks": [
+        {
+          "name": "死亡之爪",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 4,
+                "sides": 12
+              }
+            ],
+            "modifier": 13,
+            "type": "magical"
+          },
+          "targets": "single"
+        },
+        {
+          "name": "亡灵吐息",
+          "attribute": "presence",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 4,
+                "sides": 10
+              }
+            ],
+            "modifier": 10,
+            "type": "magical"
+          },
+          "targets": "closeBlast",
+          "stressDamage": 2
+        }
+      ],
+      "features": [
+        {
+          "name": "亡灵之躯",
+          "type": "passive",
+          "cost": 0,
+          "description": "免疫中毒、点燃、魅惑和束缚。对非魔法伤害具有抗性。"
+        },
+        {
+          "name": "灵魂汲取",
+          "type": "fear",
+          "cost": 3,
+          "description": "花费3恐惧点，对单一目标造成4d10伤害并恢复2HP。",
+          "fearEffect": {
+            "target": "singlePlayer",
+            "hpDamage": {
+              "dice": [
+                {
+                  "count": 4,
+                  "sides": 10
+                }
+              ],
+              "modifier": 0,
+              "type": "magical"
+            }
+          }
+        },
+        {
+          "name": "亡灵复苏",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，复活战场上被击败的亡灵敌人为1d4只骷髅战士。",
+          "fearEffect": {
+            "target": "self",
+            "summonEnemyId": "skeleton-warrior",
+            "summonCount": {
+              "dice": [
+                {
+                  "count": 1,
+                  "sides": 4
+                }
+              ],
+              "modifier": 0,
+              "type": "direct"
+            }
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "远古智慧",
+          "modifier": 3,
+          "situation": "使用知识或奥术时"
+        }
+      ],
+      "fearCost": 3,
+      "tier": 4,
+      "relentlessCount": 3,
+      "majorThreshold": 25,
+      "severeThreshold": 45,
+      "description": "以巫妖术获得永生的远古巨龙，亡灵与龙的双重力量使其几近无敌。"
+    },
+    {
+      "id": "void-serpent",
+      "name": "虚空巨蛇",
+      "nameEn": "Void Serpent",
+      "type": "solo",
+      "behavior": "solo",
+      "difficulty": 20,
+      "evasion": 13,
+      "hp": 11,
+      "maxHp": 11,
+      "stress": 5,
+      "maxStress": 5,
+      "attacks": [
+        {
+          "name": "虚空吞噬",
+          "attribute": "instinct",
+          "distance": "nearby",
+          "damage": {
+            "dice": [
+              {
+                "count": 4,
+                "sides": 12
+              }
+            ],
+            "modifier": 10,
+            "type": "magical"
+          },
+          "targets": "single",
+          "stressDamage": 1
+        },
+        {
+          "name": "维度裂隙",
+          "attribute": "instinct",
+          "distance": "far",
+          "damage": {
+            "dice": [
+              {
+                "count": 4,
+                "sides": 8
+              }
+            ],
+            "modifier": 10,
+            "type": "magical"
+          },
+          "targets": "farBlast",
+          "conditionApplied": "dazed",
+          "conditionDuration": 2
+        }
+      ],
+      "features": [
+        {
+          "name": "虚空之躯",
+          "type": "passive",
+          "cost": 0,
+          "description": "对物理伤害具有免疫。免疫束缚、中毒和震慑。"
+        },
+        {
+          "name": "维度穿梭",
+          "type": "fear",
+          "cost": 2,
+          "description": "花费2恐惧点，传送至任意位置并对新位置近距离内所有角色造成2压力。",
+          "fearEffect": {
+            "target": "allPlayers",
+            "stressDamage": 2
+          }
+        },
+        {
+          "name": "湮灭凝视",
+          "type": "fear",
+          "cost": 3,
+          "description": "花费3恐惧点，对单一目标施加震慑状态1轮。",
+          "fearEffect": {
+            "target": "singlePlayer",
+            "conditionApplied": "stunned",
+            "conditionDuration": 1
+          }
+        }
+      ],
+      "experiences": [
+        {
+          "name": "虚空感知",
+          "modifier": 3,
+          "situation": "在异次元空间或传送门附近时"
+        }
+      ],
+      "fearCost": 3,
+      "tier": 4,
+      "relentlessCount": 3,
+      "majorThreshold": 25,
+      "severeThreshold": 45,
+      "description": "从维度裂隙中游弋而出的远古巨蛇，物理攻击对它毫无意义。"
+    },
+    {
+      "id": "pit-fiend",
+      "name": "深渊大魔",
+      "nameEn": "Pit Fiend",
+      "type": "bruiser",
+      "behavior": "bruiser",
+      "difficulty": 19,
+      "evasion": 10,
+      "hp": 7,
+      "maxHp": 7,
+      "stress": 5,
+      "maxStress": 5,
+      "attacks": [
+        {
+          "name": "深渊之锤",
+          "attribute": "strength",
+          "distance": "melee",
+          "damage": {
+            "dice": [
+              {
+                "count": 4,
+                "sides": 10
+              }
+            ],
+            "modifier": 10,
+            "type": "magical"
+          },
+          "targets": "single"
+        }
+      ],
+      "features": [
+        {
+          "name": "地狱烈焰",
+          "type": "passive",
+          "cost": 0,
+          "description": "近战范围内攻击深渊大魔的角色标记1压力并点燃1轮。"
+        },
+        {
+          "name": "深渊咆哮",
+          "type": "fear",
+          "cost": 3,
+          "description": "花费3恐惧点，近战范围内所有角色标记3压力。",
+          "fearEffect": {
+            "target": "allPlayers",
+            "stressDamage": 3
+          }
+        }
+      ],
+      "fearCost": 3,
+      "tier": 4,
+      "majorThreshold": 25,
+      "severeThreshold": 45,
+      "description": "深渊中诞生的恐怖战士，仅凭存在就能灼烧周围一切。"
+    }
+  ],
+  "validationErrors": []
+}

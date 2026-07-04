@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "defaultSessionId": "",
+  "sessions": {
+    "session_1782561756429_z4eg": {
+      "sessionId": "session_1782561756429_z4eg",
+      "code": "XXLED2",
+      "status": "setup",
+      "currentScene": {
+        "id": "initial",
+        "name": "开场",
+        "description": "",
+        "environment": ""
+      },
+      "fearPoints": 0,
+      "totalFearGained": 0,
+      "totalFearSpent": 0,
+      "character": null,
+      "characters": [],
+      "players": [],
+      "timeline": [],
+      "campaignState": {
+        "campaignId": "drakkenheim",
+        "currentLocation": "emberVillage",
+        "visitedLocations": [],
+        "factionRelations": {},
+        "personalQuestProgress": {},
+        "factionQuestProgress": {},
+        "contaminationLevel": 0,
+        "deleriumCollected": 0,
+        "sealsFound": [],
+        "currentChapter": "arrival",
+        "hazeExpansion": 0,
+        "narrativeFlags": {}
+      },
+      "adventureMessages": [],
+      "shortRestsSinceLong": 0,
+      "createdAt": 1782561756429
+    },
+    "session_1782561756753_qajm": {
+      "sessionId": "session_1782561756753_qajm",
+      "code": "6U32CN",
+      "status": "setup",
+      "currentScene": {
+        "id": "initial",
+        "name": "开场",
+        "description": "",
+        "environment": ""
+      },
+      "fearPoints": 0,
+      "totalFearGained": 0,
+      "totalFearSpent": 0,
+      "character": null,
+      "characters": [],
+      "players": [],
+      "timeline": [],
+      "campaignState": {
+        "campaignId": "drakkenheim",
+        "currentLocation": "emberVillage",
+        "visitedLocations": [],
+        "factionRelations": {},
+        "personalQuestProgress": {},
+        "factionQuestProgress": {},
+        "contaminationLevel": 0,
+        "deleriumCollected": 0,
+        "sealsFound": [],
+        "currentChapter": "arrival",
+        "hazeExpansion": 0,
+        "narrativeFlags": {}
+      },
+      "adventureMessages": [],
+      "shortRestsSinceLong": 0,
+      "createdAt": 1782561756753
+    }
+  }
+}

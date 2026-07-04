@@ -9,6 +9,7 @@ import {
   Modal,
   FlatList,
   TextInput,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,8 +17,9 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import { useGameStore } from '../store/gameStore';
-import { sendAttackAction, sendPlayerAction, sendCombatAddEnemy, sendCombatEnd } from '../hooks/useSocket';
+import { sendAttackAction, sendPlayerAction, sendCombatAddEnemy, sendCombatEnd, sendCombatEnemyTurn } from '../hooks/useSocket';
 import type { CombatEnemy } from '@trpgmaster/shared';
+import { theme } from '../theme/theme';
 
 // Enemy catalog type from server API
 interface EnemyCatalogEntry {
@@ -40,6 +42,9 @@ export function CombatScreen() {
   const gmTyping = useGameStore((s) => s.gmTyping);
   const streamingText = useGameStore((s) => s.streamingText);
   const playerId = useGameStore((s) => s.playerId);
+  const isHost = useGameStore((s) => s.isHost);
+  const pendingDiceResult = useGameStore((s) => s.pendingDiceResult);
+  const clearPendingDiceResult = useGameStore((s) => s.clearPendingDiceResult);
 
   const [selectingTarget, setSelectingTarget] = useState(false);
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
@@ -77,7 +82,7 @@ export function CombatScreen() {
 
   const executeAttack = (enemy: CombatEnemy) => {
     if (!character) return;
-    const evasion = (enemy as any).evasion ?? 12;
+    const evasion = enemy.evasion ?? 12;
     sendAttackAction({
       kind: 'attack',
       attackerId: playerId,
@@ -88,12 +93,23 @@ export function CombatScreen() {
 
   const handleOtherAction = (label: string) => {
     sendPlayerAction(label);
-    navigation.goBack();
   };
 
   const handleEndCombat = () => {
-    sendCombatEnd();
-    navigation.goBack();
+    if (!isHost) {
+      Alert.alert('权限不足', '只有主持人(GM)才能结束战斗');
+      return;
+    }
+    Alert.alert(
+      '结束战斗',
+      '确定要结束当前战斗吗？',
+      [
+        { text: '取消', style: 'cancel' },
+        { text: '确定', style: 'destructive', onPress: () => {
+          sendCombatEnd();
+        }},
+      ],
+    );
   };
 
   const handleAddEnemy = async () => {
@@ -285,11 +301,45 @@ export function CombatScreen() {
           </View>
         )}
 
-        {/* End combat */}
-        <TouchableOpacity style={styles.endCombatButton} onPress={handleEndCombat}>
-          <Text style={styles.endCombatText}>结束战斗</Text>
-        </TouchableOpacity>
+        {/* Enemy turn & End combat */}
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+          <TouchableOpacity
+            style={[styles.endCombatButton, { flex: 1, backgroundColor: theme.color.blood }]}
+            onPress={() => sendCombatEnemyTurn()}
+          >
+            <Text style={styles.endCombatText}>敌人回合</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.endCombatButton, { flex: 1 }]} onPress={handleEndCombat}>
+            <Text style={styles.endCombatText}>结束战斗</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
+
+      {/* Dice result banner */}
+      {pendingDiceResult && (
+        <View style={styles.diceBanner}>
+          <View style={styles.diceBannerContent}>
+            <Ionicons name="dice" size={16} color={pendingDiceResult.success ? theme.color.emerald : theme.color.danger} />
+            <Text style={styles.diceBannerText}>
+              {pendingDiceResult.isCritical ? '关键成功! ' : ''}
+              {pendingDiceResult.success ? '成功' : '失败'}
+              {'  '}
+              <Text style={{ color: theme.color.emerald }}>希望骰:{pendingDiceResult.hopeDie}</Text>
+              {' '}
+              <Text style={{ color: theme.color.blood }}>恐惧骰:{pendingDiceResult.fearDie}</Text>
+              {pendingDiceResult.modifier ? ` +${pendingDiceResult.modifier}` : ''}
+              {' = '}{pendingDiceResult.total} vs {pendingDiceResult.difficulty}
+              {pendingDiceResult.hopeGain > 0 && `  +${pendingDiceResult.hopeGain}希望`}
+              {pendingDiceResult.fearGain > 0 && `  +${pendingDiceResult.fearGain}恐惧`}
+              {pendingDiceResult.stressCleared > 0 && `  -${pendingDiceResult.stressCleared}压力`}
+              {pendingDiceResult.canTakeFreeAction && '  可执行免费行动'}
+            </Text>
+          </View>
+          <TouchableOpacity onPress={() => clearPendingDiceResult()}>
+            <Ionicons name="close-circle" size={16} color={theme.color.textDim} />
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Enemy catalog modal */}
       <Modal visible={showEnemyCatalog} animationType="slide" transparent>
@@ -642,5 +692,25 @@ const styles = StyleSheet.create({
     color: '#7f8c8d',
     fontSize: 12,
     marginTop: 2,
+  },
+  diceBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: theme.color.bgCard,
+    borderTopWidth: 1,
+    borderTopColor: theme.color.fog,
+  },
+  diceBannerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+  },
+  diceBannerText: {
+    color: theme.color.text,
+    fontSize: 13,
   },
 });

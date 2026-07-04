@@ -9,13 +9,27 @@
         "name": "定制设计",
         "nameEn": "Custom Design",
         "description": "决定你是由谁创造以及为何目的而创造的。在创建角色时，选择一个最符合此目的的经历，永久获得+1加值。",
-        "type": "passive"
+        "type": "passive",
+        "mechanicalEffects": [
+          {
+            "trigger": "always",
+            "type": "narrative",
+            "description": "创建角色时选择一个经历永久获得+1加值（由玩家在角色创建时选择）"
+          }
+        ]
       },
       {
         "name": "高效休整",
         "nameEn": "Efficient Rest",
         "description": "当你进行短休时，你可以选择一个长休的休整行动代替短休的休整行动。",
-        "type": "passive"
+        "type": "passive",
+        "mechanicalEffects": [
+          {
+            "trigger": "onRest",
+            "type": "extraRestAction",
+            "description": "短休时可选择长休行动代替短休行动"
+          }
+        ]
       }
     ]
   },
@@ -29,13 +43,29 @@
         "name": "鳞片保护",
         "nameEn": "Scale Protection",
         "description": "你的鳞片提供天然保护。当你受到严重伤害时，你可以标记1压力点以少标记1生命点。",
-        "type": "passive"
+        "type": "passive",
+        "mechanicalEffects": [
+          {
+            "trigger": "onDamaged",
+            "type": "hpLossReplace",
+            "replaceCost": { "resource": "stress", "amount": 1 },
+            "description": "受到严重伤害时，可标记1压力代替1生命点损失"
+          }
+        ]
       },
       {
         "name": "元素吐息",
         "nameEn": "Elemental Breath",
         "description": "选择一种元素作为你的吐息（例如电、火或冰）。你可以对邻近范围内的一个或一群目标使用此吐息，将其视为一种使用你的熟练值造成d8点魔法伤害的本能武器。",
-        "type": "action"
+        "type": "action",
+        "mechanicalEffects": [
+          {
+            "trigger": "action",
+            "type": "damage",
+            "damageFormula": { "dice": [{ "count": 1, "sides": 8 }], "modifier": 0, "type": "magical" },
+            "description": "对邻近范围目标造成1d8魔法伤害（使用熟练值作为属性加值）"
+          }
+        ]
       }
     ]
   },
@@ -49,14 +79,31 @@
         "name": "厚实皮肤",
         "nameEn": "Thick Skin",
         "description": "当你受到轻度伤害时，你可以标记2压力点代替标记1生命点。",
-        "type": "passive"
+        "type": "passive",
+        "mechanicalEffects": [
+          {
+            "trigger": "onDamaged",
+            "type": "hpLossReplace",
+            "replaceCost": { "resource": "stress", "amount": 2 },
+            "description": "受到轻度伤害时，可标记2压力代替1生命点损失"
+          }
+        ]
       },
       {
         "name": "增强坚韧",
         "nameEn": "Enhanced Resilience",
         "description": "花费3希望点，将受到的物理伤害减半。",
         "type": "action",
-        "hopeCost": 3
+        "hopeCost": 3,
+        "mechanicalEffects": [
+          {
+            "trigger": "action",
+            "type": "damageReduction",
+            "reductionAmount": 0,
+            "resistType": "physical",
+            "description": "花费3希望点，物理伤害减半"
+          }
+        ]
       }
     ]
   },
@@ -71,13 +118,28 @@
         "nameEn": "Quick Reflexes",
         "description": "标记1压力点，在反应掷骰上获得优势。",
         "type": "action",
-        "stressCost": 1
+        "stressCost": 1,
+        "mechanicalEffects": [
+          {
+            "trigger": "action",
+            "type": "advantage",
+            "triggerSituation": "反应掷骰",
+            "description": "标记1压力，反应掷骰获得优势"
+          }
+        ]
       },
       {
         "name": "天界冥想",
         "nameEn": "Celestial Meditation",
         "description": "在休息期间，你可以进入冥想状态，选择一个额外的休整行动。",
-        "type": "passive"
+        "type": "passive",
+        "mechanicalEffects": [
+          {
+            "trigger": "onRest",
+            "type": "extraRestAction",
+            "description": "休息时可选择一个额外的休整行动"
+          }
+        ]
       }
     ]
   },
@@ -92,14 +154,31 @@
         "nameEn": "Luck Manipulator",
         "description": "每场游戏一次，在你或一个近距离范围内的自愿盟友进行动作掷骰后，你可以花费3希望点重新掷二元骰。",
         "type": "action",
-        "hopeCost": 3
+        "hopeCost": 3,
+        "mechanicalEffects": [
+          {
+            "trigger": "onRoll",
+            "type": "reroll",
+            "rerollTarget": "both",
+            "usesPer": "session",
+            "description": "每场游戏一次，花费3希望点重掷自己或近距盟友的二元骰"
+          }
+        ]
       },
       {
         "name": "翅膀",
         "nameEn": "Wings",
         "description": "你可以飞行。飞行时，在敌人对你进行攻击之后，你可以标记1压力点在该攻击中闪避获得+2加值。",
         "type": "trait",
-        "stressCost": 1
+        "stressCost": 1,
+        "mechanicalEffects": [
+          {
+            "trigger": "onEnemyAttack",
+            "type": "evasionBonus",
+            "evasionBonusAmount": 2,
+            "description": "可飞行；被攻击时标记1压力获得闪避+2"
+          }
+        ]
       }
     ]
   },
@@ -113,14 +192,29 @@
         "name": "跳跃",
         "nameEn": "Leap",
         "description": "你可以像使用正常移动一样跳跃到近距离范围内的任何地方，让你轻松跳过障碍物、跨越缝隙或攀爬障碍。",
-        "type": "passive"
+        "type": "passive",
+        "mechanicalEffects": [
+          {
+            "trigger": "always",
+            "type": "narrative",
+            "description": "可跳跃至近距离范围任何地方"
+          }
+        ]
       },
       {
         "name": "踢击",
         "nameEn": "Kick",
         "description": "当你对近战范围内的一个目标攻击成功时，你可以标记1压力点借力将自己踢离目标，造成额外2d6点伤害，并将你自己或目标击退至邻近范围处。",
         "type": "action",
-        "stressCost": 1
+        "stressCost": 1,
+        "mechanicalEffects": [
+          {
+            "trigger": "onAttackHit",
+            "type": "damage",
+            "damageFormula": { "dice": [{ "count": 2, "sides": 6 }], "modifier": 0, "type": "physical" },
+            "description": "攻击命中时标记1压力，造成额外2d6物理伤害并击退"
+          }
+        ]
       }
     ]
   },
@@ -135,13 +229,29 @@
         "nameEn": "Charge",
         "description": "当你成功进行一次敏捷掷骰，从远距离或极远距离移动到一个或多个目标的近战距离内时，你可以标记1压力点，对近战距离内的所有目标造成1d12点物理伤害。",
         "type": "action",
-        "stressCost": 1
+        "stressCost": 1,
+        "mechanicalEffects": [
+          {
+            "trigger": "onMove",
+            "type": "damage",
+            "damageFormula": { "dice": [{ "count": 1, "sides": 12 }], "modifier": 0, "type": "physical" },
+            "triggerSituation": "从远距离冲锋到近战距离",
+            "description": "冲锋时标记1压力，对近战范围所有目标造成1d12物理伤害"
+          }
+        ]
       },
       {
         "name": "百折不挠",
         "nameEn": "Relentless",
         "description": "当你本应标记1压力点时，掷一个d6。结果为6时，则无需标记。",
-        "type": "passive"
+        "type": "passive",
+        "mechanicalEffects": [
+          {
+            "trigger": "onStressGained",
+            "type": "narrative",
+            "description": "获得压力时掷d6，结果为6则不标记该压力"
+          }
+        ]
       }
     ]
   },
@@ -155,14 +265,29 @@
         "name": "孢菌网络",
         "nameEn": "Spore Network",
         "description": "进行一次本能掷骰(12)，使用你的菌丝与任何范围的同种族成员交换信息。",
-        "type": "action"
+        "type": "action",
+        "mechanicalEffects": [
+          {
+            "trigger": "action",
+            "type": "narrative",
+            "triggerAttribute": "instinct",
+            "description": "本能掷骰(DC12)与同种族交换信息"
+          }
+        ]
       },
       {
         "name": "死亡连接",
         "nameEn": "Death Connection",
         "description": "触摸一具最近死亡的尸体，你可以标记1压力点，从尸体中提取一个与你选择的特定情绪或感觉相关的记忆。",
         "type": "action",
-        "stressCost": 1
+        "stressCost": 1,
+        "mechanicalEffects": [
+          {
+            "trigger": "action",
+            "type": "narrative",
+            "description": "标记1压力从尸体提取记忆"
+          }
+        ]
       }
     ]
   },
@@ -176,14 +301,30 @@
         "name": "龟甲",
         "nameEn": "Shell",
         "description": "你的伤害阈值获得等同于你熟练值的加值。",
-        "type": "passive"
+        "type": "passive",
+        "mechanicalEffects": [
+          {
+            "trigger": "always",
+            "type": "thresholdBonus",
+            "thresholdBonusSource": "proficiency",
+            "description": "伤害阈值获得熟练值加值"
+          }
+        ]
       },
       {
         "name": "缩壳",
         "nameEn": "Shell Defense",
         "description": "标记1压力点来缩入你的龟壳中。在龟壳中时，你获得物理伤害抗性，但动作掷骰有劣势，并且无法移动。",
         "type": "action",
-        "stressCost": 1
+        "stressCost": 1,
+        "mechanicalEffects": [
+          {
+            "trigger": "action",
+            "type": "conditionResist",
+            "resistType": "physical",
+            "description": "标记1压力缩入龟壳，获得物理抗性但动作劣势且无法移动"
+          }
+        ]
       }
     ]
   },
@@ -197,13 +338,30 @@
         "name": "坚韧",
         "nameEn": "Tough",
         "description": "在创建角色时，获得一个额外的生命槽。",
-        "type": "passive"
+        "type": "passive",
+        "mechanicalEffects": [
+          {
+            "trigger": "always",
+            "type": "resourceBonus",
+            "resourceBonus": { "resource": "hp", "amount": 1 },
+            "description": "角色创建时获得额外1个生命槽"
+          }
+        ]
       },
       {
         "name": "长臂",
         "nameEn": "Long Arms",
         "description": "将任何近战范围的武器、能力、法术或其他特性视为具有邻近范围。",
-        "type": "passive"
+        "type": "passive",
+        "mechanicalEffects": [
+          {
+            "trigger": "always",
+            "type": "weaponExtension",
+            "weaponRangeFrom": "melee",
+            "weaponRangeTo": "nearby",
+            "description": "近战范围武器/能力视为邻近范围"
+          }
+        ]
       }
     ]
   },
@@ -217,14 +375,31 @@
         "name": "稳健脚步",
         "nameEn": "Steady Feet",
         "description": "你在敏捷掷骰中忽略劣势。",
-        "type": "passive"
+        "type": "passive",
+        "mechanicalEffects": [
+          {
+            "trigger": "onRoll",
+            "type": "disadvantageIgnore",
+            "triggerAttribute": "agility",
+            "description": "敏捷掷骰中忽略劣势"
+          }
+        ]
       },
       {
         "name": "危险感应",
         "nameEn": "Danger Sense",
         "description": "每次休息一次，标记1压力点，强制一个敌人重掷对你或你邻近范围内的盟友的攻击。",
         "type": "action",
-        "stressCost": 1
+        "stressCost": 1,
+        "mechanicalEffects": [
+          {
+            "trigger": "onEnemyAttack",
+            "type": "reroll",
+            "rerollTarget": "attack",
+            "usesPer": "shortRest",
+            "description": "每次休息一次，标记1压力强制敌人重掷攻击"
+          }
+        ]
       }
     ]
   },
@@ -238,13 +413,30 @@
         "name": "幸运使者",
         "nameEn": "Lucky",
         "description": "每场游戏开始时，你队伍中的所有人皆获得1希望点。",
-        "type": "passive"
+        "type": "passive",
+        "mechanicalEffects": [
+          {
+            "trigger": "onSessionStart",
+            "type": "hopeGrant",
+            "hopeAmount": 1,
+            "hopeTarget": "party",
+            "description": "每场游戏开始时全队获得1希望点"
+          }
+        ]
       },
       {
         "name": "内在罗盘",
         "nameEn": "Inner Compass",
         "description": "当你掷出的希望骰结果为1时，你可以重掷此次掷骰。",
-        "type": "passive"
+        "type": "passive",
+        "mechanicalEffects": [
+          {
+            "trigger": "onHopeDie1",
+            "type": "reroll",
+            "rerollTarget": "hopeDie",
+            "description": "希望骰为1时可重掷"
+          }
+        ]
       }
     ]
   },
@@ -258,14 +450,31 @@
         "name": "精力充沛",
         "nameEn": "Energetic",
         "description": "角色创建时获得一个额外的压力槽。",
-        "type": "passive"
+        "type": "passive",
+        "mechanicalEffects": [
+          {
+            "trigger": "always",
+            "type": "resourceBonus",
+            "resourceBonus": { "resource": "stress", "amount": 1 },
+            "description": "角色创建时获得额外1个压力槽"
+          }
+        ]
       },
       {
         "name": "随机应变",
         "nameEn": "Adaptable",
         "description": "当你在运用某个经历进行的掷骰失败时，你可以标记1压力点进行重掷。",
         "type": "action",
-        "stressCost": 1
+        "stressCost": 1,
+        "mechanicalEffects": [
+          {
+            "trigger": "onRoll",
+            "type": "reroll",
+            "rerollTarget": "both",
+            "triggerSituation": "使用经历的掷骰失败时",
+            "description": "使用经历掷骰失败时标记1压力重掷"
+          }
+        ]
       }
     ]
   },
@@ -280,13 +489,28 @@
         "nameEn": "Fearless",
         "description": "当你掷出恐惧结果时，你可以标记2压力点将其改为掷出希望结果。",
         "type": "action",
-        "stressCost": 2
+        "stressCost": 2,
+        "mechanicalEffects": [
+          {
+            "trigger": "onFearResult",
+            "type": "fearToHope",
+            "description": "恐惧结果时标记2压力改为希望结果"
+          }
+        ]
       },
       {
         "name": "恐怖面容",
         "nameEn": "Fearsome Visage",
         "description": "你在恐吓敌意生物的掷骰中具有优势。",
-        "type": "passive"
+        "type": "passive",
+        "mechanicalEffects": [
+          {
+            "trigger": "onRoll",
+            "type": "advantage",
+            "triggerSituation": "恐吓敌意生物",
+            "description": "恐吓敌意生物的掷骰具有优势"
+          }
+        ]
       }
     ]
   },
@@ -301,13 +525,32 @@
         "nameEn": "Feline Instinct",
         "description": "当你进行敏捷掷骰时，你可以花费2希望点来重掷你的希望骰。",
         "type": "action",
-        "hopeCost": 2
+        "hopeCost": 2,
+        "mechanicalEffects": [
+          {
+            "trigger": "onRoll",
+            "type": "reroll",
+            "rerollTarget": "hopeDie",
+            "triggerAttribute": "agility",
+            "description": "敏捷掷骰时花费2希望点重掷希望骰"
+          }
+        ]
       },
       {
         "name": "伸缩猫爪",
         "nameEn": "Retractable Claws",
         "description": "进行一次敏捷掷骰来抓挠近战范围内的一个目标。成功时，目标暂时处于脆弱状态。",
-        "type": "action"
+        "type": "action",
+        "mechanicalEffects": [
+          {
+            "trigger": "action",
+            "type": "conditionApply",
+            "conditionApplied": "vulnerable",
+            "conditionDuration": 2,
+            "triggerAttribute": "agility",
+            "description": "敏捷掷骰成功时使近战目标脆弱"
+          }
+        ]
       }
     ]
   },
@@ -321,14 +564,30 @@
         "name": "强壮",
         "nameEn": "Mighty",
         "description": "当你剩余1点生命点时，以你为目标的攻击掷骰具有劣势。",
-        "type": "passive"
+        "type": "passive",
+        "mechanicalEffects": [
+          {
+            "trigger": "onEnemyAttack",
+            "type": "advantage",
+            "triggerSituation": "HP=1时被攻击",
+            "description": "HP剩余1时，攻击者的攻击掷骰具有劣势"
+          }
+        ]
       },
       {
         "name": "獠牙",
         "nameEn": "Fangs",
         "description": "当你对近战范围内的一个目标攻击成功时，你可以花费1希望点用獠牙刺击目标，额外造成1d6点伤害。",
         "type": "action",
-        "hopeCost": 1
+        "hopeCost": 1,
+        "mechanicalEffects": [
+          {
+            "trigger": "onAttackHit",
+            "type": "damage",
+            "damageFormula": { "dice": [{ "count": 1, "sides": 6 }], "modifier": 0, "type": "physical" },
+            "description": "攻击命中时花费1希望点造成额外1d6物理伤害"
+          }
+        ]
       }
     ]
   },
@@ -342,14 +601,29 @@
         "name": "两栖",
         "nameEn": "Amphibious",
         "description": "你天生能够在水下呼吸和移动。",
-        "type": "passive"
+        "type": "passive",
+        "mechanicalEffects": [
+          {
+            "trigger": "always",
+            "type": "narrative",
+            "description": "天生可在水下呼吸和移动"
+          }
+        ]
       },
       {
         "name": "长舌",
         "nameEn": "Long Tongue",
         "description": "你可以使用你的长舌抓住近距离范围内的物体。标记1压力点，将你的舌头用作一把使用你的熟练值造成d12物理伤害的灵巧近战武器。",
         "type": "action",
-        "stressCost": 1
+        "stressCost": 1,
+        "mechanicalEffects": [
+          {
+            "trigger": "action",
+            "type": "damage",
+            "damageFormula": { "dice": [{ "count": 1, "sides": 12 }], "modifier": 0, "type": "physical" },
+            "description": "标记1压力，舌头作为灵巧近战武器造成1d12物理伤害"
+          }
+        ]
       }
     ]
   },
@@ -363,13 +637,30 @@
         "name": "天生攀爬者",
         "nameEn": "Natural Climber",
         "description": "你在涉及平衡和攀爬的敏捷掷骰中具有优势。",
-        "type": "passive"
+        "type": "passive",
+        "mechanicalEffects": [
+          {
+            "trigger": "onRoll",
+            "type": "advantage",
+            "triggerAttribute": "agility",
+            "triggerSituation": "平衡和攀爬",
+            "description": "平衡和攀爬的敏捷掷骰具有优势"
+          }
+        ]
       },
       {
         "name": "灵活",
         "nameEn": "Nimble",
         "description": "在创建角色时，闪避值获得永久+1加值。",
-        "type": "passive"
+        "type": "passive",
+        "mechanicalEffects": [
+          {
+            "trigger": "always",
+            "type": "evasionBonus",
+            "evasionBonusAmount": 1,
+            "description": "闪避值永久+1"
+          }
+        ]
       }
     ]
   }

@@ -1,16 +1,21 @@
 import { Server as IOServer, Socket } from 'socket.io';
 import { Server as HttpServer } from 'http';
 import { v4 as uuidv4 } from 'uuid';
-import enemyData from '../rules/data/daggerheart/enemies.json';
+import { getDataProvider } from '../rules/DataProviderRegistry';
 import type { StateManager } from '../core/StateManager';
 import type { SessionRegistry } from '../core/SessionRegistry';
 import type { AIGameMaster } from '../ai/AIGameMaster';
-import { resolveDualityDice, gainFearOnRest } from '../rules/systems/DaggerHeartRules';
-import { resolvePlayerAttack, resolveDamageToCharacter, resolveAbilityCheck } from '../rules/combatResolver';
+import type { AIGameMasterPool } from '../ai/AIGameMasterPool';
+import { resolveDualityDice, gainFearOnRest, executeRest, gloriousSacrifice, avoidDeath, desperateGamble, swapDomainCard, recallDomainCard } from '../rules/systems/DaggerHeartRules';
+import { resolvePlayerAttack, resolveDamageToCharacter, resolveAbilityCheck, resolveEnemyAttack } from '../rules/combatResolver';
 import { rollLootTable, rollSceneSearchLoot } from '../rules/lootResolver';
 import type { LootResult } from '@trpgmaster/shared';
 import { applyPlayerAttack, applyDamageToCharacter } from './combatApply';
-import { extractGmEffects, playerInputSuggestsCombat, extractEnemyNameFromNarration } from '../ai/extractGmEffects';
+import { selectEnemyActions } from '../rules/systems/enemyBehavior';
+import { spawnEncounter, getTierFromLevel, type EncounterDifficulty } from '../rules/systems/encounterSpawner';
+import { CharacterLevelUp } from '../core/CharacterLevelUp';
+import type { LevelUpRequest, LevelUpOptionType } from '../core/CharacterLevelUp';
+import { extractGmEffects, playerInputSuggestsCombat } from '../ai/extractGmEffects';
 import { extractStateChanges, parseStateKeyValue, extractChoices, applyStateChanges } from './stateChangeParser';
 import type {
   GameEvent,
@@ -23,12 +28,46 @@ import type {
   RollDeclaration,
   CombatEnemy,
   AdventureSummary,
+  ShortRestAction,
+  LongRestAction,
+  Attribute,
 } from '@trpgmaster/shared';
 import type { AIGMContext } from '@trpgmaster/shared';
 import type { PersistedAdventureMessage } from '../core/SessionPersistence';
 import type { SessionStore } from '../core/SessionStore';
 import { SpotlightManager } from '../core/SpotlightManager';
 import { SafetyManager } from '../core/SafetyManager';
+import {
+  validatePayload,
+  diceRollPayload,
+  playerActionPayload,
+  playerChoicePayload,
+  chatMessagePayload,
+  playerRestPayload,
+  characterResourceUpdatePayload,
+  deathMovePayload,
+  levelUpPayload,
+  contaminationPayload,
+  hazeEffectPayload,
+  deleriumFoundPayload,
+  sealFoundPayload,
+  swapDomainCardPayload,
+  combatActionPayload,
+  combatAddEnemyPayload,
+  combatSpawnEncounterPayload,
+  reactionDeclarePayload,
+  actionUseFeaturePayload,
+  lootPickupPayload,
+  spotlightPassPayload,
+  s0SubmitPayload,
+  characterUpdatePayload,
+  sessionJoinPayload,
+  sessionCreatePayload,
+  sessionJoinByCodePayload,
+  sessionRejoinPayload,
+  sessionRejoinByIdPayload,
+} from './validation';
+import type { ZodTypeAny } from 'zod';
 
 interface ConnectedClient {
   socketId: string;
@@ -51,16 +90,16 @@ interface SocketMessage<T = unknown> {
 export class SocketServer {
   private io: IOServer;
   private sessionRegistry: SessionRegistry;
-  private aiGM: AIGameMaster | undefined;
+  private gmPool: AIGameMasterPool | undefined;
   private clients: Map<string, ConnectedClient>;
-  private activeStreams: Map<string, AbortController>; // sessionId → active stream controller (for X-Card abort)
+  private activeStreams: Map<string, { controller: AbortController; senderId?: string }>; // sessionId → active stream
   private sessionStore: SessionStore | null;
   private spotlightManager: SpotlightManager;
   private safetyManager: SafetyManager;
 
-  constructor(httpServer: HttpServer, sessionRegistry: SessionRegistry, aiGM?: AIGameMaster) {
+  constructor(httpServer: HttpServer, sessionRegistry: SessionRegistry, gmPool?: AIGameMasterPool) {
     this.sessionRegistry = sessionRegistry;
-    this.aiGM = aiGM;
+    this.gmPool = gmPool;
     this.clients = new Map();
     this.activeStreams = new Map();
     this.sessionStore = null;
@@ -85,22 +124,37 @@ export class SocketServer {
       // ===== Session Management =====
 
       socket.on('session:join', (msg: SocketMessage<{ role: 'gm' | 'player'; name: string; character?: Character }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, sessionJoinPayload);
+        if (!validated) return;
+        msg.payload = validated;
         this.handleJoin(socket, msg);
       });
 
       socket.on('session:create', (msg: SocketMessage<{ name: string; character?: Character }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, sessionCreatePayload);
+        if (!validated) return;
+        msg.payload = validated;
         this.handleCreateSession(socket, msg);
       });
 
       socket.on('session:joinByCode', (msg: SocketMessage<{ code: string; name: string; character?: Character }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, sessionJoinByCodePayload);
+        if (!validated) return;
+        msg.payload = validated;
         this.handleJoinByCode(socket, msg);
       });
 
       socket.on('session:rejoin', (msg: SocketMessage<{ playerId: string; name: string; character?: Character }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, sessionRejoinPayload);
+        if (!validated) return;
+        msg.payload = validated;
         this.handleRejoin(socket, msg);
       });
 
       socket.on('session:rejoinById', (msg: SocketMessage<{ sessionId: string; playerId: string; name: string; character?: Character }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, sessionRejoinByIdPayload);
+        if (!validated) return;
+        msg.payload = validated;
         this.handleRejoinById(socket, msg);
       });
 
@@ -127,13 +181,17 @@ export class SocketServer {
       });
 
       socket.on('chat:message', (msg: SocketMessage<{ text: string; sender: string }>) => {
+        const validated = this.validateMsg<{ text: string; sender: string }>(socket, msg, chatMessagePayload);
+        if (!validated) return;
         const client = this.clients.get(socket.id);
         if (!client) return;
         const sessionId = client.sessionId;
-        this.io.to(sessionId).emit('chat:message', msg);
+        this.io.to(sessionId).emit('chat:message', { ...msg, payload: validated });
       });
 
       socket.on('dice:roll', (msg: SocketMessage<{ hopeDie: number; fearDie: number; modifier: number; difficulty: number }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, diceRollPayload);
+        if (!validated) return;
         const client = this.clients.get(socket.id);
         if (!client) return;
         const sessionId = client.sessionId;
@@ -143,7 +201,7 @@ export class SocketServer {
           return;
         }
 
-        const { hopeDie, fearDie, modifier, difficulty } = msg.payload;
+        const { hopeDie, fearDie, modifier, difficulty } = validated;
         const result = resolveDualityDice(hopeDie, fearDie, modifier, difficulty);
 
         // Apply hope gain to character
@@ -151,6 +209,14 @@ export class SocketServer {
           const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
           if (character) {
             stateManager.updateCharacterHope(result.hopeGain);
+          }
+        }
+
+        // Apply stress clear on critical success
+        if (result.stressCleared > 0) {
+          const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
+          if (character) {
+            stateManager.updateCharacterStress(-result.stressCleared);
           }
         }
 
@@ -170,10 +236,40 @@ export class SocketServer {
             withFear: result.withFear,
             hopeGain: result.hopeGain,
             fearGain: result.fearGain,
+            stressCleared: result.stressCleared,
+            canTakeFreeAction: result.canTakeFreeAction,
             success: result.success,
             total: result.total,
           },
         });
+
+        // Trigger AI narration for standalone dice rolls (not from action:roll/action:attack)
+        if (!this.activeStreams.has(sessionId)) {
+          const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
+          if (character) {
+            const state = stateManager.getState();
+            const aiGM = this.gmPool?.getOrCreate(sessionId, state.systemId || 'daggerheart');
+            if (aiGM) {
+              const outcomeMap: Record<string, string> = {
+                criticalSuccess: '关键成功', hopeSuccess: '希望成功',
+                fearSuccess: '恐惧成功', hopeFailure: '希望失败', fearFailure: '恐惧失败',
+              };
+              const context = {
+                sessionId,
+                character,
+                characters: state.characters.length > 0 ? state.characters : [character],
+                activePlayerId: client.playerId,
+                activePlayerName: client.name,
+                sessionState: state,
+                worldLore: aiGM.getWorldLore(),
+              };
+              const actionText = `${character.name}掷骰：${outcomeMap[result.outcome] || result.outcome}（${result.total} vs ${difficulty}）`;
+              this.runNarration(socket, client, stateManager, context, actionText, false, undefined, aiGM).catch(err => {
+                console.error('Standalone dice narration error:', err);
+              });
+            }
+          }
+        }
       });
 
       socket.on('input:text', (msg: SocketMessage<{ text: string }>) => {
@@ -183,10 +279,16 @@ export class SocketServer {
       // ===== Player Actions (AI GM) =====
 
       socket.on('player:action', (msg: SocketMessage<{ action: string }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, playerActionPayload);
+        if (!validated) return;
+        msg.payload = validated;
         this.handlePlayerAction(socket, msg);
       });
 
       socket.on('player:choice', (msg: SocketMessage<{ choiceId: string; choiceText: string }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, playerChoicePayload);
+        if (!validated) return;
+        msg.payload = validated;
         this.handlePlayerChoice(socket, msg);
       });
 
@@ -194,7 +296,17 @@ export class SocketServer {
         this.handleSpotlightRequest(socket);
       });
 
+      socket.on('spotlight:pass', (msg: SocketMessage<{ targetPlayerId?: string }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, spotlightPassPayload);
+        if (!validated) return;
+        msg.payload = validated;
+        this.handleSpotlightPass(socket, msg);
+      });
+
       socket.on('s0:submit', (msg: SocketMessage<{ lines: string[]; veils: string[]; toneFlags: string[] }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, s0SubmitPayload);
+        if (!validated) return;
+        msg.payload = validated;
         this.handleS0Submit(socket, msg);
       });
 
@@ -206,7 +318,46 @@ export class SocketServer {
         this.handleSafetyResume(socket);
       });
 
+      // Cancel active AI narration
+      socket.on('gm:cancelNarration', () => {
+        const client = this.clients.get(socket.id);
+        if (!client) return;
+        const sessionId = client.sessionId;
+
+        const activeStream = this.activeStreams.get(sessionId);
+        if (activeStream && activeStream.senderId && activeStream.senderId !== client.playerId) {
+          socket.emit('session:error', {
+            type: 'session:error',
+            sessionId, senderId: 'system',
+            payload: { error: '无权取消他人的叙述', code: 'FORBIDDEN' },
+            timestamp: Date.now(),
+          });
+          return;
+        }
+
+        this.abortStream(sessionId);
+
+        this.io.to(sessionId).emit('gm:narrate:end', {
+          type: 'gm:narrate:end',
+          sessionId,
+          senderId: 'system',
+          payload: {
+            turnId: `cancelled_${Date.now()}`,
+            fullText: '（叙事已取消）',
+            choices: [],
+          },
+          timestamp: Date.now(),
+        });
+
+        if (this.sessionStore) {
+          this.sessionStore.releaseTurnLock(sessionId).catch(() => {});
+        }
+      });
+
       socket.on('player:rest', (msg: SocketMessage<{ restType: string; actions: string[]; projectDescription?: string }>) => {
+        const validated = this.validateMsg(socket, msg, playerRestPayload);
+        if (!validated) return;
+        msg.payload = validated as typeof msg.payload;
         const client = this.clients.get(socket.id);
         const sessionId = client?.sessionId || msg.sessionId;
         const stateManager = this.sessionRegistry.findById(sessionId);
@@ -216,6 +367,26 @@ export class SocketServer {
           const restType: 'short' | 'long' = msg.payload.restType === 'long' ? 'long' : 'short';
           const fearGain = gainFearOnRest(restType);
           stateManager.addFearPoints(fearGain);
+
+          // Apply mechanical rest effects
+          const character = stateManager.getPlayerCharacter(client!.playerId) || stateManager.getCharacter();
+          if (character) {
+            const restResult = executeRest(
+              restType,
+              msg.payload.actions as (ShortRestAction | LongRestAction)[],
+              character,
+              stateManager.getShortRestsSinceLong(),
+            );
+            if (restResult.hpRestored > 0) stateManager.updateCharacterHp(restResult.hpRestored);
+            if (restResult.stressCleared > 0) stateManager.updateCharacterStress(-restResult.stressCleared);
+            if (restResult.armorSlotsCleared > 0) stateManager.adjustCharacterArmorSlots(restResult.armorSlotsCleared);
+            if (restResult.hopeGained > 0) stateManager.updateCharacterHope(restResult.hopeGained);
+            if (restType === 'long') {
+              stateManager.resetShortRests();
+            } else {
+              stateManager.incrementShortRests();
+            }
+          }
         }
 
         // Build action text
@@ -234,9 +405,284 @@ export class SocketServer {
         });
       });
 
-      // Legacy combat:action — routes as plain text narrative (no backend resolution)
-      // Front-end should migrate to action:attack for structured combat resolution
+      // Character resource update from CharacterScreen +/- buttons
+      socket.on('character:resourceUpdate', (msg: SocketMessage<{ resource: string; delta: number }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, characterResourceUpdatePayload);
+        if (!validated) return;
+        const client = this.clients.get(socket.id);
+        if (!client) return;
+        const stateManager = this.sessionRegistry.findById(client.sessionId);
+        if (!stateManager) return;
+        const { resource, delta } = validated;
+        switch (resource) {
+          case 'hp': stateManager.updateCharacterHp(delta); break;
+          case 'stress': stateManager.updateCharacterStress(delta); break;
+          case 'hope': stateManager.updateCharacterHope(delta); break;
+          case 'armorSlots': stateManager.adjustCharacterArmorSlots(delta); break;
+        }
+        this.broadcastState(stateManager.getState());
+      });
+
+      // Death move — player chooses action when HP reaches 0
+      socket.on('player:deathMove', async (msg: SocketMessage<{ moveType: string; hopeDie?: number; fearDie?: number }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, deathMovePayload);
+        if (!validated) return;
+        const client = this.clients.get(socket.id);
+        if (!client) return;
+        const stateManager = this.sessionRegistry.findById(client.sessionId);
+        if (!stateManager) return;
+
+        const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
+        if (!character) return;
+
+        // Must be in Dying condition to use death move
+        const isDying = character.conditions?.some(c => c.condition === 'dying');
+        if (!isDying && character.hp > 0) return;
+
+        const { moveType, hopeDie, fearDie } = validated;
+        let result;
+        switch (moveType) {
+          case 'gloriousSacrifice':
+            result = gloriousSacrifice();
+            break;
+          case 'avoidDeath':
+            result = avoidDeath(character.level, hopeDie ?? Math.floor(Math.random() * 12) + 1);
+            break;
+          case 'desperateGamble':
+            result = desperateGamble(hopeDie ?? Math.floor(Math.random() * 12) + 1, fearDie ?? Math.floor(Math.random() * 12) + 1);
+            break;
+          default: return;
+        }
+
+        // Apply using the structured method (handles Dying removal, scar, etc.)
+        stateManager.applyDeathMoveResult({
+          characterDied: result.characterDied,
+          hpRestored: result.hpRestored,
+          stressCleared: result.stressCleared,
+          scarGained: result.scarGained,
+        });
+        this.broadcastState(stateManager.getState());
+
+        this.handlePlayerAction(socket, {
+          type: 'player:action',
+          sessionId: msg.sessionId,
+          senderId: msg.senderId,
+          payload: { action: `死亡行动：${result.narrative}` },
+          timestamp: msg.timestamp,
+        });
+      });
+
+      // Level-up via socket event
+      socket.on('campaign:levelUp', (msg: SocketMessage<{ options: string[]; attributeChoices?: [string, string]; experienceChoices?: [string, string]; domainCardChoice?: string }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, levelUpPayload);
+        if (!validated) return;
+        const client = this.clients.get(socket.id);
+        if (!client) return;
+        const stateManager = this.sessionRegistry.findById(client.sessionId);
+        if (!stateManager) return;
+
+        const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
+        if (!character) return;
+
+        const request: LevelUpRequest = {
+          characterId: character.id,
+          newLevel: character.level + 1,
+          options: validated.options as LevelUpOptionType[],
+          attributeChoices: validated.attributeChoices as [Attribute, Attribute] | undefined,
+          experienceChoices: validated.experienceChoices,
+          domainCardChoice: validated.domainCardChoice,
+        };
+
+        const result = CharacterLevelUp.levelUp(character, request);
+        if (result.success && result.character) {
+          stateManager.updatePlayerCharacter(client.playerId, result.character);
+          this.broadcastState(stateManager.getState());
+
+          this.io.to(client.sessionId).emit('campaign:levelUpResult', {
+            type: 'campaign:levelUpResult',
+            sessionId: client.sessionId,
+            senderId: 'system',
+            payload: { success: true, character: result.character, tierChanged: result.tierChanged },
+            timestamp: Date.now(),
+          });
+        } else {
+          socket.emit('campaign:levelUpResult', {
+            type: 'campaign:levelUpResult',
+            sessionId: client.sessionId,
+            senderId: 'system',
+            payload: { success: false, errors: result.errors },
+            timestamp: Date.now(),
+          });
+        }
+      });
+
+      // Drakkenheim: contamination level change
+      socket.on('drakkenheim:contamination', (msg: SocketMessage<{ level: number }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, contaminationPayload);
+        if (!validated) return;
+        const client = this.clients.get(socket.id);
+        if (!client) return;
+        const stateManager = this.sessionRegistry.findById(client.sessionId);
+        if (!stateManager) return;
+        const cs = stateManager.getCampaignState();
+        const newLevel = Math.min(6, Math.max(0, cs.contaminationLevel + validated.level));
+        stateManager.updateCampaignState({ contaminationLevel: newLevel });
+        if (newLevel >= 3 && cs.contaminationLevel < 3) {
+          stateManager.addAdventureMessage({
+            id: `msg_${Date.now()}_system`,
+            role: 'system' as const,
+            content: '污染达到临界值，需抽取变异卡',
+            timestamp: Date.now(),
+          });
+        }
+        this.broadcastState(stateManager.getState());
+      });
+
+      // Drakkenheim: haze effect exposure — narrative only
+      socket.on('drakkenheim:hazeEffect', (msg: SocketMessage<{ zone: string }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, hazeEffectPayload);
+        if (!validated) return;
+        this.handlePlayerAction(socket, {
+          type: 'player:action',
+          sessionId: msg.sessionId,
+          senderId: msg.senderId,
+          payload: { action: `暴露在污霭中（区域：${validated.zone}）` },
+          timestamp: msg.timestamp,
+        });
+      });
+
+      // Drakkenheim: delerium crystal found
+      socket.on('drakkenheim:deleriumFound', (msg: SocketMessage<{ quantity: number }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, deleriumFoundPayload);
+        if (!validated) return;
+        const client = this.clients.get(socket.id);
+        if (!client) return;
+        const stateManager = this.sessionRegistry.findById(client.sessionId);
+        if (!stateManager) return;
+        const cs = stateManager.getCampaignState();
+        stateManager.updateCampaignState({ deleriumCollected: cs.deleriumCollected + validated.quantity });
+        // Risk contamination on delerium handling
+        if (Math.random() < 0.3) {
+          stateManager.updateCampaignState({ contaminationLevel: Math.min(6, cs.contaminationLevel + 1) });
+        }
+        this.broadcastState(stateManager.getState());
+      });
+
+      // Drakkenheim: seal found
+      socket.on('drakkenheim:sealFound', (msg: SocketMessage<{ sealId: string }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, sealFoundPayload);
+        if (!validated) return;
+        const client = this.clients.get(socket.id);
+        if (!client) return;
+        const stateManager = this.sessionRegistry.findById(client.sessionId);
+        if (!stateManager) return;
+        const cs = stateManager.getCampaignState();
+        if (!cs.sealsFound.includes(validated.sealId)) {
+          stateManager.updateCampaignState({ sealsFound: [...cs.sealsFound, validated.sealId] });
+        }
+        this.broadcastState(stateManager.getState());
+      });
+
+      // Swap a domain card between loadout and vault
+      socket.on('player:swapDomainCard', (msg: SocketMessage<{ loadoutCardId: string; vaultCardId: string }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, swapDomainCardPayload);
+        if (!validated) return;
+        const client = this.clients.get(socket.id);
+        if (!client) return;
+        const stateManager = this.sessionRegistry.findById(client.sessionId);
+        if (!stateManager) return;
+
+        const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
+        if (!character) return;
+
+        const { loadoutCardId, vaultCardId } = validated;
+        const result = swapDomainCard(
+          loadoutCardId, vaultCardId,
+          character.domainCardConfig.loadout,
+          character.domainCardConfig.vault || [],
+        );
+        if (result) {
+          stateManager.updatePlayerCharacter(client.playerId, {
+            domainCardConfig: {
+              ...character.domainCardConfig,
+              loadout: result.newLoadout,
+              vault: result.newVault,
+            },
+          });
+          this.broadcastState(stateManager.getState());
+        }
+      });
+
+      // Recall a domain card from Vault to Loadout (costs Hope)
+      socket.on('player:recallDomainCard', (msg: SocketMessage<{ cardId: string }>) => {
+        const client = this.clients.get(socket.id);
+        if (!client) return;
+        const stateManager = this.sessionRegistry.findById(client.sessionId);
+        if (!stateManager) return;
+
+        const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
+        if (!character) return;
+
+        const { cardId } = msg.payload;
+        const vault = character.domainCardConfig.vault || [];
+        const card = vault.find(c => c.id === cardId);
+        if (!card) {
+          socket.emit('error', { message: '卡牌不在宝库中' });
+          return;
+        }
+
+        // Rules: Chapter 2 "第八步：选择领域卡" — recall cost is paid in stress marks, not hope
+        const recallCost = card.recallCost ?? 1;
+        if (character.stress + recallCost > character.maxStress) {
+          socket.emit('error', { message: `回忆需要${recallCost}压力点空间，当前压力${character.stress}/${character.maxStress}` });
+          return;
+        }
+
+        if (character.domainCardConfig.loadout.length >= character.domainCardConfig.maxLoadout) {
+          socket.emit('error', { message: '配置已满，无法回忆更多卡牌' });
+          return;
+        }
+
+        // Rules: Chapter 2 — recall cost marks stress, not hope
+        const result = recallDomainCard(
+          cardId,
+          character.domainCardConfig.loadout,
+          vault,
+          character.maxStress - character.stress, // available stress capacity as "recall budget"
+        );
+        if (result) {
+          stateManager.updateCharacterStress(result.costPaid);
+          stateManager.updatePlayerCharacter(client.playerId, {
+            domainCardConfig: {
+              ...character.domainCardConfig,
+              loadout: result.newLoadout,
+              vault: result.newVault,
+            },
+          });
+          this.broadcastState(stateManager.getState());
+        }
+      });
+
+      // Legacy combat:action — routes as plain text narrative with mechanical hooks
       socket.on('combat:action', (msg: SocketMessage<{ actionId: string; targetId?: string }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, combatActionPayload);
+        if (!validated) return;
+        msg.payload = validated;
+        const client = this.clients.get(socket.id);
+        const stateManager = client ? this.sessionRegistry.findById(client.sessionId) : undefined;
+
+        // Apply mechanical effects for specific combat actions
+        if (stateManager) {
+          switch (msg.payload.actionId) {
+            case 'defend':
+              stateManager.adjustCharacterArmorSlots(1);
+              break;
+            case 'flee':
+              // Flee intent — AI narration determines outcome
+              break;
+          }
+        }
+
         this.handlePlayerAction(socket, {
           type: 'player:action',
           sessionId: msg.sessionId,
@@ -255,18 +701,222 @@ export class SocketServer {
       });
 
       socket.on('combat:addEnemy', (msg: SocketMessage<{ statBlockId: string; name?: string }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, combatAddEnemyPayload);
+        if (!validated) return;
+        msg.payload = validated;
         this.handleCombatAddEnemy(socket, msg);
+      });
+
+      socket.on('combat:spawnEncounter', (msg: SocketMessage<{ difficulty?: string }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, combatSpawnEncounterPayload);
+        if (!validated) return;
+        msg.payload = validated;
+        this.handleCombatSpawnEncounter(socket, msg.payload.difficulty as EncounterDifficulty);
       });
 
       socket.on('combat:end', () => {
         this.handleCombatEnd(socket);
       });
 
+      socket.on('combat:reactionDeclare', (msg: SocketMessage<{ reactionType: string; hopeDie?: number; fearDie?: number; armorSlotsToSpend?: number; sourceId?: string }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, reactionDeclarePayload);
+        if (!validated) return;
+        this.handleReactionDeclare(socket, validated);
+      });
+
+      socket.on('gm:fearAction', (msg: SocketMessage<{ actionType: string; enemyId?: string; experienceIndex?: number; cost?: number }>) => {
+        const client = this.clients.get(socket.id);
+        if (!client) return;
+        const sessionId = client.sessionId;
+        const stateManager = this.sessionRegistry.findById(sessionId);
+        if (!stateManager) return;
+
+        // Only host can spend Fear
+        if (!this.requireHost(socket, client)) return;
+
+        const state = stateManager.getState();
+        const combat = stateManager.getCombatState();
+        const { resolveFearAction, getAvailableFearActions } = require('../rules/systems/fearActions');
+
+        const result = resolveFearAction(
+          {
+            type: msg.payload.actionType as import('../rules/systems/fearActions').FearActionType,
+            cost: msg.payload.cost ?? 1,
+            enemyId: msg.payload.enemyId,
+            experienceIndex: msg.payload.experienceIndex,
+          },
+          state.fearPoints,
+          combat?.enemies,
+        );
+
+        if (result.success) {
+          stateManager.spendFearPoints(result.fearSpent);
+          this.broadcastState(stateManager.getState());
+
+          // Notify all clients about the Fear action
+          this.io.to(sessionId).emit('gm:fearAction', {
+            type: 'gm:fearAction',
+            sessionId,
+            senderId: client.playerId,
+            payload: {
+              actionType: msg.payload.actionType,
+              fearSpent: result.fearSpent,
+              remainingFear: result.remainingFear,
+              effect: result.effect,
+              mechanicalEffect: result.mechanicalEffect,
+            },
+            timestamp: Date.now(),
+          });
+        } else {
+          socket.emit('gm:fearAction', {
+            type: 'gm:fearAction',
+            sessionId,
+            senderId: 'system',
+            payload: { success: false, errors: result.errors },
+            timestamp: Date.now(),
+          });
+        }
+      });
+
+      // Enemy auto-turn: rules engine calculates, AI only narrates
+      socket.on('combat:enemyTurn', (msg: SocketMessage<{ enemyId?: string }>) => {
+        const client = this.clients.get(socket.id);
+        if (!client) return;
+        if (!this.requireHost(socket, client)) return;
+
+        const stateManager = this.sessionRegistry.findById(client.sessionId);
+        if (!stateManager) return;
+
+        const combat = stateManager.getCombatState();
+        if (!combat) {
+          socket.emit('error', { message: '当前不在战斗中' });
+          return;
+        }
+
+        const state = stateManager.getState();
+
+        // Process each enemy that hasn't acted this round
+        const enemiesToAct = msg.payload?.enemyId
+          ? combat.enemies.filter(e => e.id === msg.payload!.enemyId)
+          : combat.enemies.filter(e => !e.hasActed && e.currentHp > 0);
+
+        const results: Array<{
+          enemyId: string;
+          enemyName: string;
+          actions: Array<{
+            kind: string;
+            rawDamage?: number;
+            hpLoss?: number;
+            severity?: string;
+            stressDamage?: number;
+            conditionApplied?: string;
+            fearCost: number;
+            description: string;
+          }>;
+          narrationHint: string;
+        }> = [];
+
+        for (const enemy of enemiesToAct) {
+          const behaviorCtx = {
+            enemy,
+            players: state.characters.filter((c: Character) => c.hp > 0),
+            allEnemies: combat.enemies,
+            fearPoints: state.fearPoints,
+            currentFocus: combat.currentFocus,
+            round: combat.round,
+          };
+
+          const turnResult = selectEnemyActions(behaviorCtx);
+
+          // Apply each action's mechanical effects
+          for (const action of turnResult.actions) {
+            if (action.kind === 'attack' && action.damageResult) {
+              const target = state.characters.find((c: Character) => c.id === action.targetId);
+              if (target) {
+                const resolution = resolveEnemyAttack(
+                  { id: enemy.id, name: enemy.name },
+                  target,
+                  action.damageResult.total,
+                  {
+                    attackName: enemy.attacks[action.attackIndex!]?.name ?? '攻击',
+                    stressDamage: action.stressDamage,
+                    conditionApplied: action.conditionApplied,
+                    conditionDuration: action.conditionDuration,
+                    fearCost: action.fearCost,
+                  },
+                );
+
+                // Apply HP loss
+                stateManager.updateCharacterHp(-resolution.hpLoss);
+                // Apply armor slot consumption
+                if (resolution.armorSlotsSpent > 0) {
+                  stateManager.consumeCharacterArmorSlots(resolution.armorSlotsSpent);
+                }
+                // Apply stress damage
+                if (resolution.stressDamage > 0) {
+                  stateManager.updateCharacterStress(resolution.stressDamage);
+                }
+                // Apply condition
+                if (resolution.conditionApplied) {
+                  stateManager.addCharacterCondition({
+                    condition: resolution.conditionApplied,
+                    duration: 'temporary',
+                    source: `${enemy.name}的${resolution.attackName}`,
+                    roundsRemaining: resolution.conditionDuration ?? 2,
+                  });
+                }
+              }
+            }
+
+            // Spend fear if action costs fear
+            if (action.fearCost > 0) {
+              stateManager.spendFearPoints(action.fearCost);
+            }
+          }
+
+          // Mark enemy as having acted
+          stateManager.markEnemyActed(enemy.id);
+
+          results.push({
+            enemyId: turnResult.enemyId,
+            enemyName: turnResult.enemyName,
+            actions: turnResult.actions.map(a => ({
+              kind: a.kind,
+              rawDamage: a.damageResult?.total,
+              hpLoss: a.damageResult?.total, // Simplified; actual HP loss computed per-player thresholds
+              stressDamage: a.stressDamage,
+              conditionApplied: a.conditionApplied,
+              fearCost: a.fearCost,
+              description: a.description,
+            })),
+            narrationHint: turnResult.narrationHint,
+          });
+        }
+
+        // Broadcast the enemy turn results
+        this.io.to(client.sessionId).emit('combat:enemyTurn', {
+          type: 'combat:enemyTurn',
+          sessionId: client.sessionId,
+          senderId: 'system',
+          payload: { results },
+          timestamp: Date.now(),
+        });
+
+        // Update state for all clients
+        this.broadcastState(stateManager.getState());
+      });
+
       socket.on('action:useFeature', (msg: SocketMessage<{ featureId: string; featureType: string; action: string; targetId?: string; attribute?: string }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, actionUseFeaturePayload);
+        if (!validated) return;
+        msg.payload = validated;
         this.handleUseFeature(socket, msg);
       });
 
       socket.on('loot:pickup', (msg: SocketMessage<{ itemIds: string[] }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, lootPickupPayload);
+        if (!validated) return;
+        msg.payload = validated;
         this.handleLootPickup(socket, msg);
       });
 
@@ -287,6 +937,9 @@ export class SocketServer {
       // ===== Character Update =====
 
       socket.on('character:update', (msg: SocketMessage<{ characterId: string; updates: Record<string, unknown> }>) => {
+        const validated = this.validateMsg<typeof msg.payload>(socket, msg, characterUpdatePayload);
+        if (!validated) return;
+        msg.payload = validated;
         this.handleCharacterUpdate(socket, msg);
       });
 
@@ -302,9 +955,31 @@ export class SocketServer {
 
       socket.on('disconnect', () => {
         this.handleLeave(socket);
+        const sessionId = this.clients.get(socket.id)?.sessionId;
+        if (sessionId) {
+          this.activeStreams.delete(sessionId);
+          this.pendingReactionContext.delete(sessionId);
+        }
+        this.clients.delete(socket.id);
         console.log(`Client disconnected: ${socket.id}`);
       });
     });
+  }
+
+  /** Validate a socket message payload against a Zod schema. Emits error and returns null on failure. */
+  private validateMsg<T>(socket: Socket, msg: SocketMessage<unknown>, schema: ZodTypeAny): T | null {
+    const result = validatePayload<T>(schema, msg.payload);
+    if (!result.success) {
+      socket.emit('session:error', {
+        type: 'session:error',
+        sessionId: msg.sessionId || '',
+        senderId: 'system',
+        payload: { error: `输入验证失败: ${result.error}`, code: 'VALIDATION_ERROR' },
+        timestamp: Date.now(),
+      });
+      return null;
+    }
+    return result.data;
   }
 
   // ===== Session Management Handlers =====
@@ -721,6 +1396,7 @@ export class SocketServer {
   private handleSessionStart(socket: Socket): void {
     const client = this.clients.get(socket.id);
     if (!client) return;
+    if (!this.requireHost(socket, client)) return;
 
     const stateManager = this.sessionRegistry.findById(client.sessionId);
     if (!stateManager) return;
@@ -741,7 +1417,8 @@ export class SocketServer {
       });
 
       // Start the S0 conversation with AI GM
-      if (this.aiGM) {
+      const aiGM = this.gmPool?.getOrCreate(sessionId, state.systemId || 'daggerheart');
+      if (aiGM) {
         const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
         if (character) {
           const context = {
@@ -751,10 +1428,10 @@ export class SocketServer {
             activePlayerId: client.playerId,
             activePlayerName: client.name,
             sessionState: state,
-            worldLore: this.aiGM?.getWorldLore(),
+            worldLore: aiGM.getWorldLore(),
           };
 
-          this.aiGM.runSessionZero(context).then(response => {
+          aiGM.runSessionZero(context).then(response => {
             const { cleanContent } = extractStateChanges(response.message.content);
             const choices = extractChoices(cleanContent);
             this.io.to(sessionId).emit('gm:narrate', {
@@ -802,6 +1479,7 @@ export class SocketServer {
   private handleSessionEnd(socket: Socket): void {
     const client = this.clients.get(socket.id);
     if (!client) return;
+    if (!this.requireHost(socket, client)) return;
 
     const stateManager = this.sessionRegistry.findById(client.sessionId);
     if (!stateManager) return;
@@ -826,6 +1504,7 @@ export class SocketServer {
   private handleCampaignReset(socket: Socket): void {
     const client = this.clients.get(socket.id);
     if (!client) return;
+    if (!this.requireHost(socket, client)) return;
 
     const oldSessionId = client.sessionId;
 
@@ -957,22 +1636,8 @@ export class SocketServer {
     // Update the client's characterId
     client.characterId = character.id;
 
-    // Update the player's character in the session state
-    const player = stateManager.getPlayers().find(p => p.id === client.playerId);
-    if (player) {
-      player.character = character;
-      // Also update in characters array
-      const charIndex = stateManager.getState().characters.findIndex(c => c.id === character.id);
-      if (charIndex >= 0) {
-        stateManager.getState().characters[charIndex] = { ...character };
-      } else {
-        stateManager.getState().characters.push({ ...character });
-      }
-      // Sync backward compat
-      if (stateManager.getPlayers()[0]?.id === client.playerId) {
-        stateManager.getState().character = { ...character };
-      }
-    }
+    // Update character via StateManager to ensure proper sync (characters[], players[], backward compat)
+    stateManager.setCharacter(character);
 
     // Broadcast updated state to all clients
     const state = stateManager.getState();
@@ -992,6 +1657,14 @@ export class SocketServer {
 
     this.broadcastPlayerList(sessionId, stateManager);
     this.broadcastState(state);
+
+    // Record character switch in AI-visible history
+    stateManager.addAdventureMessage({
+      id: `msg_${Date.now()}_system`,
+      role: 'system' as const,
+      content: `${client.name} 切换为角色 ${character.name}（${character.classId}）`,
+      timestamp: Date.now(),
+    });
 
     console.log(`${client.name} switched to character ${character.name}`);
   }
@@ -1046,9 +1719,19 @@ export class SocketServer {
       return false;
     }
 
-    // Acquire turn lock
+    // Acquire turn lock — reject action if lock cannot be acquired immediately
     if (this.sessionStore) {
-      await this.sessionStore.acquireTurnLock(sessionId, 90000);
+      const lockAcquired = await this.sessionStore.acquireTurnLock(sessionId, 90000);
+      if (!lockAcquired) {
+        socket.emit('session:error', {
+          type: 'session:error',
+          sessionId,
+          senderId: 'system',
+          payload: { error: '当前有其他操作正在进行，请稍后再试' },
+          timestamp: Date.now(),
+        });
+        return false;
+      }
     }
 
     return true;
@@ -1078,8 +1761,10 @@ export class SocketServer {
     // === Guard: safety + spotlight + turn lock ===
     if (!(await this.guardTurn(socket, client, stateManager))) return;
 
-    if (this.aiGM) {
-      const state = stateManager.getState();
+    const state = stateManager.getState();
+    const aiGM = this.gmPool?.getOrCreate(sessionId, state.systemId || 'daggerheart');
+
+    if (aiGM) {
       const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
 
       if (!character) {
@@ -1106,14 +1791,14 @@ export class SocketServer {
         activePlayerId: client.playerId,
         activePlayerName: client.name,
         sessionState: state,
-        worldLore: this.aiGM?.getWorldLore(),
+        worldLore: aiGM.getWorldLore(),
       };
 
       const isSessionZero = state.status === 'sessionZero';
 
       try {
         await this.runNarration(
-          socket, client, stateManager, context, playerAction, isSessionZero,
+          socket, client, stateManager, context, playerAction, isSessionZero, undefined, aiGM,
         );
       } catch (err) {
         this.activeStreams.delete(sessionId);
@@ -1164,13 +1849,15 @@ export class SocketServer {
     actionText: string,
     isSessionZero: boolean,
     resolvedOutcome?: { narrationHint: string },
+    aiGM?: AIGameMaster,
   ): Promise<void> {
     const sessionId = client.sessionId;
     const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
+    if (!character) return;
     const turnId = uuidv4();
 
     const abortController = new AbortController();
-    this.activeStreams.set(sessionId, abortController);
+    this.activeStreams.set(sessionId, { controller: abortController, senderId: client.playerId });
     this.io.to(sessionId).emit('gm:narrate:start', {
       type: 'gm:narrate:start',
       sessionId,
@@ -1206,8 +1893,8 @@ export class SocketServer {
         : actionText;
 
       const response = isSessionZero
-        ? await this.aiGM!.runSessionZero(aiContext, effectiveAction)
-        : await this.aiGM!.processPlayerActionStream(aiContext, effectiveAction, onToken, undefined, abortController.signal, resolvedOutcome?.narrationHint);
+        ? await aiGM!.runSessionZero(aiContext, effectiveAction)
+        : await aiGM!.processPlayerActionStream(aiContext, effectiveAction, onToken, undefined, abortController.signal, resolvedOutcome?.narrationHint);
 
       const rawContent = isSessionZero ? response.message.content : fullText;
 
@@ -1221,25 +1908,42 @@ export class SocketServer {
 
       // Extract GM effects via structured channel (narration → JSON extraction)
       let effectsApplied = false;
+      let effectsEmpty = false;
       try {
-        const gmModel = this.aiGM!.getConfig().narratorModel;
-        const gmEffects = await extractGmEffects(this.aiGM!.getGateway(), cleanContent, gmModel, actionText);
+        const gmModel = aiGM!.getConfig().narratorModel;
+        const gmEffects = await extractGmEffects(aiGM!.getGateway(), cleanContent, gmModel, actionText);
+        if (gmEffects.length === 0 && parsedStateChanges.length === 0) {
+          effectsEmpty = true;
+        }
         for (const effect of gmEffects) {
           this.applyGmEffect(stateManager, client.playerId, effect);
           effectsApplied = true;
         }
       } catch {
         // Structured extraction failure is non-fatal — [STATE] fallback may have already applied
+        effectsEmpty = parsedStateChanges.length === 0;
+      }
+
+      // Auto-end combat if all enemies defeated
+      const combatAfter = stateManager.getCombatState();
+      if (combatAfter && combatAfter.enemies.length === 0) {
+        stateManager.endCombat();
+        this.io.to(sessionId).emit('combat:end', {
+          type: 'combat:end',
+          sessionId,
+          senderId: 'system',
+          payload: { reason: 'allEnemiesDefeated' },
+          timestamp: Date.now(),
+        });
       }
 
       // Keyword-based combat fallback: if player input suggests combat but no combat was triggered
-      // by GM effects, force start combat with a generic enemy from the narration
+      // by GM effects, force start combat with a generic enemy
       if (playerInputSuggestsCombat(actionText) && !stateManager.getCombatState()) {
-          const enemyName = extractEnemyNameFromNarration(cleanContent) || '敌对者';
           const genericEnemy: CombatEnemy = {
             id: `enemy_${uuidv4()}`,
             statBlockId: 'generic',
-            name: enemyName,
+            name: '敌对者',
             currentHp: 5,
             maxHp: 5,
             currentStress: 0,
@@ -1248,6 +1952,9 @@ export class SocketServer {
             isFocused: false,
             hasActed: false,
             evasion: 10,
+            behavior: 'bruiser',
+            attacks: [{ name: '攻击', attribute: 'strength', distance: 'melee', damage: { dice: [{ count: 1, sides: 8 }], modifier: 0, type: 'physical' }, targets: 'single' }],
+            features: [],
           };
           stateManager.addCombatEnemy(genericEnemy);
           effectsApplied = true;
@@ -1274,6 +1981,7 @@ export class SocketServer {
           npcId: response.message.npcId,
           playerName: client.name,
           characterName: character.name,
+          effectsEmpty,
         },
         timestamp: Date.now(),
       });
@@ -1297,11 +2005,11 @@ export class SocketServer {
         const currentPhase = state.sessionZeroPhase;
         const currentIndex = S0_PHASES.indexOf(currentPhase!);
 
-        if (currentPhase !== 'safety' && currentIndex >= 0 && currentIndex < S0_PHASES.length - 1) {
+        if (currentIndex >= 0 && currentIndex < S0_PHASES.length - 1) {
           const nextPhase = S0_PHASES[currentIndex + 1];
           stateManager.setSessionZeroPhase(nextPhase);
           console.log(`Session Zero advanced to phase: ${nextPhase}`);
-        } else if (currentPhase !== 'safety' && currentIndex === S0_PHASES.length - 1) {
+        } else if (currentIndex === S0_PHASES.length - 1) {
           stateManager.completeSessionZero();
           this.io.to(sessionId).emit('session:completeSessionZero', {
             type: 'session:completeSessionZero',
@@ -1320,6 +2028,11 @@ export class SocketServer {
           this.broadcastState(stateManager.getState());
           console.log(`Session Zero completed, game is now active`);
         }
+      }
+
+      // Increment combat round after each turn
+      if (stateManager.getCombatState()) {
+        stateManager.incrementCombatRound();
       }
 
       // Pass spotlight after turn completes
@@ -1391,6 +2104,8 @@ export class SocketServer {
         withFear: res.outcome === 'fearSuccess' || res.outcome === 'fearFailure',
         hopeGain: res.hopeGain,
         fearGain: res.fearGain,
+        stressCleared: res.stressCleared,
+        canTakeFreeAction: res.canTakeFreeAction,
         success: res.success,
       },
       timestamp: Date.now(),
@@ -1400,6 +2115,7 @@ export class SocketServer {
     // 2) Feed resolved result to AI for narration only
     const actionText = `${attacker.name} 攻击 ${enemy.name}`;
     const state = stateManager.getState();
+    const aiGM = this.gmPool?.getOrCreate(sessionId, state.systemId || 'daggerheart');
     const context = {
       sessionId,
       character: attacker,
@@ -1407,13 +2123,13 @@ export class SocketServer {
       activePlayerId: client.playerId,
       activePlayerName: client.name,
       sessionState: state,
-      worldLore: this.aiGM?.getWorldLore(),
+      worldLore: aiGM?.getWorldLore(),
     };
 
     try {
       await this.runNarration(
         socket, client, stateManager, context, actionText, false,
-        { narrationHint: res.narrationHint },
+        { narrationHint: res.narrationHint }, aiGM,
       );
     } catch (err) {
       this.activeStreams.delete(sessionId);
@@ -1485,6 +2201,8 @@ export class SocketServer {
         withFear: res.outcome === 'fearSuccess' || res.outcome === 'fearFailure',
         hopeGain: res.hopeGain,
         fearGain: res.fearGain,
+        stressCleared: res.stressCleared,
+        canTakeFreeAction: res.canTakeFreeAction,
         success: res.success,
       },
       timestamp: Date.now(),
@@ -1498,11 +2216,15 @@ export class SocketServer {
     if (res.fearGain > 0) {
       stateManager.addFearPoints(res.fearGain);
     }
+    if (res.stressCleared > 0) {
+      stateManager.updateCharacterStress(-res.stressCleared);
+    }
     stateManager.updatePlayerCharacter(client.playerId, charUpdates);
     this.broadcastState(stateManager.getState());
 
     // 2) Feed resolved result to AI for narration
     const state = stateManager.getState();
+    const aiGM = this.gmPool?.getOrCreate(sessionId, state.systemId || 'daggerheart');
     const context = {
       sessionId,
       character,
@@ -1510,13 +2232,13 @@ export class SocketServer {
       activePlayerId: client.playerId,
       activePlayerName: client.name,
       sessionState: state,
-      worldLore: this.aiGM?.getWorldLore(),
+      worldLore: aiGM?.getWorldLore(),
     };
 
     try {
       await this.runNarration(
         socket, client, stateManager, context, decl.action, false,
-        { narrationHint: res.narrationHint },
+        { narrationHint: res.narrationHint }, aiGM,
       );
     } catch (err) {
       this.activeStreams.delete(sessionId);
@@ -1541,7 +2263,8 @@ export class SocketServer {
 
   /** Load an enemy from stat block catalog and create a CombatEnemy instance */
   private loadEnemyFromStatBlock(statBlockId: string, customName?: string): CombatEnemy | null {
-    const statBlock = (enemyData as any[]).find((e: any) => e.id === statBlockId);
+    const dataProvider = getDataProvider('daggerheart');
+    const statBlock = dataProvider.getEnemyById(statBlockId);
     if (!statBlock) {
       console.warn(`Enemy stat block not found: ${statBlockId}`);
       return null;
@@ -1561,6 +2284,17 @@ export class SocketServer {
       isFocused: false,
       hasActed: false,
       evasion: statBlock.evasion || 10,
+      behavior: statBlock.behavior || 'bruiser',
+      attacks: statBlock.attacks || [],
+      features: statBlock.features || [],
+      experiences: statBlock.experiences || [],
+      fearTraits: statBlock.features
+        ?.filter((f: any) => f.type === 'fear')
+        ?.map((f: any) => ({ name: f.name, cost: f.cost, description: f.description })) ?? [],
+      type: statBlock.type,
+      majorThreshold: statBlock.majorThreshold,
+      severeThreshold: statBlock.severeThreshold,
+      minionDefeatThreshold: statBlock.minionDefeatThreshold,
     };
   }
 
@@ -1583,12 +2317,68 @@ export class SocketServer {
     console.log(`Combat enemy added: ${enemy.name} (${statBlockId}) in session ${client.sessionId}`);
   }
 
+  private handleCombatSpawnEncounter(socket: Socket, difficulty: EncounterDifficulty): void {
+    const client = this.clients.get(socket.id);
+    if (!client) return;
+    if (!this.requireHost(socket, client)) return;
+
+    const stateManager = this.sessionRegistry.findById(client.sessionId);
+    if (!stateManager) return;
+
+    const state = stateManager.getState();
+    const characters = state.characters?.length ? state.characters : (state.character ? [state.character] : []);
+    if (characters.length === 0) {
+      socket.emit('error', { message: '没有角色数据，无法生成遭遇' });
+      return;
+    }
+
+    const avgLevel = characters.reduce((sum, c) => sum + (c.level ?? 1), 0) / characters.length;
+    const playerTier = getTierFromLevel(Math.round(avgLevel));
+    const playerCount = characters.length;
+
+    const dataProvider = getDataProvider('daggerheart');
+    const allEnemies = dataProvider.getEnemies();
+
+    const encounter = spawnEncounter(playerTier, playerCount, allEnemies, difficulty);
+    if (encounter.enemies.length === 0) {
+      socket.emit('error', { message: '无法生成遭遇：没有合适的敌人' });
+      return;
+    }
+
+    // Add all enemies to combat
+    for (const enemy of encounter.enemies) {
+      stateManager.addCombatEnemy(enemy);
+    }
+
+    // Send encounter narration prompt to the AI GM for combat intro narration
+    if (encounter.narrationPrompt) {
+      const sessionId = client.sessionId;
+      this.io.to(sessionId).emit('combat:encounterNarration', {
+        type: 'combat:encounterNarration',
+        sessionId,
+        senderId: 'system',
+        payload: {
+          narrationPrompt: encounter.narrationPrompt,
+          enemyCount: encounter.enemies.length,
+          totalCost: encounter.totalCost,
+          budget: encounter.budget,
+        },
+        timestamp: Date.now(),
+      });
+    }
+
+    this.broadcastState(stateManager.getState());
+    console.log(`Encounter spawned: ${encounter.enemies.length} enemies (cost ${encounter.totalCost}/${encounter.budget}) in session ${client.sessionId}`);
+  }
+
   private pendingLootBySession: Map<string, LootResult> = new Map();
+  private pendingReactionContext: Map<string, import('../rules/systems/reactionSystem').ReactionContext> = new Map();
   private searchCooldownBySession: Map<string, number> = new Map(); // sessionId → last search timestamp
 
   private handleCombatEnd(socket: Socket): void {
     const client = this.clients.get(socket.id);
     if (!client) return;
+    if (!this.requireHost(socket, client)) return;
 
     const stateManager = this.sessionRegistry.findById(client.sessionId);
     if (!stateManager) return;
@@ -1614,6 +2404,115 @@ export class SocketServer {
     });
 
     console.log(`Combat ended in session ${client.sessionId}, loot generated`);
+  }
+
+  private handleReactionDeclare(
+    socket: Socket,
+    payload: { reactionType: string; hopeDie?: number; fearDie?: number; armorSlotsToSpend?: number; sourceId?: string },
+  ): void {
+    const client = this.clients.get(socket.id);
+    if (!client) return;
+    const stateManager = this.sessionRegistry.findById(client.sessionId);
+    if (!stateManager) return;
+
+    const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
+    if (!character) return;
+
+    // Check if the character already used their reaction this round
+    const charData = (character as Character & { daggerheartData?: { reactionsUsed: number } }).daggerheartData;
+    const reactionsUsed = charData?.reactionsUsed ?? 0;
+    if (reactionsUsed >= 1) {
+      socket.emit('session:error', {
+        type: 'session:error',
+        sessionId: client.sessionId,
+        senderId: 'system',
+        payload: { error: '本回合已使用过反应', code: 'REACTION_USED' },
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
+    // Get the pending reaction context (set by the enemy attack handler)
+    const pendingCtx = this.pendingReactionContext.get(client.sessionId);
+    if (!pendingCtx) {
+      socket.emit('session:error', {
+        type: 'session:error',
+        sessionId: client.sessionId,
+        senderId: 'system',
+        payload: { error: '没有待处理的反应', code: 'NO_PENDING_REACTION' },
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
+    const { resolveReaction, findAvailableReactions } = require('../rules/systems/reactionSystem');
+
+    // Check this reaction type is available
+    const available = findAvailableReactions(character, pendingCtx, reactionsUsed);
+    const chosen = available.find((r: { type: string }) => r.type === payload.reactionType);
+    if (!chosen) {
+      socket.emit('session:error', {
+        type: 'session:error',
+        sessionId: client.sessionId,
+        senderId: 'system',
+        payload: { error: `无法使用反应: ${payload.reactionType}`, code: 'INVALID_REACTION' },
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
+    const result = resolveReaction(character, {
+      type: payload.reactionType as import('../rules/systems/reactionSystem').ReactionType,
+      hopeDie: payload.hopeDie,
+      fearDie: payload.fearDie,
+      armorSlotsToSpend: payload.armorSlotsToSpend,
+      sourceId: payload.sourceId,
+    }, pendingCtx);
+
+    // Apply reaction effects to state
+    if (result.reactionUsed) {
+      // Mark reaction used this round
+      if (charData) {
+        charData.reactionsUsed = reactionsUsed + 1;
+      }
+    }
+
+    if (result.armorSlotsSpent > 0) {
+      stateManager.adjustCharacterArmorSlots(-result.armorSlotsSpent);
+    }
+
+    if (result.hopeCost > 0) {
+      stateManager.updateCharacterHope(-result.hopeCost);
+    }
+
+    // Broadcast reaction result
+    this.io.to(client.sessionId).emit('combat:reactionResult', {
+      type: 'combat:reactionResult',
+      sessionId: client.sessionId,
+      senderId: 'system',
+      payload: {
+        reactionType: result.type,
+        characterId: character.id,
+        success: result.success,
+        isCritical: result.isCritical,
+        damagePrevented: result.damagePrevented,
+        newSeverity: result.newSeverity,
+        armorSlotsSpent: result.armorSlotsSpent,
+        counterDamage: result.counterDamage,
+        counterTargetHpLoss: result.counterTargetHpLoss,
+        hopeGain: result.hopeGain,
+        hopeCost: result.hopeCost,
+        reactionUsed: result.reactionUsed,
+        narrationHint: result.narrationHint,
+      },
+      timestamp: Date.now(),
+    });
+
+    // Clear pending reaction
+    this.pendingReactionContext.delete(client.sessionId);
+
+    // Broadcast updated state
+    this.broadcastState(stateManager.getState());
   }
 
   private handleLootPickup(socket: Socket, msg: SocketMessage<{ itemIds: string[] }>): void {
@@ -1679,6 +2578,7 @@ export class SocketServer {
 
     // Trigger AI narration for the search first — let AI describe what's found
     const state = stateManager.getState();
+    const aiGM = this.gmPool?.getOrCreate(sessionId, state.systemId || 'daggerheart');
     const context = {
       sessionId,
       character,
@@ -1686,34 +2586,57 @@ export class SocketServer {
       activePlayerId: client.playerId,
       activePlayerName: client.name,
       sessionState: state,
-      worldLore: this.aiGM?.getWorldLore(),
+      worldLore: aiGM?.getWorldLore(),
     };
 
     try {
       await this.runNarration(
         socket, client, stateManager, context,
         `${character.name}探查了周围环境，寻找有用的物品和线索`,
-        false,
+        false, undefined, aiGM,
       );
 
-      // After narration, use extractGmEffects to find narrative items
-      // Then supplement with a small random loot as fallback
-      const loot = rollSceneSearchLoot();
-      for (const item of loot.items) {
-        stateManager.addInventoryItem(item);
-      }
-      if (loot.gold) {
-        stateManager.addGold(loot.gold);
-      }
-      this.broadcastState(stateManager.getState());
+      // After narration, check if AI already added items via GmEffect
+      // Only supplement with random loot if AI didn't provide any items
+      const currentChar = stateManager.getCharacter();
+      const currentInventory = currentChar?.inventory ?? [];
+      const hadItemAdded = currentInventory.length > character.inventory.length;
 
-      this.io.to(sessionId).emit('loot:available', {
-        type: 'loot:available',
-        sessionId,
-        senderId: 'system',
-        payload: loot,
-        timestamp: Date.now(),
-      });
+      if (!hadItemAdded) {
+        const loot = rollSceneSearchLoot();
+        for (const item of loot.items) {
+          stateManager.addInventoryItem(item);
+        }
+        if (loot.gold) {
+          stateManager.addGold(loot.gold);
+        }
+        this.broadcastState(stateManager.getState());
+
+        this.io.to(sessionId).emit('loot:available', {
+          type: 'loot:available',
+          sessionId,
+          senderId: 'system',
+          payload: loot,
+          timestamp: Date.now(),
+        });
+
+        // Explicit loot notification so player knows what was found
+        if (loot.items.length > 0 || loot.gold?.coins) {
+          const lootDesc = loot.items.map(i => i.name).join('、');
+          const goldDesc = loot.gold?.coins ? `、${loot.gold.coins}金币` : '';
+          this.io.to(sessionId).emit('gm:narrate:end', {
+            type: 'gm:narrate:end',
+            sessionId,
+            senderId: 'system',
+            payload: {
+              turnId: `loot_${Date.now()}`,
+              fullText: `你搜索了周围，找到了：${lootDesc}${goldDesc}`,
+              choices: [],
+            },
+            timestamp: Date.now(),
+          });
+        }
+      } // end if (!hadItemAdded)
     } catch (err) {
       console.error('Scene search error:', err);
     }
@@ -1792,7 +2715,7 @@ export class SocketServer {
     if (attribute) {
       const rollDecl: RollDeclaration = {
         action,
-        attribute: attribute as any,
+        attribute: attribute as Attribute,
         difficulty: stateManager.getSceneDifficulty(),
       };
       const rollRes = resolveAbilityCheck(character, rollDecl);
@@ -1814,6 +2737,8 @@ export class SocketServer {
           withFear: rollRes.outcome === 'fearSuccess' || rollRes.outcome === 'fearFailure',
           hopeGain: rollRes.hopeGain,
           fearGain: rollRes.fearGain,
+          stressCleared: rollRes.stressCleared,
+          canTakeFreeAction: rollRes.canTakeFreeAction,
           success: rollRes.success,
         },
         timestamp: Date.now(),
@@ -1830,6 +2755,9 @@ export class SocketServer {
       }
       if (rollRes.fearGain > 0) {
         stateManager.addFearPoints(rollRes.fearGain);
+      }
+      if (rollRes.stressCleared > 0) {
+        stateManager.updateCharacterStress(-rollRes.stressCleared);
       }
       if (Object.keys(charUpdates).length > 0) {
         stateManager.updatePlayerCharacter(client.playerId, charUpdates);
@@ -1852,6 +2780,7 @@ export class SocketServer {
 
     // Feed to AI for narration
     const state = stateManager.getState();
+    const aiGM = this.gmPool?.getOrCreate(sessionId, state.systemId || 'daggerheart');
     const context = {
       sessionId,
       character,
@@ -1859,13 +2788,13 @@ export class SocketServer {
       activePlayerId: client.playerId,
       activePlayerName: client.name,
       sessionState: state,
-      worldLore: this.aiGM?.getWorldLore(),
+      worldLore: aiGM?.getWorldLore(),
     };
 
     try {
       await this.runNarration(
         socket, client, stateManager, context, action, false,
-        { narrationHint },
+        { narrationHint }, aiGM,
       );
     } catch (err) {
       this.activeStreams.delete(sessionId);
@@ -1889,6 +2818,7 @@ export class SocketServer {
   private async handleAdventureEnd(socket: Socket): Promise<void> {
     const client = this.clients.get(socket.id);
     if (!client) return;
+    if (!this.requireHost(socket, client)) return;
 
     const sessionId = client.sessionId;
     const stateManager = this.sessionRegistry.findById(sessionId);
@@ -1918,9 +2848,11 @@ export class SocketServer {
 
     const turnId = uuidv4();
 
-    if (this.aiGM) {
+    const state = stateManager.getState();
+    const aiGM = this.gmPool?.getOrCreate(sessionId, state.systemId || 'daggerheart');
+
+    if (aiGM) {
       try {
-        const state = stateManager.getState();
         const context = {
           sessionId,
           character,
@@ -1928,7 +2860,7 @@ export class SocketServer {
           activePlayerId: client.playerId,
           activePlayerName: client.name,
           sessionState: state,
-          worldLore: this.aiGM?.getWorldLore(),
+          worldLore: aiGM.getWorldLore(),
         };
 
         const prompt = `你是一位小说家。请为以下这场Daggerheart RPG冒险撰写一段第三人称小说式总结（300-500字）。
@@ -1949,9 +2881,9 @@ ${messages.slice(-50).map(m => `[${m.role}]: ${m.content}`).join('\n')}
           timestamp: Date.now(),
         });
 
-        const { fullText } = await this.aiGM.getGateway().sendStreamRequest(
+        const { fullText } = await aiGM.getGateway().sendStreamRequest(
           {
-            model: this.aiGM.getConfig().narratorModel || this.aiGM.getConfig().gateway.defaultModel,
+            model: aiGM.getConfig().narratorModel || aiGM.getConfig().gateway.defaultModel,
             messages: [
               { role: 'system', content: '你是小说家，擅长将RPG冒险总结为引人入胜的短篇叙事。' },
               { role: 'user', content: prompt },
@@ -2039,56 +2971,12 @@ ${messages.slice(-50).map(m => `[${m.role}]: ${m.content}`).join('\n')}
     const character = sm.getPlayerCharacter(playerId) || sm.getCharacter();
 
     switch (effect.type) {
-      case 'damageToPlayer': {
-        if (!character) break;
-        const res = resolveDamageToCharacter(character, effect.amount ?? 0);
-        applyDamageToCharacter(sm, playerId, res);
-        break;
-      }
-      case 'stressToPlayer': {
-        if (effect.amount && effect.amount > 0) {
-          sm.updateCharacterStress(effect.amount);
-        }
-        break;
-      }
-      case 'enemyAttack': {
-        // Enemy attacks player — use amount as raw damage, resolve through severity
-        if (!character) break;
-        const rawDmg = effect.amount ?? 0;
-        if (rawDmg > 0) {
-          const res = resolveDamageToCharacter(character, rawDmg);
-          applyDamageToCharacter(sm, playerId, res);
-        }
-        break;
-      }
-      case 'enemyHp': {
-        // Direct enemy HP change (heal or damage)
-        if (effect.enemyId && effect.amount) {
-          sm.updateCombatEnemyHp(effect.enemyId, effect.amount);
-        }
-        break;
-      }
-      case 'spendFear': {
-        if (effect.amount && effect.amount > 0) {
-          sm.spendFearPoints(effect.amount);
-        }
-        break;
-      }
       case 'addEnemy': {
         const statBlockId = effect.enemyStatBlockId;
         const enemyName = effect.enemyName;
         let enemy: CombatEnemy | null = null;
         if (statBlockId) {
           enemy = this.loadEnemyFromStatBlock(statBlockId, enemyName);
-        }
-        // Fallback: try matching by name if statBlockId didn't work
-        if (!enemy && enemyName) {
-          const match = (enemyData as any[]).find((e: any) =>
-            e.name === enemyName || e.nameEn === enemyName || e.id === enemyName
-          );
-          if (match) {
-            enemy = this.loadEnemyFromStatBlock(match.id, enemyName);
-          }
         }
         // Last resort: create a generic enemy with the given name
         if (!enemy && enemyName) {
@@ -2104,6 +2992,9 @@ ${messages.slice(-50).map(m => `[${m.role}]: ${m.content}`).join('\n')}
             isFocused: false,
             hasActed: false,
             evasion: 10,
+            behavior: 'bruiser',
+            attacks: [{ name: '攻击', attribute: 'strength', distance: 'melee', damage: { dice: [{ count: 1, sides: 8 }], modifier: 0, type: 'physical' }, targets: 'single' }],
+            features: [],
           };
         }
         if (enemy) {
@@ -2113,7 +3004,6 @@ ${messages.slice(-50).map(m => `[${m.role}]: ${m.content}`).join('\n')}
       }
       case 'startCombat': {
         // Combat starts — enemies are added by individual addEnemy effects
-        // If no combat exists yet, we just ensure combat state is initialized
         // (addCombatEnemy already auto-starts combat)
         break;
       }
@@ -2142,16 +3032,23 @@ ${messages.slice(-50).map(m => `[${m.role}]: ${m.content}`).join('\n')}
         }
         break;
       }
+      case 'setSceneName': {
+        if (effect.sceneName) {
+          const scene = sm.getState().currentScene;
+          sm.setCurrentScene({ ...scene, name: effect.sceneName });
+        }
+        break;
+      }
     }
   }
 
   private async handlePlayerChoice(socket: Socket, msg: SocketMessage<{ choiceId: string; choiceText: string }>): Promise<void> {
-    const { choiceText } = msg.payload as { choiceId: string; choiceText: string };
+    const { choiceId, choiceText } = msg.payload;
     this.handlePlayerAction(socket, {
       type: 'player:action',
       sessionId: msg.sessionId,
       senderId: msg.senderId,
-      payload: { action: choiceText },
+      payload: { action: `[选择:${choiceId}] ${choiceText}` },
       timestamp: msg.timestamp,
     });
   }
@@ -2164,9 +3061,11 @@ ${messages.slice(-50).map(m => `[${m.role}]: ${m.content}`).join('\n')}
     const stateManager = this.sessionRegistry.findById(sessionId);
     if (!stateManager) return;
 
-    if (this.aiGM) {
+    const state = stateManager.getState();
+    const aiGM = this.gmPool?.getOrCreate(sessionId, state.systemId || 'daggerheart');
+
+    if (aiGM) {
       try {
-        const state = stateManager.getState();
         const character = stateManager.getPlayerCharacter(client.playerId) || stateManager.getCharacter();
 
         if (!character) {
@@ -2187,10 +3086,10 @@ ${messages.slice(-50).map(m => `[${m.role}]: ${m.content}`).join('\n')}
           activePlayerId: client.playerId,
           activePlayerName: client.name,
           sessionState: state,
-          worldLore: this.aiGM?.getWorldLore(),
+          worldLore: aiGM.getWorldLore(),
         };
 
-        const response = await this.aiGM.narrateScene(context);
+        const response = await aiGM.narrateScene(context);
         const choices = extractChoices(response.message.content);
 
         this.io.to(sessionId).emit('gm:narrate', {
@@ -2270,6 +3169,28 @@ ${messages.slice(-50).map(m => `[${m.role}]: ${m.content}`).join('\n')}
     if (!spotlight) return; // Single-player — no spotlight
 
     const newSpotlight = this.spotlightManager.request(spotlight, client.playerId);
+    stateManager.setSpotlightState(newSpotlight);
+    this.broadcastSpotlightState(sessionId, newSpotlight);
+  }
+
+  // ===== Spotlight Pass =====
+
+  private handleSpotlightPass(socket: Socket, msg: SocketMessage<{ targetPlayerId?: string }>): void {
+    const client = this.clients.get(socket.id);
+    if (!client) return;
+
+    const sessionId = client.sessionId;
+    const stateManager = this.sessionRegistry.findById(sessionId);
+    if (!stateManager) return;
+
+    const spotlight = stateManager.getSpotlightState();
+    if (!spotlight) return; // Single-player — no spotlight
+
+    // Only the current holder can pass
+    if (spotlight.current !== client.playerId) return;
+
+    const { targetPlayerId } = msg.payload;
+    const newSpotlight = this.spotlightManager.pass(spotlight, targetPlayerId);
     stateManager.setSpotlightState(newSpotlight);
     this.broadcastSpotlightState(sessionId, newSpotlight);
   }
@@ -2368,23 +3289,11 @@ ${messages.slice(-50).map(m => `[${m.role}]: ${m.content}`).join('\n')}
   private handleSafetyResume(socket: Socket): void {
     const client = this.clients.get(socket.id);
     if (!client) return;
+    if (!this.requireHost(socket, client)) return;
 
     const sessionId = client.sessionId;
     const stateManager = this.sessionRegistry.findById(sessionId);
     if (!stateManager) return;
-
-    // Only host can resume
-    const hostId = this.sessionRegistry.getHostId(sessionId);
-    if (hostId && hostId !== client.playerId) {
-      socket.emit('session:error', {
-        type: 'session:error',
-        sessionId,
-        senderId: 'system',
-        payload: { error: '只有主持人可以恢复游戏' },
-        timestamp: Date.now(),
-      });
-      return;
-    }
 
     const safety = stateManager.getSafetyState();
     if (!safety) return;
@@ -2406,6 +3315,22 @@ ${messages.slice(-50).map(m => `[${m.role}]: ${m.content}`).join('\n')}
   }
 
   // ===== Broadcast Helpers =====
+
+  /** Check if client is the session host (GM). Returns false and emits error if not. */
+  private requireHost(socket: Socket, client: ConnectedClient): boolean {
+    const hostId = this.sessionRegistry.getHostId(client.sessionId);
+    if (hostId && hostId !== client.playerId) {
+      socket.emit('session:error', {
+        type: 'session:error',
+        sessionId: client.sessionId,
+        senderId: 'system',
+        payload: { error: '只有主持人(GM)才能执行此操作', code: 'NOT_HOST' },
+        timestamp: Date.now(),
+      });
+      return false;
+    }
+    return true;
+  }
 
   broadcastState(state: SessionState): void {
     const stateManager = this.sessionRegistry.findById(state.sessionId);
@@ -2475,9 +3400,9 @@ ${messages.slice(-50).map(m => `[${m.role}]: ${m.content}`).join('\n')}
    * Abort the active AI stream for a session (for X-Card / safety pause)
    */
   abortStream(sessionId: string): void {
-    const controller = this.activeStreams.get(sessionId);
-    if (controller) {
-      controller.abort();
+    const entry = this.activeStreams.get(sessionId);
+    if (entry) {
+      entry.controller.abort();
       this.activeStreams.delete(sessionId);
     }
   }
@@ -2490,11 +3415,21 @@ ${messages.slice(-50).map(m => `[${m.role}]: ${m.content}`).join('\n')}
   }
 
   /**
-   * Update the AI GM instance (for hot-reload after config change)
+   * Update the GM pool instance (for hot-reload after config change)
    */
-  setAIGM(aiGM: AIGameMaster | undefined): void {
-    this.aiGM = aiGM;
-    console.log('[SocketServer] AI GM instance updated');
+  setGMPool(pool: AIGameMasterPool | undefined): void {
+    this.gmPool = pool;
+    console.log('[SocketServer] GM pool instance updated');
+    // Notify all connected clients about AI config change
+    for (const [socketId, client] of this.clients) {
+      this.io.to(client.sessionId).emit('ai:configUpdated', {
+        type: 'ai:configUpdated',
+        sessionId: client.sessionId,
+        senderId: 'system',
+        payload: { aiConnected: !!pool },
+        timestamp: Date.now(),
+      });
+    }
   }
 
   close(): void {

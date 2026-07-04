@@ -81,6 +81,7 @@ function makeCharacter(name = 'TestChar'): Character {
 function makeSessionState(sessionId: string, character: Character): SessionState {
   return {
     sessionId,
+    systemId: 'daggerheart',
     status: 'active',
     character,
     characters: [character],
@@ -208,7 +209,7 @@ describe('AIGameMaster — 玩家历史（任务 1.1）', () => {
     // 当前玩家消息（最后一条 user）含 stateReminder
     const curMsg = userMsgs[userMsgs.length - 1];
     expect(curMsg.content).toContain('第二个行动');
-    expect(curMsg.content).toContain('【输出要求】');
+    expect(curMsg.content).toContain('【机械结算提醒】');
   });
 
   test('逐字窗口扩大到 50 条', async () => {

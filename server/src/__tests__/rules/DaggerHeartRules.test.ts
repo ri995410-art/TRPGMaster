@@ -142,21 +142,23 @@ describe('Duality Dice System', () => {
     });
 
     it('adds d6 when net advantage > 0', () => {
+      // Rules: Ch2 "优势与劣势" — roll |netAdvantage| d6s and sum them
       const result = rollAdvantageDisadvantage(15, 2, 0);
       expect(result.netAdvantage).toBeGreaterThan(0);
-      expect(result.d6Result).toBeGreaterThanOrEqual(1);
-      expect(result.d6Result).toBeLessThanOrEqual(6);
-      expect(result.finalTotal).toBeGreaterThanOrEqual(16);
-      expect(result.finalTotal).toBeLessThanOrEqual(21);
+      expect(result.d6Result).toBeGreaterThanOrEqual(2);  // 2d6 minimum
+      expect(result.d6Result).toBeLessThanOrEqual(12);    // 2d6 maximum
+      expect(result.finalTotal).toBeGreaterThanOrEqual(17);
+      expect(result.finalTotal).toBeLessThanOrEqual(27);
     });
 
     it('subtracts d6 when net advantage < 0', () => {
+      // Rules: Ch2 "优势与劣势" — roll |netAdvantage| d6s and sum them
       const result = rollAdvantageDisadvantage(15, 0, 2);
       expect(result.netAdvantage).toBeLessThan(0);
-      expect(result.d6Result).toBeGreaterThanOrEqual(1);
-      expect(result.d6Result).toBeLessThanOrEqual(6);
-      expect(result.finalTotal).toBeGreaterThanOrEqual(9);
-      expect(result.finalTotal).toBeLessThanOrEqual(14);
+      expect(result.d6Result).toBeGreaterThanOrEqual(2);  // 2d6 minimum
+      expect(result.d6Result).toBeLessThanOrEqual(12);    // 2d6 maximum
+      expect(result.finalTotal).toBeGreaterThanOrEqual(3);
+      expect(result.finalTotal).toBeLessThanOrEqual(13);
     });
   });
 
@@ -255,10 +257,11 @@ describe('Damage System', () => {
   });
 
   describe('calculateCriticalDamage', () => {
-    it('adds max die value to normal damage', () => {
+    it('adds proficiency × dieSides to normal damage', () => {
+      // Rules: Ch2 "关键成功与伤害" — max of ALL damage dice = proficiency × dieSides
       const result = calculateCriticalDamage(2, 'd8', 3);
-      expect(result.maxDieValue).toBe(8);
-      expect(result.totalDamage).toBe(result.normalDamage + 8);
+      expect(result.maxDieValue).toBe(16); // proficiency(2) × dieSides(8)
+      expect(result.totalDamage).toBe(result.normalDamage + 16);
     });
   });
 

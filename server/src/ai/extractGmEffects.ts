@@ -5,36 +5,63 @@
  */
 import type { AIGateway } from './AIGateway';
 import type { GmEffect } from '@trpgmaster/shared';
-import enemyData from '../rules/data/daggerheart/enemies.json';
 
-// Build a list of valid enemy IDs for the prompt
-const ENEMY_ID_LIST = (enemyData as any[]).map((e: any) => `${e.id}(${e.name})`).join('、');
+const MAX_EFFECTS = 20; // Prevent hallucinated effect floods
 
-const SYS = `你是规则结算助手。给定一段 GM 叙事和玩家行动，抽取其中"对玩家角色或敌人产生的机械效果"。
-只输出 JSON 数组，无任何解释或 markdown。没有机械效果则输出 []。
-字段：type(damageToPlayer|stressToPlayer|enemyAttack|enemyHp|spendFear|addEnemy|startCombat|endCombat|setDifficulty|addItem), targetId, enemyId, amount, source, enemyStatBlockId, enemyName, itemName, itemDescription, itemCategory, goldCoins。
+function extractJsonFromContent(content: string): string | null {
+  const fenced = content.match(/```json\s*([\s\S]*?)```/i);
+  if (fenced) return fenced[1].trim();
+  const anyFenced = content.match(/```\s*([\s\S]*?)```/);
+  if (anyFenced) return anyFenced[1].trim();
+  return content.trim();
+}
 
-关键规则：
-- addEnemy: 叙事中出现了新敌人或敌对生物，enemyStatBlockId 必须是以下之一：${ENEMY_ID_LIST}。enemyName 为敌人名字。如果不确定类型，用最接近的。即使叙事只暗示了敌人存在（如"守卫拔剑"、"怪物逼近"），也必须添加。
-- startCombat: 叙事表明战斗开始、敌对遭遇、或任何需要战斗检定的冲突。只要叙事中出现威胁性的敌对行动（攻击、冲锋、伏击、拔剑对峙等），就必须标记 startCombat。
-- endCombat: 叙事表明战斗结束、敌人被击败或逃跑、冲突解决
-- enemyAttack: 敌人对玩家造成伤害，amount 为原始伤害值
-- damageToPlayer: 环境或陷阱对玩家造成伤害
-- setDifficulty: 场景中有挑战时设置难度(8-25)，amount 为难度值。普通对话=12，有压力=15，危险=18，极限=22。出现新敌人或新场景时必须设置。
-- addItem: 叙事中玩家找到了物品、金币或可拾取的东西。itemName 为物品名称，itemDescription 为描述，itemCategory 为分类(weapon/armor/consumable/misc)，goldCoins 为发现的金币数量。如果有具体物品名必须添加。
+// Lazy-initialized enemy ID list — avoids module-level crash if data provider not ready
+let _enemyIdList: string | null = null;
+let _enemyIdListError = false;
+function getEnemyIdList(): string {
+  // Always retry if the previous attempt failed (data may not have been ready)
+  if (_enemyIdList !== null && !_enemyIdListError) {
+    return _enemyIdList;
+  }
+  try {
+    const { getDataProvider } = require('../rules/DataProviderRegistry');
+    _enemyIdList = getDataProvider('daggerheart').getEnemies().map((e: any) => `${e.id}(${e.name})`).join('、');
+    _enemyIdListError = false;
+  } catch {
+    _enemyIdList = '(数据未加载)';
+    _enemyIdListError = true;
+  }
+  return _enemyIdList ?? '(数据未加载)';
+}
 
-判断原则（宁可多标不可漏标）：
-1. 如果叙事中有人物/生物对玩家表现出敌意并采取行动 → startCombat + addEnemy + enemyAttack
-2. 如果玩家正在与敌人战斗 → 确保 addEnemy 和 startCombat 存在
-3. 如果叙事提到受伤、被击中、受到攻击 → damageToPlayer 或 enemyAttack
-4. 如果场景发生变化或出现新挑战 → setDifficulty
-5. 如果叙事提到找到物品、金币、战利品、信件、钥匙等 → addItem
-6. 宁可多抽取一个效果，也不要漏掉战斗触发或物品获取`;
+function buildSystemPrompt(): string {
+  return `你是规则结算助手。给定一段 GM 叙事和玩家行动，只提取"规则引擎无法预知的环境效果"。
+只输出 JSON 数组，无任何解释或 markdown。没有环境效果则输出 []。
+
+注意：伤害、治疗、压力、恐惧花费、敌人攻击等机械效果已由规则引擎处理，不需要你提取。
+你只需要提取以下6种环境效果：
+
+字段：type, amount, source, enemyStatBlockId, enemyName, itemName, itemDescription, itemCategory, goldCoins, sceneName
+
+效果类型：
+- addEnemy: 叙事中出现了新敌人。enemyStatBlockId 必须是以下之一：${getEnemyIdList()}。enemyName 为敌人名字。如果不确定类型，用最接近的。
+- startCombat: 叙事表明战斗开始或敌对遭遇。只要叙事中出现威胁性的敌对行动（攻击、冲锋、伏击、拔剑对峙等），就必须标记。
+- endCombat: 叙事表明战斗结束、敌人被击败或逃跑、冲突解决。
+- setSceneName: 叙事中场景名称发生变化（如进入新地点）。sceneName为新场景名。
+- addItem: 叙事中玩家找到了物品、金币。itemName 为物品名称，goldCoins 为金币数量。
+- setDifficulty: 场景中有新的挑战时设置难度(8-25)，amount 为难度值。
+
+判断原则：
+1. 叙事中出现新敌人 → addEnemy + startCombat
+2. 场景转换 → setSceneName
+3. 发现物品/金币 → addItem
+4. 新的挑战 → setDifficulty
+5. 不要提取伤害/治疗/压力/恐惧花费——这些已由规则引擎处理`;
+}
 
 interface RawEffect {
-  type: 'damageToPlayer' | 'stressToPlayer' | 'enemyAttack' | 'enemyHp' | 'spendFear' | 'addEnemy' | 'startCombat' | 'endCombat' | 'setDifficulty' | 'addItem';
-  targetId?: string;
-  enemyId?: string;
+  type: 'addEnemy' | 'startCombat' | 'endCombat' | 'setSceneName' | 'addItem' | 'setDifficulty';
   amount?: number;
   source?: string;
   enemyStatBlockId?: string;
@@ -43,28 +70,41 @@ interface RawEffect {
   itemDescription?: string;
   itemCategory?: string;
   goldCoins?: number;
+  sceneName?: string;
 }
 
 function validateRawEffects(raw: unknown): GmEffect[] {
   if (!Array.isArray(raw)) return [];
-  const validTypes = new Set(['damageToPlayer', 'stressToPlayer', 'enemyAttack', 'enemyHp', 'spendFear', 'addEnemy', 'startCombat', 'endCombat', 'setDifficulty', 'addItem']);
-  return raw.filter((item: unknown): item is RawEffect => {
+  const validTypes = new Set(['addEnemy', 'startCombat', 'endCombat', 'setSceneName', 'addItem', 'setDifficulty']);
+
+  // Cap total effects to prevent hallucinated floods
+  const capped = raw.slice(0, MAX_EFFECTS);
+
+  return capped.filter((item: unknown): item is RawEffect => {
     if (typeof item !== 'object' || item === null) return false;
     const obj = item as Record<string, unknown>;
     return typeof obj.type === 'string' && validTypes.has(obj.type);
-  }).map(item => ({
-    type: item.type,
-    targetId: typeof item.targetId === 'string' ? item.targetId : undefined,
-    enemyId: typeof item.enemyId === 'string' ? item.enemyId : undefined,
-    amount: typeof item.amount === 'number' ? item.amount : undefined,
-    source: typeof item.source === 'string' ? item.source : undefined,
-    enemyStatBlockId: typeof (item as any).enemyStatBlockId === 'string' ? (item as any).enemyStatBlockId : undefined,
-    enemyName: typeof (item as any).enemyName === 'string' ? (item as any).enemyName : undefined,
-    itemName: typeof (item as any).itemName === 'string' ? (item as any).itemName : undefined,
-    itemDescription: typeof (item as any).itemDescription === 'string' ? (item as any).itemDescription : undefined,
-    itemCategory: typeof (item as any).itemCategory === 'string' ? (item as any).itemCategory : undefined,
-    goldCoins: typeof (item as any).goldCoins === 'number' ? (item as any).goldCoins : undefined,
-  }));
+  }).map(item => {
+    // Validate amount: must be non-negative
+    let amount: number | undefined = typeof item.amount === 'number' ? item.amount : undefined;
+    if (amount !== undefined && amount < 0) {
+      console.warn(`[extractGmEffects] Negative amount ${amount} for ${item.type}, clamping to 0`);
+      amount = 0;
+    }
+
+    return {
+      type: item.type,
+      amount,
+      source: typeof item.source === 'string' ? item.source : undefined,
+      enemyStatBlockId: typeof item.enemyStatBlockId === 'string' ? item.enemyStatBlockId : undefined,
+      enemyName: typeof item.enemyName === 'string' ? item.enemyName : undefined,
+      itemName: typeof item.itemName === 'string' ? item.itemName : undefined,
+      itemDescription: typeof item.itemDescription === 'string' ? item.itemDescription : undefined,
+      itemCategory: typeof item.itemCategory === 'string' ? item.itemCategory : undefined,
+      goldCoins: typeof item.goldCoins === 'number' ? Math.max(0, item.goldCoins) : undefined,
+      sceneName: typeof item.sceneName === 'string' ? item.sceneName : undefined,
+    };
+  });
 }
 
 /** Combat action keywords in player's IMMEDIATE action declaration (first-person present intent) */
@@ -110,7 +150,7 @@ export function extractEnemyNameFromNarration(narration: string): string | null 
   // Pattern: 一个/一名/那 + (optional adjective) + name + attack/move verb
   const patterns = [
     /(?:一个|一名|那只|那头|那个|一只|一头|这头|这只|这个)([一-龥]{1,6}?)(?:冲|扑|攻|袭|向|逼|挡|拦|站|出现|现身|走近|咆哮|怒吼|挥|举起)/,
-    /(?:敌人|怪物|守卫|士兵|骷髅|僵尸|巨魔|龙|恶魔|亡灵|刺客|兽人|哥布林)([一-龥]{0,4}?)说|喊|叫|笑|怒|冲|扑/,
+    /(?:敌人|怪物|守卫|士兵|骷髅|僵尸|巨魔|龙|恶魔|亡灵|刺客|兽人|哥布林)([一-龥]{0,4}?)(?:说|喊|叫|笑|怒|冲|扑)/,
   ];
   for (const pat of patterns) {
     const match = narration.match(pat);
@@ -127,18 +167,20 @@ export async function extractGmEffects(
   model: string,
   playerInput?: string,
 ): Promise<GmEffect[]> {
-  // Include player input in the extraction prompt for better context
-  const userContent = playerInput
+  const baseContent = playerInput
     ? `玩家行动：${playerInput}\n\nGM叙事：${narration}`
     : narration;
 
-  // Retry up to 2 times on failure (JSON parse error, empty response, etc.)
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
+      const userContent = attempt > 0
+        ? `${baseContent}\n\n上一次返回了无效 JSON，请只返回 JSON 数组`
+        : baseContent;
+
       const response = await gw.sendRequest({
         model,
         messages: [
-          { role: 'system', content: SYS },
+          { role: 'system', content: buildSystemPrompt() },
           { role: 'user', content: userContent },
         ],
         temperature: 0,
@@ -146,20 +188,25 @@ export async function extractGmEffects(
         agentType: 'combat',
       });
 
-      const json = response.content.replace(/```json|```/g, '').trim();
+      const json = extractJsonFromContent(response.content);
       if (!json) continue;
       const parsed = JSON.parse(json);
       const effects = validateRawEffects(parsed);
-      // On retry, also validate: if narration mentions enemies but no addEnemy was extracted, retry
-      if (attempt === 0 && effects.length === 0 && narrationHasCombatSignals(narration)) {
-        continue; // Likely a miss, retry once
+      if (attempt < 2 && effects.length === 0 && narrationHasCombatSignals(narration)) {
+        console.warn('[extractGmEffects] No effects extracted but narration has combat signals, retrying');
+        continue;
+      }
+      if (effects.length > 0) {
+        console.log(`[extractGmEffects] Extracted ${effects.length} effect(s): ${effects.map(e => e.type).join(', ')}`);
       }
       return effects;
-    } catch {
+    } catch (err) {
+      console.warn(`[extractGmEffects] Attempt ${attempt + 1} failed:`, err instanceof Error ? err.message : err);
       continue;
     }
   }
-  return []; // 失败则不施加效果，宁可漏不可错
+  console.warn('[extractGmEffects] All attempts failed, returning empty effects');
+  return [];
 }
 
 /** Quick heuristic: does the narration contain signals that combat should be happening? */

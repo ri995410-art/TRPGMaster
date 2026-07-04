@@ -1,0 +1,2110 @@
+=== 项目: TRPGMaster - Daggerheart TRPG ===
+=== 模块: 03-core ===
+=== 生成时间: Sun Jun 28 14:42:30     2026 ===
+
+######## FILE: server/src/core/CharacterCreator.ts ########
+import { v4 as uuidv4 } from 'uuid';
+import type {
+  Attribute,
+  Character,
+  Experience,
+  DomainCard,
+  ClassData,
+  ArmorData,
+  WeaponData,
+  CharacterCore,
+  SystemCharacter,
+  CreationFlowDef,
+  AncestryFeature,
+  CommunityFeature,
+} from '@trpgmaster/shared';
+import { getTier, calculateThresholds } from '@trpgmaster/shared';
+import { validateCharacterSheet } from '../rules/systems/DaggerHeartRules';
+import daggerheartData from '../rules/data/daggerheart';
+import { getRulesEngine } from '../rules/RulesEngineFactory';
+import type { IRulesEngine } from '../rules/IRulesEngine';
+import { collectTraitEffects, getPermanentResourceBonuses } from '../rules/systems/traitEffects';
+
+// ===== 旧 API 类型（向后兼容） =====
+
+export type CharacterCreationStep =
+  | 'class'
+  | 'ancestry'
+  | 'community'
+  | 'attributes'
+  | 'experiences'
+  | 'weapons'
+  | 'armor'
+  | 'domainCards'
+  | 'backstory';
+
+const CREATION_STEPS: CharacterCreationStep[] = [
+  'class',
+  'ancestry',
+  'community',
+  'attributes',
+  'experiences',
+  'weapons',
+  'armor',
+  'domainCards',
+  'backstory',
+];
+
+export interface CharacterCreationState {
+  currentStep: number;
+  totalSteps: number;
+  data: Partial<CharacterCreationData>;
+  errors: Record<string, string[]>;
+}
+
+export interface CharacterCreationData {
+  classId: string;
+  ancestryId: string;
+  secondAncestryId?: string;
+  mixedAncestryFeature1?: string;
+  mixedAncestryFeature2?: string;
+  communityId: string;
+  attributes: Record<Attribute, number>;
+  experiences: Experience[];
+  mainWeaponId: string;
+  offWeaponId?: string;
+  armorId: string;
+  domainCards: DomainCard[];
+  name: string;
+  backstory: string;
+  personalQuest: string;
+}
+
+const VALID_ATTRIBUTE_DISTRIBUTION = [2, 1, 1, 0, 0, -1];
+const ALL_ATTRIBUTES: Attribute[] = ['agility', 'strength', 'finesse', 'instinct', 'presence', 'knowledge'];
+
+export class CharacterCreator {
+  private state: CharacterCreationState;
+  private rulesEngine: IRulesEngine;
+
+  constructor(rulesEngine?: IRulesEngine) {
+    this.rulesEngine = rulesEngine ?? getRulesEngine('daggerheart');
+    this.state = {
+      currentStep: 0,
+      totalSteps: CREATION_STEPS.length,
+      data: {},
+      errors: {},
+    };
+  }
+
+  /** 获取当前规则系统的创建流程定义 */
+  getCreationFlow(): CreationFlowDef {
+    return this.rulesEngine.getCreationFlow();
+  }
+
+  getState(): CharacterCreationState {
+    return { ...this.state };
+  }
+
+  getCurrentStep(): CharacterCreationStep {
+    return CREATION_STEPS[this.state.currentStep];
+  }
+
+  getStepIndex(): number {
+    return this.state.currentStep;
+  }
+
+  canGoNext(): boolean {
+    const errors = this.validateCurrentStep();
+    return Object.keys(errors).length === 0;
+  }
+
+  canGoBack(): boolean {
+    return this.state.currentStep > 0;
+  }
+
+  goNext(): boolean {
+    if (!this.canGoNext()) return false;
+    if (this.state.currentStep >= CREATION_STEPS.length - 1) return false;
+    this.state.currentStep++;
+    return true;
+  }
+
+  goBack(): boolean {
+    if (!this.canGoBack()) return false;
+    this.state.currentStep--;
+    return true;
+  }
+
+  goToStep(step: number): boolean {
+    if (step < 0 || step >= CREATION_STEPS.length) return false;
+    for (let i = 0; i < step; i++) {
+      const savedStep = this.state.currentStep;
+      this.state.currentStep = i;
+      const errors = this.validateCurrentStep();
+      this.state.currentStep = savedStep;
+      if (Object.keys(errors).length > 0) return false;
+    }
+    this.state.currentStep = step;
+    return true;
+  }
+
+  setStepData(data: Partial<CharacterCreationData>): void {
+    this.state.data = { ...this.state.data, ...data };
+    this.state.errors = this.validateCurrentStep();
+  }
+
+  validateCurrentStep(): Record<string, string[]> {
+    // 委托给 IRulesEngine 的通用验证
+    const flow = this.rulesEngine.getCreationFlow();
+    const currentStepDef = flow.steps[this.state.currentStep];
+    if (currentStepDef) {
+      return this.rulesEngine.validateCreationStep(currentStepDef.id, this.state.data as Record<string, unknown>);
+    }
+    // 回退到旧验证逻辑（向后兼容）
+    return this.validateCurrentStepLegacy();
+  }
+
+  /** 旧验证逻辑，作为回退保留 */
+  private validateCurrentStepLegacy(): Record<string, string[]> {
+    const errors: Record<string, string[]> = {};
+    const step = this.getCurrentStep();
+    const d = this.state.data;
+
+    switch (step) {
+      case 'class':
+        if (!d.classId) errors.classId = ['请选择一个职业'];
+        break;
+      case 'ancestry':
+        if (!d.ancestryId) errors.ancestryId = ['请选择一个血统'];
+        break;
+      case 'community':
+        if (!d.communityId) errors.communityId = ['请选择一个社区'];
+        break;
+      case 'attributes':
+        if (!d.attributes || Object.keys(d.attributes).length !== 6) {
+          errors.attributes = ['请分配所有6个属性'];
+        } else {
+          const values = ALL_ATTRIBUTES.map(a => d.attributes![a]).sort((a, b) => b - a);
+          if (!values.every((v, i) => v === VALID_ATTRIBUTE_DISTRIBUTION[i])) {
+            errors.attributes = ['属性分配必须为+2,+1,+1,0,0,-1的排列'];
+          }
+        }
+        break;
+      case 'experiences':
+        if (!d.experiences || d.experiences.length < 2) {
+          errors.experiences = ['至少需要2个经历'];
+        } else {
+          const hasPlus2 = d.experiences.some(e => e.modifier === 2);
+          const plus1Count = d.experiences.filter(e => e.modifier === 1).length;
+          if (!hasPlus2) errors.experiences = ['需要一个+2经历'];
+          if (plus1Count < 1) errors.experiences = ['至少需要一个+1经历'];
+        }
+        break;
+      case 'weapons':
+        if (!d.mainWeaponId) errors.mainWeaponId = ['请选择主手武器'];
+        break;
+      case 'armor':
+        if (!d.armorId) errors.armorId = ['请选择护甲'];
+        break;
+      case 'domainCards':
+        if (!d.domainCards || d.domainCards.length < 2) {
+          errors.domainCards = ['至少选择2张领域卡'];
+        } else if (d.domainCards.length > 5) {
+          errors.domainCards = ['最多配置5张领域卡'];
+        } else {
+          const hasNonLevel1 = d.domainCards.some(c => c.level !== 1);
+          if (hasNonLevel1) {
+            errors.domainCards = ['一级角色只能选择一级领域卡'];
+          }
+        }
+        break;
+      case 'backstory':
+        if (!d.name || d.name.trim().length === 0) {
+          errors.name = ['请输入角色名称'];
+        }
+        break;
+    }
+
+    return errors;
+  }
+
+  /**
+   * 构建角色（向后兼容版本，返回 Character）
+   * 内部委托给 IRulesEngine.buildCharacter() 然后转换为旧格式
+   */
+  buildCharacter(): { character: Character; errors: string[] } {
+    const d = this.state.data;
+    const errors: string[] = [];
+
+    if (!d.classId || !d.ancestryId || !d.communityId || !d.attributes ||
+        !d.experiences || !d.mainWeaponId || !d.armorId || !d.domainCards || !d.name) {
+      errors.push('请完成所有创建步骤');
+      return { character: null as unknown as Character, errors };
+    }
+
+    // 构建 CharacterCore
+    const core: CharacterCore = {
+      id: uuidv4(),
+      name: d.name,
+      level: 1,
+      backstory: d.backstory || '',
+      personalQuest: d.personalQuest || '',
+      relationships: [],
+      adventureSummaries: [],
+      systemVersions: {},
+    };
+
+    try {
+      const sysChar = this.rulesEngine.buildCharacter(core, d as Record<string, unknown>);
+
+      // 将 SystemCharacter 转回旧 Character 格式（向后兼容）
+      const sd = sysChar.systemData as Record<string, unknown>;
+      const character: Character = {
+        id: core.id,
+        name: core.name,
+        level: core.level,
+        ...sd,
+        hp: sysChar.hp,
+        maxHp: sysChar.maxHp,
+        inventory: sysChar.inventory,
+        backstory: core.backstory,
+        personalQuest: core.personalQuest,
+        relationships: core.relationships,
+        adventureSummaries: core.adventureSummaries,
+      } as Character;
+
+      const validationErrors = validateCharacterSheet(character);
+      if (validationErrors.length > 0) {
+        errors.push(...validationErrors);
+      }
+
+      return { character, errors };
+    } catch (e) {
+      // 回退到旧构建逻辑
+      return this.buildCharacterLegacy();
+    }
+  }
+
+  /** 旧构建逻辑，作为回退保留 */
+  private buildCharacterLegacy(): { character: Character; errors: string[] } {
+    const d = this.state.data;
+    const errors: string[] = [];
+
+    if (!d.classId || !d.ancestryId || !d.communityId || !d.attributes ||
+        !d.experiences || !d.mainWeaponId || !d.armorId || !d.domainCards || !d.name) {
+      errors.push('请完成所有创建步骤');
+      return { character: null as unknown as Character, errors };
+    }
+
+    const level = 1;
+    const tier = getTier(level);
+    const proficiency = 1;
+
+    const classData = daggerheartData.classes.find(c => c.id === d.classId) as ClassData | undefined;
+    if (!classData) {
+      errors.push(`未找到职业: ${d.classId}`);
+      return { character: null as unknown as Character, errors };
+    }
+
+    const armorData = daggerheartData.armor.find(a => a.id === d.armorId) as ArmorData | undefined;
+    if (!armorData) {
+      errors.push(`未找到护甲: ${d.armorId}`);
+      return { character: null as unknown as Character, errors };
+    }
+
+    const maxHp = classData.baseHp;
+    const maxStress = classData.baseStress;
+    const maxHope = 6;
+    const maxArmorSlots = armorData.armorSlots;
+    let evasion = classData.baseEvasion + armorData.evasionPenalty;
+
+    // Apply permanent trait bonuses (e.g., Giant +1 HP, Human +1 Stress, Apefolk +1 Evasion)
+    const ancestryData = daggerheartData.ancestries.find(a => a.id === d.ancestryId);
+    const communityData = daggerheartData.communities.find(c => c.id === d.communityId);
+    const traitSource: import('../rules/systems/traitEffects').CharacterTraitSource = {
+      ancestryFeatures: (ancestryData?.features ?? []) as AncestryFeature[],
+      communityFeature: (communityData?.feature ?? null) as CommunityFeature | null,
+      classData: classData ?? null,
+    };
+    const allTraitEffects = collectTraitEffects(traitSource);
+    const bonuses = getPermanentResourceBonuses(allTraitEffects);
+    const effectiveMaxHp = maxHp + bonuses.hp;
+    const effectiveMaxStress = maxStress + bonuses.stress;
+    const effectiveMaxHope = maxHope + bonuses.hope;
+    evasion += bonuses.evasion;
+
+    const thresholds = calculateThresholds(
+      armorData.baseThreshold,
+      armorData.baseThresholdSevere,
+      level
+    );
+    if (bonuses.thresholdBonus > 0 && proficiency) {
+      thresholds.minor += proficiency;
+      thresholds.major += proficiency;
+      thresholds.severe += proficiency;
+    }
+
+    for (const card of d.domainCards) {
+      if (!classData.domains.includes(card.domain)) {
+        errors.push(`领域卡"${card.name}"的领域(${card.domain})不属于${classData.name}的可用领域`);
+      }
+    }
+
+    const attributeMarks: Record<Attribute, boolean> = {
+      agility: false, strength: false, finesse: false,
+      instinct: false, presence: false, knowledge: false,
+    };
+
+    const character: Character = {
+      id: uuidv4(),
+      name: d.name,
+      classId: d.classId,
+      subclassId: '',
+      ancestryId: d.ancestryId,
+      secondAncestryId: d.secondAncestryId,
+      mixedAncestryFeature1: d.mixedAncestryFeature1,
+      mixedAncestryFeature2: d.mixedAncestryFeature2,
+      communityId: d.communityId,
+      level,
+      tier,
+      proficiency,
+      attributes: d.attributes,
+      attributeMarks,
+      hp: effectiveMaxHp,
+      maxHp: effectiveMaxHp,
+      stress: 0,
+      maxStress: effectiveMaxStress,
+      hope: 2,
+      maxHope: effectiveMaxHope,
+      armorSlots: maxArmorSlots,
+      maxArmorSlots,
+      evasion,
+      minorThreshold: thresholds.minor,
+      majorThreshold: thresholds.major,
+      severeThreshold: thresholds.severe,
+      mainWeapon: daggerheartData.weapons.find(w => w.id === d.mainWeaponId) as WeaponData,
+      offWeapon: d.offWeaponId ? daggerheartData.weapons.find(w => w.id === d.offWeaponId) as WeaponData : undefined,
+      armor: armorData,
+      inventory: [],
+      gold: { coins: 0, handfuls: 0, bags: 0, chests: 0 },
+      experiences: d.experiences,
+      domainCardConfig: { loadout: d.domainCards, vault: [], maxLoadout: 5 },
+      featureUses: {},
+      adventureSummaries: [],
+      scars: [],
+      conditions: [],
+      resistances: [],
+      reactionsUsed: 0,
+      backstory: d.backstory || '',
+      personalQuest: d.personalQuest || '',
+      relationships: [],
+    };
+
+    const validationErrors = validateCharacterSheet(character);
+    if (validationErrors.length > 0) {
+      errors.push(...validationErrors);
+    }
+
+    return { character, errors };
+  }
+}
+
+
+
+######## FILE: server/src/core/CharacterLevelUp.ts ########
+import type {
+  Attribute,
+  Character,
+  Experience,
+  DomainCard,
+  DomainType,
+} from '@trpgmaster/shared';
+import { getTier, calculateThresholds } from '@trpgmaster/shared';
+import daggerheartData from '../rules/data/daggerheart';
+
+// Upgrade options available during level-up
+export type LevelUpOptionType =
+  | 'increaseAttributes'     // +1 to two unmarked attributes, then mark them
+  | 'increaseHp'             // +1 max HP slot permanently
+  | 'increaseStress'         // +1 max stress slot permanently
+  | 'improveExperiences'     // +1 to two experiences
+  | 'gainDomainCard'         // Gain a domain card of level ≤ current level
+  | 'increaseEvasion'        // +1 evasion permanently
+  | 'gainSubclassCard'       // Gain next subclass card (advanced → mastery)
+  | 'increaseProficiency'    // +1 proficiency (costs 2 upgrade slots)
+  | 'multiclass';            // Multiclass into another profession (level 5+, costs 2 slots)
+
+export interface LevelUpOption {
+  type: LevelUpOptionType;
+  label: string;
+  description: string;
+  slotCost: number; // Most cost 1, proficiency/multiclass cost 2
+  available: boolean;
+  reason?: string; // Why not available
+  data?: Record<string, unknown>; // Additional data (e.g. which attributes to increase)
+}
+
+export interface LevelUpRequest {
+  characterId: string;
+  newLevel: number;
+  options: LevelUpOptionType[]; // 2 options chosen (or 1 if one costs 2 slots)
+  attributeChoices?: [Attribute, Attribute]; // For increaseAttributes
+  experienceChoices?: [string, string]; // For improveExperiences: experience IDs
+  domainCardChoice?: string; // For gainDomainCard: domain card ID
+  domainCardSwap?: { add: string; remove: string }; // Swap domain card
+  multiclassClassId?: string; // For multiclass: second class ID
+  multiclassDomain?: string; // For multiclass: chosen domain from second class
+}
+
+export interface LevelUpResult {
+  success: boolean;
+  character?: Character;
+  errors: string[];
+  tierChanged: boolean;
+  oldTier: number;
+  newTier: number;
+}
+
+const ALL_ATTRIBUTES: Attribute[] = ['agility', 'strength', 'finesse', 'instinct', 'presence', 'knowledge'];
+
+export class CharacterLevelUp {
+  /**
+   * Get available upgrade options for a character at their next level
+   */
+  static getAvailableOptions(character: Character): LevelUpOption[] {
+    const nextLevel = character.level + 1;
+    const nextTier = getTier(nextLevel);
+    const currentTier = getTier(character.level);
+    const options: LevelUpOption[] = [];
+
+    // 1. Increase two unmarked attributes
+    const unmarkedAttrs = ALL_ATTRIBUTES.filter(a => !character.attributeMarks[a]);
+    options.push({
+      type: 'increaseAttributes',
+      label: '提升两项属性',
+      description: `选择两个未标记的属性获得+1加值并标记它们。可用属性：${unmarkedAttrs.map(a => a).join('、')}`,
+      slotCost: 1,
+      available: unmarkedAttrs.length >= 2,
+      reason: unmarkedAttrs.length < 2 ? '没有足够的未标记属性' : undefined,
+      data: { availableAttributes: unmarkedAttrs },
+    });
+
+    // 2. Increase HP slot
+    options.push({
+      type: 'increaseHp',
+      label: '增加生命槽',
+      description: '永久增加1个生命点上限',
+      slotCost: 1,
+      available: true,
+    });
+
+    // 3. Increase stress slot
+    options.push({
+      type: 'increaseStress',
+      label: '增加压力槽',
+      description: '永久增加1个压力点上限',
+      slotCost: 1,
+      available: true,
+    });
+
+    // 4. Improve experiences
+    const experiences = character.experiences;
+    options.push({
+      type: 'improveExperiences',
+      label: '提升经历',
+      description: '选择两项经历各获得+1加值',
+      slotCost: 1,
+      available: experiences.length >= 2,
+      reason: experiences.length < 2 ? '至少需要2项经历' : undefined,
+      data: { experienceIds: experiences.map(e => e.id) },
+    });
+
+    // 5. Gain domain card
+    const classData = daggerheartData.classes.find(c => c.id === character.classId);
+    const classDomains = classData?.domains || [];
+    const availableDomainCards = (daggerheartData.domains as DomainCard[]).filter(
+      (c: DomainCard) => classDomains.includes(c.domain) && c.level <= nextLevel
+    );
+    options.push({
+      type: 'gainDomainCard',
+      label: '获取领域卡',
+      description: `从你的领域(${classDomains.join('、')})中选择一张等级≤${nextLevel}的领域卡`,
+      slotCost: 1,
+      available: availableDomainCards.length > 0,
+      reason: availableDomainCards.length === 0 ? '没有可用的领域卡' : undefined,
+      data: { availableCards: availableDomainCards.map(c => c.id) },
+    });
+
+    // 6. Increase evasion
+    options.push({
+      type: 'increaseEvasion',
+      label: '提升闪避',
+      description: '永久获得+1闪避值',
+      slotCost: 1,
+      available: true,
+    });
+
+    // 7. Gain subclass card
+    options.push({
+      type: 'gainSubclassCard',
+      label: '获取子职业卡牌',
+      description: '获得子职业的下一张卡牌（进阶→精通）',
+      slotCost: 1,
+      available: !character.multiclass, // 兼职后不能再获得子职业卡牌
+      reason: character.multiclass ? '兼职后不能再获取子职业卡牌' : undefined,
+    });
+
+    // 8. Increase proficiency (costs 2 slots)
+    options.push({
+      type: 'increaseProficiency',
+      label: '提升熟练值',
+      description: '熟练值+1，武器伤害骰数量+1。此选项占用2个升级槽位。',
+      slotCost: 2,
+      available: true,
+    });
+
+    // 9. Multiclass (level 5+, costs 2 slots)
+    options.push({
+      type: 'multiclass',
+      label: '兼职',
+      description: '从另一个职业中选择一个领域，获得其职业特性。此选项占用2个升级槽位。',
+      slotCost: 2,
+      available: nextLevel >= 5 && !character.multiclass,
+      reason: nextLevel < 5 ? '5级才能选择兼职' : character.multiclass ? '已经兼职，不能再次兼职' : undefined,
+      data: { availableClasses: daggerheartData.classes.filter((c: any) => c.id !== character.classId).map((c: any) => ({ id: c.id, name: c.name })) },
+    });
+
+    return options;
+  }
+
+  /**
+   * Get tier advancement bonuses for a specific level
+   */
+  static getTierAdvancementBonuses(level: number): {
+    extraExperience?: { modifier: number };
+    proficiencyBonus?: number;
+    clearAttributeMarks: boolean;
+  } {
+    return {
+      extraExperience: (level === 2 || level === 5 || level === 8) ? { modifier: 2 } : undefined,
+      proficiencyBonus: (level === 2 || level === 5 || level === 8) ? 1 : undefined,
+      clearAttributeMarks: level === 5 || level === 8,
+    };
+  }
+
+  /**
+   * Execute a level-up for a character
+   */
+  static levelUp(character: Character, request: LevelUpRequest): LevelUpResult {
+    const errors: string[] = [];
+    const oldTier = getTier(character.level);
+    const newTier = getTier(request.newLevel);
+
+    // Validate level increment
+    if (request.newLevel !== character.level + 1) {
+      errors.push(`升级必须逐级进行，当前等级${character.level}，目标等级应为${character.level + 1}`);
+      return { success: false, errors, tierChanged: false, oldTier, newTier };
+    }
+
+    if (request.newLevel > 10) {
+      errors.push('最高等级为10级');
+      return { success: false, errors, tierChanged: false, oldTier, newTier };
+    }
+
+    // Validate slot cost: 2 upgrade slots per level
+    const totalSlotCost = request.options.reduce((sum, opt) => {
+      const optionDef = this.getAvailableOptions(character).find(o => o.type === opt);
+      return sum + (optionDef?.slotCost || 1);
+    }, 0);
+
+    if (totalSlotCost !== 2) {
+      errors.push(`升级选项必须恰好占用2个槽位，当前占用${totalSlotCost}个`);
+      return { success: false, errors, tierChanged: false, oldTier, newTier };
+    }
+
+    // Apply tier advancement bonuses first
+    const bonuses = this.getTierAdvancementBonuses(request.newLevel);
+
+    // Deep clone character
+    const updated: Character = JSON.parse(JSON.stringify(character));
+    updated.level = request.newLevel;
+    updated.tier = newTier;
+
+    // Apply tier advancement
+    if (bonuses.extraExperience) {
+      updated.experiences.push({
+        id: `exp_${Date.now()}`,
+        name: '新经历',
+        modifier: bonuses.extraExperience.modifier,
+      });
+    }
+
+    if (bonuses.proficiencyBonus) {
+      updated.proficiency += bonuses.proficiencyBonus;
+    }
+
+    if (bonuses.clearAttributeMarks) {
+      for (const attr of ALL_ATTRIBUTES) {
+        updated.attributeMarks[attr] = false;
+      }
+    }
+
+    // Apply chosen upgrade options
+    for (const optionType of request.options) {
+      switch (optionType) {
+        case 'increaseAttributes': {
+          if (!request.attributeChoices || request.attributeChoices.length !== 2) {
+            errors.push('请选择两项属性提升');
+            continue;
+          }
+          const [attr1, attr2] = request.attributeChoices;
+          if (updated.attributeMarks[attr1] || updated.attributeMarks[attr2]) {
+            errors.push('不能选择已标记的属性');
+            continue;
+          }
+          updated.attributes[attr1] += 1;
+          updated.attributes[attr2] += 1;
+          updated.attributeMarks[attr1] = true;
+          updated.attributeMarks[attr2] = true;
+          break;
+        }
+
+        case 'increaseHp': {
+          updated.maxHp += 1;
+          updated.hp += 1; // Also increase current HP
+          break;
+        }
+
+        case 'increaseStress': {
+          updated.maxStress += 1;
+          break;
+        }
+
+        case 'improveExperiences': {
+          if (!request.experienceChoices || request.experienceChoices.length !== 2) {
+            errors.push('请选择两项经历提升');
+            continue;
+          }
+          for (const expId of request.experienceChoices) {
+            const exp = updated.experiences.find(e => e.id === expId);
+            if (exp) {
+              exp.modifier += 1;
+            } else {
+              errors.push(`未找到经历: ${expId}`);
+            }
+          }
+          break;
+        }
+
+        case 'gainDomainCard': {
+          const cardId = request.domainCardChoice || request.domainCardSwap?.add;
+          if (!cardId) {
+            errors.push('请选择一张领域卡');
+            continue;
+          }
+          const card = (daggerheartData.domains as DomainCard[]).find((c: DomainCard) => c.id === cardId);
+          if (!card) {
+            errors.push(`未找到领域卡: ${cardId}`);
+            continue;
+          }
+          if (card.level > request.newLevel) {
+            errors.push(`领域卡等级(${card.level})超过当前等级(${request.newLevel})`);
+            continue;
+          }
+          // Validate domain belongs to class
+          const classData = daggerheartData.classes.find(c => c.id === updated.classId);
+          if (classData && !classData.domains.includes(card.domain)) {
+            errors.push(`领域卡"${card.name}"的领域(${card.domain})不属于你的职业可用领域`);
+            continue;
+          }
+          // Handle swap or direct add
+          if (request.domainCardSwap?.remove) {
+            const removeIdx = updated.domainCardConfig.loadout.findIndex((c: DomainCard) => c.id === request.domainCardSwap!.remove);
+            if (removeIdx >= 0) {
+              updated.domainCardConfig.loadout.splice(removeIdx, 1);
+            } else {
+              errors.push(`未找到要替换的领域卡: ${request.domainCardSwap.remove}`);
+            }
+          }
+          updated.domainCardConfig.loadout.push(card);
+          break;
+        }
+
+        case 'increaseEvasion': {
+          updated.evasion += 1;
+          break;
+        }
+
+        case 'gainSubclassCard': {
+          // Unlock the next subclass feature tier based on current level
+          const subclassData = daggerheartData.subclasses?.find(
+            (sc: any) => sc.id === updated.subclassId,
+          );
+          if (subclassData && subclassData.features) {
+            const { features } = subclassData;
+            // Determine which tier to unlock next
+            // base=1, advanced=5, mastery=8
+            let nextFeature: { name: string; nameEn: string; description: string; level: number; isCard: boolean } | null = null;
+            if (request.newLevel >= 5 && !updated.featureUses[`subclass_advanced_${updated.subclassId}`]) {
+              nextFeature = features.advanced;
+            } else if (request.newLevel >= 8 && !updated.featureUses[`subclass_mastery_${updated.subclassId}`]) {
+              nextFeature = features.mastery;
+            } else if (!updated.featureUses[`subclass_base_${updated.subclassId}`]) {
+              nextFeature = features.base;
+            }
+            if (nextFeature) {
+              // Mark the feature as unlocked
+              const featureKey = request.newLevel >= 8 ? `subclass_mastery_${updated.subclassId}`
+                : request.newLevel >= 5 ? `subclass_advanced_${updated.subclassId}`
+                : `subclass_base_${updated.subclassId}`;
+              updated.featureUses[featureKey] = -1; // -1 = passive/unlimited uses
+              // If the feature is a card, add it to the domain card loadout
+              if (nextFeature.isCard) {
+                // Create a synthetic domain card for the subclass feature
+                const card: DomainCard = {
+                  id: `${updated.subclassId}_${featureKey}`,
+                  name: nextFeature.name,
+                  nameEn: nextFeature.nameEn,
+                  domain: (daggerheartData.classes.find((c: any) => c.id === updated.classId)?.domains?.[0] as DomainType) || 'codex',
+                  level: nextFeature.level || request.newLevel,
+                  type: 'ability',
+                  recallCost: 0,
+                  description: nextFeature.description,
+                  effect: nextFeature.description,
+                };
+                if (updated.domainCardConfig.loadout.length < updated.domainCardConfig.maxLoadout) {
+                  updated.domainCardConfig.loadout.push(card);
+                } else {
+                  updated.domainCardConfig.vault.push(card);
+                }
+              }
+            } else {
+              errors.push('没有可解锁的子职业特性');
+            }
+          } else {
+            errors.push(`未找到子职业数据: ${updated.subclassId}`);
+          }
+          break;
+        }
+
+        case 'increaseProficiency': {
+          updated.proficiency += 1;
+          break;
+        }
+
+        case 'multiclass': {
+          // Multiclass: choose a domain from another class
+          // The domain choice should be provided via request.domainCardChoice (repurposed as multiclass domain)
+          // or we auto-select the first non-owned domain from the second class
+          const secondClassId = request.multiclassClassId;
+          if (!secondClassId) {
+            errors.push('请选择一个兼职职业');
+            break;
+          }
+          if (updated.multiclass) {
+            errors.push('角色已经兼职，不能再次兼职');
+            break;
+          }
+          const secondClassData = daggerheartData.classes.find((c: any) => c.id === secondClassId);
+          if (!secondClassData) {
+            errors.push(`未找到职业: ${secondClassId}`);
+            break;
+          }
+          // Find domains from the second class that the character doesn't already have
+          const currentClassData = daggerheartData.classes.find((c: any) => c.id === updated.classId);
+          const currentDomains = currentClassData?.domains || [];
+          const newDomains = (secondClassData.domains as DomainType[]).filter(
+            (d: DomainType) => !currentDomains.includes(d),
+          );
+          if (newDomains.length === 0) {
+            errors.push(`职业 ${secondClassData.name} 的领域与当前职业完全重叠`);
+            break;
+          }
+          // Pick the selected domain, or the first available
+          const selectedDomain: DomainType = (request.multiclassDomain as DomainType) || newDomains[0];
+          if (!newDomains.includes(selectedDomain)) {
+            errors.push(`领域 ${selectedDomain} 不属于职业 ${secondClassData.name} 或已被当前职业拥有`);
+            break;
+          }
+          updated.multiclass = {
+            classId: secondClassId,
+            domain: selectedDomain,
+          };
+          break;
+        }
+      }
+    }
+
+    // Update damage thresholds (threshold = base + level)
+    const armorData = updated.armor;
+    if (armorData) {
+      const thresholds = calculateThresholds(
+        armorData.baseThreshold,
+        armorData.baseThresholdSevere,
+        updated.level,
+      );
+      updated.minorThreshold = thresholds.minor;
+      updated.majorThreshold = thresholds.major;
+      updated.severeThreshold = thresholds.severe;
+    }
+
+    if (errors.length > 0) {
+      return { success: false, errors, tierChanged: oldTier !== newTier, oldTier, newTier };
+    }
+
+    return {
+      success: true,
+      character: updated,
+      errors: [],
+      tierChanged: oldTier !== newTier,
+      oldTier,
+      newTier,
+    };
+  }
+}
+
+
+
+######## FILE: server/src/core/StateManager.ts ########
+import type {
+  SessionState,
+  SessionZeroData,
+  SessionZeroPhase,
+  SceneState,
+  CombatState,
+  CombatEnemy,
+  ConditionInstance,
+  TimelineEntry,
+  GameEvent,
+  GameEventType,
+  CampaignState,
+  Player,
+  SpotlightState,
+  SafetyState,
+} from '@trpgmaster/shared';
+import { getTier } from '@trpgmaster/shared';
+import type { Character, InventoryItem } from '@trpgmaster/shared';
+import type { PersistedSession, PersistedAdventureMessage } from './SessionPersistence';
+
+export class StateManager {
+  private state: SessionState;
+  private listeners: Map<string, Set<(state: SessionState) => void>>;
+  private dirtyFlags: Set<string>;
+  // Adventure messages — stored server-side for persistence
+  private adventureMessages: PersistedAdventureMessage[];
+  // Track original creation timestamp across persist cycles
+  private createdAt: number;
+
+  constructor(sessionId: string) {
+    this.state = this.createInitialState(sessionId);
+    this.listeners = new Map();
+    this.dirtyFlags = new Set();
+    this.adventureMessages = [];
+    this.createdAt = Date.now();
+  }
+
+  private createInitialState(sessionId: string): SessionState {
+    return {
+      sessionId,
+      systemId: 'daggerheart',
+      status: 'setup',
+      character: null as unknown as Character, // Set during character creation (backward compat)
+      characters: [],                           // Multi-player character list
+      players: [],                              // Multi-player player list
+      currentScene: {
+        id: 'initial',
+        name: '开场',
+        description: '',
+        environment: '',
+        activeConditions: [],
+        npcPresent: [],
+        enemies: [],
+        countdowns: [],
+      },
+      fearPoints: 0,
+      totalFearGained: 0,
+      totalFearSpent: 0,
+      timeline: [],
+      shortRestsSinceLong: 0,
+      campaignState: this.createInitialCampaignState(),
+    };
+  }
+
+  private createInitialCampaignState(): CampaignState {
+    return {
+      campaignId: 'drakkenheim',
+      currentLocation: 'emberVillage',
+      visitedLocations: [],
+      factionRelations: {},
+      personalQuestProgress: {},
+      factionQuestProgress: {},
+      contaminationLevel: 0,
+      deleriumCollected: 0,
+      sealsFound: [],
+      currentChapter: 'arrival',
+      hazeExpansion: 0,
+      narrativeFlags: {},
+    };
+  }
+
+  // ===== State Access =====
+
+  getState(): SessionState {
+    return JSON.parse(JSON.stringify(this.state));
+  }
+
+  getCharacter(): Character {
+    return JSON.parse(JSON.stringify(this.state.character));
+  }
+
+  // ===== Multi-player Management =====
+
+  addPlayer(player: Player): void {
+    // Check if player already exists
+    const existing = this.state.players.find(p => p.id === player.id);
+    if (existing) {
+      // Update existing player
+      existing.isConnected = true;
+      existing.character = player.character;
+      existing.name = player.name;
+    } else {
+      this.state.players.push({ ...player });
+      this.state.characters.push({ ...player.character });
+    }
+    // Sync backward-compat character (first player's character)
+    if (this.state.players.length > 0 && this.state.players[0].character) {
+      this.state.character = this.state.players[0].character;
+    }
+    this.markDirty('players');
+  }
+
+  removePlayer(playerId: string): void {
+    const player = this.state.players.find(p => p.id === playerId);
+    if (!player) return;
+
+    player.isConnected = false;
+    // Keep the player in the list but mark as disconnected
+    // (character data is preserved for when they reconnect)
+    this.markDirty('players');
+  }
+
+  getPlayerCharacter(playerId: string): Character | undefined {
+    const player = this.state.players.find(p => p.id === playerId);
+    return player?.character;
+  }
+
+  updatePlayerCharacter(playerId: string, updates: Partial<Character>): void {
+    const player = this.state.players.find(p => p.id === playerId);
+    if (!player) return;
+
+    Object.assign(player.character, updates);
+
+    // Also update in characters array
+    const charIndex = this.state.characters.findIndex(c => c.id === player.character.id);
+    if (charIndex >= 0) {
+      this.state.characters[charIndex] = { ...player.character };
+    }
+
+    // Sync backward compat
+    if (this.state.players[0]?.id === playerId) {
+      this.state.character = { ...player.character };
+    }
+
+    this.markDirty('character');
+  }
+
+  getPlayers(): Player[] {
+    return this.state.players;
+  }
+
+  getConnectedPlayers(): Player[] {
+    return this.state.players.filter(p => p.isConnected);
+  }
+
+  setSessionCode(code: string): void {
+    this.state.sessionCode = code;
+    this.markDirty('session');
+  }
+
+  // ===== Session Management =====
+
+  startSession(): void {
+    const connectedPlayers = this.state.players.filter(p => p.isConnected);
+    if (connectedPlayers.length > 1) {
+      this.state.status = 'sessionZero';
+      this.state.sessionZeroPhase = 'safety';
+      this.state.sessionZeroData = {};
+      // Initialize spotlight for multi-player
+      if (!this.state.spotlightState) {
+        this.state.spotlightState = { mode: 'freeform', current: null, queue: [] };
+      }
+      // Initialize safety state for multi-player
+      if (!this.state.safetyState) {
+        this.state.safetyState = { phase: 's0', lines: [], veils: [], toneFlags: [], xcardActive: false };
+      }
+    } else {
+      this.state.status = 'active';
+    }
+    this.markDirty('session');
+  }
+
+  completeSessionZero(): void {
+    this.state.status = 'active';
+    this.state.sessionZeroPhase = undefined;
+    this.markDirty('session');
+  }
+
+  setSessionZeroPhase(phase: SessionZeroPhase): void {
+    this.state.sessionZeroPhase = phase;
+    this.markDirty('session');
+  }
+
+  updateSessionZeroData(data: Partial<SessionZeroData>): void {
+    this.state.sessionZeroData = { ...this.state.sessionZeroData, ...data };
+    this.markDirty('session');
+  }
+
+  pauseSession(): void {
+    this.state.status = 'paused';
+    this.markDirty('session');
+  }
+
+  resumeSession(): void {
+    this.state.status = 'active';
+    this.markDirty('session');
+  }
+
+  endSession(): void {
+    this.state.status = 'ended';
+    this.markDirty('session');
+  }
+
+  // ===== Character Management =====
+
+  setCharacter(character: Character): void {
+    this.state.character = { ...character };
+    // If no players yet, this is single-player mode — sync characters array
+    if (this.state.players.length === 0) {
+      const existingIdx = this.state.characters.findIndex(c => c.id === character.id);
+      if (existingIdx >= 0) {
+        this.state.characters[existingIdx] = { ...character };
+      } else {
+        this.state.characters.push({ ...character });
+      }
+    }
+    this.markDirty('character');
+  }
+
+  /** Sync backward-compat state.character → state.players[0].character + state.characters[0] */
+  private syncBackwardCompat(): void {
+    if (this.state.players.length > 0 && this.state.players[0].character) {
+      this.state.players[0].character = { ...this.state.character };
+      const idx = this.state.characters.findIndex(c => c.id === this.state.character.id);
+      if (idx >= 0) {
+        this.state.characters[idx] = { ...this.state.character };
+      }
+    }
+  }
+
+  updateCharacterHp(delta: number): boolean {
+    const char = this.state.character;
+    if (!char) return false;
+
+    char.hp = Math.max(0, Math.min(char.maxHp, char.hp + delta));
+
+    // HP dropped to 0 → enter Dying condition
+    if (char.hp <= 0 && delta < 0) {
+      const alreadyDying = char.conditions?.some(c => c.condition === 'dying');
+      if (!alreadyDying) {
+        char.conditions = char.conditions || [];
+        char.conditions.push({
+          condition: 'dying',
+          duration: 'special',
+          source: 'HP降至0',
+          clearCondition: '执行死亡行动后恢复',
+        });
+      }
+    }
+
+    this.syncBackwardCompat();
+    this.markDirty('character');
+    return true;
+  }
+
+  updateCharacterStress(delta: number): boolean {
+    const char = this.state.character;
+    if (!char) return false;
+
+    const newStress = char.stress + delta;
+    // If stress would overflow max, mark HP instead
+    if (newStress > char.maxStress) {
+      const overflow = newStress - char.maxStress;
+      char.stress = char.maxStress;
+      char.hp = Math.max(0, char.hp - overflow);
+    } else {
+      char.stress = Math.max(0, newStress);
+    }
+    this.syncBackwardCompat();
+    this.markDirty('character');
+    return true;
+  }
+
+  updateCharacterHope(delta: number): boolean {
+    const char = this.state.character;
+    if (!char) return false;
+
+    char.hope = Math.max(0, Math.min(char.maxHope, char.hope + delta));
+    this.syncBackwardCompat();
+    this.markDirty('character');
+    return true;
+  }
+
+  updateCharacterArmorSlots(used: boolean): boolean {
+    const char = this.state.character;
+    if (!char) return false;
+
+    if (used && char.armorSlots > 0) {
+      char.armorSlots -= 1;
+    } else if (!used && char.armorSlots < char.maxArmorSlots) {
+      char.armorSlots += 1;
+    }
+    this.syncBackwardCompat();
+    this.markDirty('character');
+    return true;
+  }
+
+  /** Adjust armor slots by numeric delta (negative = spend, positive = recover), clamped to [0, maxArmorSlots] */
+  adjustCharacterArmorSlots(delta: number): boolean {
+    const char = this.state.character;
+    if (!char) return false;
+
+    char.armorSlots = Math.max(0, Math.min(char.maxArmorSlots, char.armorSlots + delta));
+    this.syncBackwardCompat();
+    this.markDirty('character');
+    return true;
+  }
+
+  updateCharacter(updates: Partial<Character>): boolean {
+    const char = this.state.character;
+    if (!char) return false;
+
+    Object.assign(char, updates);
+    this.syncBackwardCompat();
+    this.markDirty('character');
+    return true;
+  }
+
+  addInventoryItem(item: { id: string; name: string; quantity: number; description?: string; category?: string }): void {
+    const char = this.state.character;
+    if (!char) return;
+    const existing = char.inventory.find(i => i.id === item.id);
+    if (existing) {
+      existing.quantity += item.quantity;
+    } else {
+      char.inventory.push({
+        id: item.id,
+        name: item.name,
+        quantity: item.quantity,
+        description: item.description,
+        equipped: false,
+        category: (['consumable', 'tool', 'treasure', 'misc'].includes(item.category ?? '') ? item.category as InventoryItem['category'] : 'misc'),
+      });
+    }
+    this.syncBackwardCompat();
+    this.markDirty('character');
+  }
+
+  addGold(gold: { coins: number; handfuls: number; bags: number; chests: number }): void {
+    const char = this.state.character;
+    if (!char) return;
+    char.gold.coins += gold.coins;
+    char.gold.handfuls += gold.handfuls;
+    char.gold.bags += gold.bags;
+    char.gold.chests += gold.chests;
+    // Consolidate
+    if (char.gold.coins >= 10) {
+      char.gold.handfuls += Math.floor(char.gold.coins / 10);
+      char.gold.coins = char.gold.coins % 10;
+    }
+    if (char.gold.handfuls >= 10) {
+      char.gold.bags += Math.floor(char.gold.handfuls / 10);
+      char.gold.handfuls = char.gold.handfuls % 10;
+    }
+    this.syncBackwardCompat();
+    this.markDirty('character');
+  }
+
+  incrementCombatRound(): void {
+    if (this.state.activeCombat) {
+      this.state.activeCombat.round++;
+      this.markDirty('combat');
+    }
+  }
+
+  // ===== Spotlight / Turn Management =====
+
+  getSpotlightState(): SpotlightState | undefined {
+    return this.state.spotlightState;
+  }
+
+  setSpotlightState(spotlight: SpotlightState): void {
+    this.state.spotlightState = spotlight;
+    this.markDirty('spotlight');
+  }
+
+  // ===== Safety Tools =====
+
+  getSafetyState(): SafetyState | undefined {
+    return this.state.safetyState;
+  }
+
+  setSafetyState(safety: SafetyState): void {
+    this.state.safetyState = safety;
+    this.markDirty('safety');
+  }
+
+  // ===== GM Resources =====
+
+  addFearPoints(points: number): void {
+    this.state.fearPoints += points;
+    this.state.totalFearGained += points;
+    this.markDirty('fearPoints');
+  }
+
+  spendFearPoints(points: number): boolean {
+    if (this.state.fearPoints < points) return false;
+    this.state.fearPoints -= points;
+    this.state.totalFearSpent += points;
+    this.markDirty('fearPoints');
+    return true;
+  }
+
+  /** Mark an enemy as having acted this round */
+  markEnemyActed(enemyId: string): void {
+    const combat = this.state.activeCombat;
+    if (!combat) return;
+    const enemy = combat.enemies.find(e => e.id === enemyId);
+    if (enemy) {
+      enemy.hasActed = true;
+      this.markDirty('combat');
+    }
+  }
+
+  /** Add a condition to the character */
+  addCharacterCondition(condition: ConditionInstance): void {
+    const char = this.state.character;
+    if (!char) return;
+    char.conditions = char.conditions || [];
+    // Don't stack identical conditions — keep the longer duration
+    const existing = char.conditions.find(c => c.condition === condition.condition);
+    if (existing) {
+      if (condition.roundsRemaining !== undefined && existing.roundsRemaining !== undefined) {
+        if (condition.roundsRemaining > existing.roundsRemaining) {
+          existing.roundsRemaining = condition.roundsRemaining;
+          existing.source = condition.source;
+        }
+      }
+    } else {
+      char.conditions.push(condition);
+    }
+    this.markDirty('character');
+  }
+
+  /** Consume armor slots by count (not just 1) */
+  consumeCharacterArmorSlots(count: number): void {
+    const char = this.state.character;
+    if (!char) return;
+    char.armorSlots = Math.max(0, char.armorSlots - count);
+    this.markDirty('character');
+  }
+
+  /** Apply death move result: remove Dying condition and apply effects */
+  applyDeathMoveResult(result: {
+    characterDied: boolean;
+    hpRestored: number;
+    stressCleared: number;
+    scarGained: boolean;
+  }): void {
+    const char = this.state.character;
+    if (!char) return;
+
+    // Remove Dying condition
+    char.conditions = (char.conditions || []).filter(c => c.condition !== 'dying');
+
+    if (result.characterDied) {
+      // Character is dead — set HP to 0 and mark as permanently dead
+      char.hp = 0;
+    } else {
+      // Restore HP
+      if (result.hpRestored > 0 && result.hpRestored < 999) {
+        char.hp = Math.min(char.maxHp, result.hpRestored);
+      } else if (result.hpRestored >= 999) {
+        char.hp = char.maxHp; // Desperate Gamble critical: full restore
+      }
+    }
+
+    // Clear stress
+    if (result.stressCleared > 0 && result.stressCleared < 999) {
+      char.stress = Math.max(0, char.stress - result.stressCleared);
+    } else if (result.stressCleared >= 999) {
+      char.stress = 0;
+    }
+
+    // Gain scar (reduces maxHope)
+    if (result.scarGained) {
+      char.maxHope = Math.max(1, char.maxHope - 1);
+    }
+
+    this.syncBackwardCompat();
+    this.markDirty('character');
+  }
+
+  // ===== Scene Management =====
+
+  setCurrentScene(scene: SceneState): void {
+    this.state.currentScene = scene;
+    this.markDirty('scene');
+  }
+
+  setSceneDifficulty(difficulty: number): void {
+    this.state.sceneDifficulty = difficulty;
+    this.markDirty('scene');
+  }
+
+  getSceneDifficulty(): number {
+    return this.state.sceneDifficulty ?? 15;
+  }
+
+  // ===== Combat Management =====
+
+  startCombat(enemies: CombatEnemy[]): void {
+    this.state.activeCombat = {
+      id: `combat_${Date.now()}`,
+      round: 1,
+      enemies,
+      activeConditions: [],
+      fearPointsUsed: 0,
+    };
+    this.markDirty('combat');
+  }
+
+  endCombat(): void {
+    this.state.activeCombat = undefined;
+    this.markDirty('combat');
+  }
+
+  getCombatState(): CombatState | undefined {
+    return this.state.activeCombat;
+  }
+
+  updateCombatEnemyHp(enemyId: string, delta: number): boolean {
+    const combat = this.state.activeCombat;
+    if (!combat) return false;
+
+    const enemy = combat.enemies.find(e => e.id === enemyId);
+    if (!enemy) return false;
+
+    enemy.currentHp = Math.max(0, Math.min(enemy.maxHp, enemy.currentHp + delta));
+    if (enemy.currentHp === 0) {
+      // Mark enemy as defeated — remove from active combat
+      combat.enemies = combat.enemies.filter(e => e.id !== enemyId);
+    }
+    this.markDirty('combat');
+    return true;
+  }
+
+  removeCombatEnemy(enemyId: string): boolean {
+    const combat = this.state.activeCombat;
+    if (!combat) return false;
+
+    combat.enemies = combat.enemies.filter(e => e.id !== enemyId);
+    this.markDirty('combat');
+    return true;
+  }
+
+  /** Add an enemy to combat — starts combat if not active */
+  addCombatEnemy(enemy: CombatEnemy): void {
+    if (!this.state.activeCombat) {
+      this.startCombat([enemy]);
+    } else {
+      this.state.activeCombat.enemies.push(enemy);
+      this.markDirty('combat');
+    }
+  }
+
+  // ===== Timeline =====
+
+  addTimelineEntry(entry: TimelineEntry): void {
+    this.state.timeline.push(entry);
+    this.markDirty('timeline');
+  }
+
+  getTimelineSince(timestamp: number): TimelineEntry[] {
+    return this.state.timeline.filter(e => e.timestamp >= timestamp);
+  }
+
+  getKeyMoments(): TimelineEntry[] {
+    return this.state.timeline.filter(e => e.isKeyMoment);
+  }
+
+  // ===== Rest Tracking =====
+
+  getShortRestsSinceLong(): number {
+    return this.state.shortRestsSinceLong;
+  }
+
+  incrementShortRests(): void {
+    this.state.shortRestsSinceLong++;
+    this.markDirty('rests');
+  }
+
+  resetShortRests(): void {
+    this.state.shortRestsSinceLong = 0;
+    this.markDirty('rests');
+  }
+
+  // ===== Campaign State =====
+
+  getCampaignState(): CampaignState {
+    return this.state.campaignState;
+  }
+
+  updateCampaignState(updates: Partial<CampaignState>): void {
+    Object.assign(this.state.campaignState, updates);
+    this.markDirty('campaign');
+  }
+
+  updateFactionRelation(factionId: string, change: number): void {
+    const current = this.state.campaignState.factionRelations[factionId] || 5;
+    this.state.campaignState.factionRelations[factionId] = Math.max(1, Math.min(10, current + change));
+    this.markDirty('campaign');
+  }
+
+  // ===== Tension Level =====
+
+  getTensionLevel(): 'low' | 'medium' | 'high' | 'critical' {
+    const score = this.state.totalFearGained + this.state.totalFearSpent;
+    if (score >= 9) return 'critical';
+    if (score >= 6) return 'high';
+    if (score >= 3) return 'medium';
+    return 'low';
+  }
+
+  // ===== Change Notification =====
+
+  private markDirty(key: string): void {
+    this.dirtyFlags.add(key);
+    this.notifyListeners();
+  }
+
+  onChange(key: string, listener: (state: SessionState) => void): () => void {
+    let set = this.listeners.get(key);
+    if (!set) {
+      set = new Set();
+      this.listeners.set(key, set);
+    }
+    set.add(listener);
+    return () => {
+      const s = this.listeners.get(key);
+      if (s) {
+        s.delete(listener);
+        if (s.size === 0) this.listeners.delete(key);
+      }
+    };
+  }
+
+  private notifyListeners(): void {
+    const state = this.getState();
+    for (const listenerSet of this.listeners.values()) {
+      for (const listener of listenerSet) {
+        try {
+          listener(state);
+        } catch {
+          // Listener errors should not break the state manager
+        }
+      }
+    }
+    this.dirtyFlags.clear();
+  }
+
+  // ===== Adventure Messages (server-side persistence) =====
+
+  addAdventureMessage(msg: PersistedAdventureMessage): void {
+    this.adventureMessages.push(msg);
+    // Cap at 500 in memory
+    if (this.adventureMessages.length > 500) {
+      this.adventureMessages = this.adventureMessages.slice(-500);
+    }
+  }
+
+  getAdventureMessages(): PersistedAdventureMessage[] {
+    return [...this.adventureMessages];
+  }
+
+  // ===== Persistence =====
+
+  /**
+   * Export state for file persistence.
+   * Strips runtime-only fields (socket IDs, isConnected, combat state).
+   */
+  toPersisted(code: string): PersistedSession {
+    // Strip runtime fields from players (isConnected is transient)
+    const persistedPlayers = this.state.players.map(p => ({
+      id: p.id,
+      name: p.name,
+      characterName: p.character?.name,
+      characterId: p.character?.id,
+      joinedAt: p.joinedAt,
+    }));
+
+    return {
+      sessionId: this.state.sessionId,
+      code,
+      status: this.state.status,
+      currentScene: {
+        id: this.state.currentScene.id,
+        name: this.state.currentScene.name,
+        description: this.state.currentScene.description,
+        environment: this.state.currentScene.environment,
+      },
+      fearPoints: this.state.fearPoints,
+      totalFearGained: this.state.totalFearGained,
+      totalFearSpent: this.state.totalFearSpent,
+      character: this.state.character,
+      characters: this.state.characters,
+      players: persistedPlayers,
+      timeline: this.state.timeline,
+      campaignState: this.state.campaignState,
+      adventureMessages: this.adventureMessages,
+      shortRestsSinceLong: this.state.shortRestsSinceLong,
+      spotlightState: this.state.spotlightState,
+      safetyState: this.state.safetyState,
+      activeCombat: this.state.activeCombat || undefined,
+      createdAt: this.createdAt,
+    };
+  }
+
+  /**
+   * Restore state from persisted data.
+   * Runtime fields (isConnected, combat, etc.) get safe defaults.
+   */
+  loadFromPersisted(data: PersistedSession): void {
+    // Restore core session fields
+    this.state.sessionId = data.sessionId;
+    this.state.status = data.status || 'setup';
+    this.state.fearPoints = data.fearPoints || 0;
+    this.state.totalFearGained = data.totalFearGained || 0;
+    this.state.totalFearSpent = data.totalFearSpent || 0;
+    this.state.shortRestsSinceLong = data.shortRestsSinceLong || 0;
+
+    // Restore spotlight state
+    if (data.spotlightState) {
+      this.state.spotlightState = data.spotlightState;
+    }
+
+    // Restore safety state
+    if (data.safetyState) {
+      this.state.safetyState = data.safetyState;
+    }
+
+    // Restore character
+    if (data.character) {
+      this.state.character = data.character;
+    }
+
+    // Restore characters array
+    if (data.characters) {
+      this.state.characters = data.characters;
+    }
+
+    // Restore players — mark all as disconnected (they'll reconnect)
+    if (data.players) {
+      this.state.players = data.players.map(p => {
+        // Prefer characterId matching, fall back to name matching
+        const matchedChar = (p.characterId && data.characters?.find(c => c.id === p.characterId))
+          || data.characters?.find(c => c.name === p.characterName)
+          || (data.character as Character)
+          || null as unknown as Character;
+        return {
+          id: p.id,
+          name: p.name,
+          character: matchedChar,
+          isConnected: false,  // Will be set to true on reconnect
+          joinedAt: p.joinedAt || Date.now(),
+        };
+      });
+    }
+
+    // Restore scene
+    if (data.currentScene) {
+      this.state.currentScene = {
+        ...this.state.currentScene,
+        id: data.currentScene.id || 'initial',
+        name: data.currentScene.name || '开场',
+        description: data.currentScene.description || '',
+        environment: data.currentScene.environment || '',
+        // These runtime fields get defaults — AI GM will fill them on next narration
+        activeConditions: [],
+        npcPresent: [],
+        enemies: [],
+        countdowns: [],
+      };
+    }
+
+    // Restore timeline
+    if (data.timeline) {
+      this.state.timeline = data.timeline;
+    }
+
+    // Restore campaign state
+    if (data.campaignState) {
+      this.state.campaignState = {
+        ...this.state.campaignState,
+        ...data.campaignState,
+      } as CampaignState;
+    }
+
+    // Restore adventure messages
+    if (data.adventureMessages) {
+      this.adventureMessages = data.adventureMessages;
+    }
+
+    // Restore combat state if present
+    if (data.activeCombat) {
+      this.state.activeCombat = data.activeCombat;
+    } else {
+      this.state.activeCombat = undefined;
+    }
+
+    // Preserve original creation timestamp
+    if (data.createdAt) {
+      this.createdAt = data.createdAt;
+    }
+
+    this.notifyListeners();
+  }
+
+  // ===== Snapshot =====
+
+  getSnapshot(): Record<string, unknown> {
+    return {
+      state: this.getState(),
+      timestamp: Date.now(),
+    };
+  }
+}
+
+
+
+######## FILE: server/src/core/SessionPersistence.ts ########
+/**
+ * 会话状态持久化
+ * 将游戏会话数据写入 session_data.json，服务器重启后恢复
+ *
+ * 安全措施:
+ * - 写入前创建 .bak 备份
+ * - 使用 copyFileSync + unlinkSync 替代 renameSync（Windows 兼容）
+ * - 损坏数据自动从备份恢复
+ * - 版本迁移路径
+ */
+
+import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync } from 'fs';
+import type { Character, GameEvent, GameEventType, SessionStatus, CampaignState, SpotlightState, SafetyState, CombatState } from '@trpgmaster/shared';
+
+const SESSION_DATA_FILE = 'session_data.json';
+const BACKUP_FILE = 'session_data.json.bak';
+const CURRENT_VERSION = 1;
+
+// ===== 冒险消息（与客户端 AdventureMessage 对齐）=====
+
+export interface PersistedAdventureMessage {
+  id: string;
+  role: 'player' | 'narrator' | 'npc' | 'system';
+  content: string;
+  timestamp: number;
+  npcName?: string;
+  npcId?: string;
+  choices?: Array<{ id: string; text: string; action?: string }>;
+}
+
+// ===== 持久化的单个会话 =====
+
+export interface PersistedSession {
+  sessionId: string;
+  code: string;
+  status: SessionStatus;
+  currentScene: {
+    id: string;
+    name: string;
+    description: string;
+    environment: string;
+  };
+  fearPoints: number;
+  totalFearGained: number;
+  totalFearSpent: number;
+  character: Character | null;
+  characters: Character[];
+  players: Array<{
+    id: string;
+    name: string;
+    characterName?: string;
+    characterId?: string;
+    joinedAt: number;
+  }>;
+  hostPlayerId?: string;
+  timeline: Array<{
+    id: string;
+    timestamp: number;
+    eventType: GameEventType;
+    summary: string;
+    isKeyMoment: boolean;
+    data?: Record<string, unknown>;
+  }>;
+  campaignState: CampaignState;
+  adventureMessages: PersistedAdventureMessage[];
+  shortRestsSinceLong: number;
+  spotlightState?: SpotlightState;
+  safetyState?: SafetyState;
+  activeCombat?: CombatState;
+  createdAt: number;
+}
+
+// ===== 持久化文件顶层结构 =====
+
+export interface PersistedSessionData {
+  version: number;
+  defaultSessionId: string;
+  sessions: Record<string, PersistedSession>;
+}
+
+// ===== Version Migration =====
+
+function migrateData(data: PersistedSessionData): PersistedSessionData {
+  // Future: add migration steps here
+  // e.g., if (data.version === 1) { ... migrate to v2 ...; data.version = 2; }
+  return data;
+}
+
+// ===== Core Functions =====
+
+function tryParseFile(filePath: string): PersistedSessionData | null {
+  try {
+    if (!existsSync(filePath)) return null;
+    const raw = readFileSync(filePath, 'utf-8');
+    const data = JSON.parse(raw) as PersistedSessionData;
+    if (!data || !data.sessions || typeof data.version !== 'number') {
+      console.warn(`[SessionPersistence] Invalid structure in ${filePath}, ignoring`);
+      return null;
+    }
+    if (data.version > CURRENT_VERSION) {
+      console.warn(`[SessionPersistence] Future version ${data.version} in ${filePath}, attempting load`);
+    }
+    return migrateData(data);
+  } catch (err) {
+    console.error(`[SessionPersistence] Failed to parse ${filePath}:`, err);
+    return null;
+  }
+}
+
+/**
+ * 从文件加载持久化的会话数据
+ * 主文件失败时自动尝试从备份恢复
+ */
+export function loadSessionData(): PersistedSessionData | null {
+  // Try main file first
+  const mainData = tryParseFile(SESSION_DATA_FILE);
+  if (mainData) {
+    console.log(`[SessionPersistence] Loaded ${Object.keys(mainData.sessions).length} session(s) from ${SESSION_DATA_FILE}`);
+    return mainData;
+  }
+
+  // Main file failed — try backup
+  console.warn(`[SessionPersistence] Main file failed, trying backup ${BACKUP_FILE}`);
+  const backupData = tryParseFile(BACKUP_FILE);
+  if (backupData) {
+    console.log(`[SessionPersistence] Recovered ${Object.keys(backupData.sessions).length} session(s) from backup`);
+    // Restore backup as main file
+    try {
+      copyFileSync(BACKUP_FILE, SESSION_DATA_FILE);
+      console.log('[SessionPersistence] Backup restored as main file');
+    } catch (err) {
+      console.error('[SessionPersistence] Failed to restore backup as main file:', err);
+    }
+    return backupData;
+  }
+
+  console.error('[SessionPersistence] Both main and backup files are invalid or missing');
+  return null;
+}
+
+/**
+ * Windows-safe file replacement: copy new to target, then delete temp.
+ * Unlike renameSync, this works on Windows when the target file exists.
+ */
+function safeReplaceFile(tmpFile: string, targetFile: string): void {
+  copyFileSync(tmpFile, targetFile);
+  try { unlinkSync(tmpFile); } catch { /* ignore cleanup failure */ }
+}
+
+/**
+ * 保存会话数据到文件
+ * - 先备份当前文件到 .bak
+ * - 写入到 .tmp 临时文件
+ * - 用 safeReplaceFile 替换主文件（Windows 兼容）
+ */
+export function saveSessionData(data: PersistedSessionData): void {
+  try {
+    // Step 1: Back up current main file if it exists
+    if (existsSync(SESSION_DATA_FILE)) {
+      try {
+        copyFileSync(SESSION_DATA_FILE, BACKUP_FILE);
+      } catch (err) {
+        console.warn('[SessionPersistence] Failed to create backup before save:', err);
+        // Continue — backup failure shouldn't prevent saving
+      }
+    }
+
+    // Step 2: Write to temp file
+    data.version = CURRENT_VERSION;
+    const tmp = SESSION_DATA_FILE + '.tmp';
+    writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf-8');
+
+    // Step 3: Replace main file (Windows-safe)
+    safeReplaceFile(tmp, SESSION_DATA_FILE);
+  } catch (err) {
+    console.error('[SessionPersistence] Failed to save session data:', err);
+  }
+}
+
+/**
+ * 删除持久化文件（用于重置）
+ */
+export function clearSessionData(): void {
+  try {
+    if (existsSync(SESSION_DATA_FILE)) {
+      unlinkSync(SESSION_DATA_FILE);
+    }
+    if (existsSync(BACKUP_FILE)) {
+      unlinkSync(BACKUP_FILE);
+    }
+    if (existsSync(SESSION_DATA_FILE + '.tmp')) {
+      unlinkSync(SESSION_DATA_FILE + '.tmp');
+    }
+    console.log('[SessionPersistence] Session data files removed');
+  } catch (err) {
+    console.error('[SessionPersistence] Failed to clear session data:', err);
+  }
+}
+
+
+
+######## FILE: server/src/core/FileSessionStore.ts ########
+import type { AIMessage } from '@trpgmaster/shared';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, unlinkSync } from 'fs';
+import { join } from 'path';
+import type { SessionStore, HistoryEntry } from './SessionStore';
+
+const DEFAULT_HISTORY_LIMIT = 120;
+
+// ===== Turn Lock internals =====
+
+interface TurnLockState {
+  holder: string;          // Unique lock holder ID
+  acquiredAt: number;      // Date.now() when acquired
+  ttlMs: number;           // Auto-release after this
+  timer: ReturnType<typeof setTimeout>;  // TTL auto-release timer
+}
+
+interface WaitingLock {
+  holderId: string;
+  resolve: (immediate: boolean) => void;
+}
+
+/**
+ * FileSessionStore — default SessionStore implementation for single-process.
+ * History lives in memory and write-throughs to per-session JSON files.
+ * Turn lock uses in-process FIFO queue.
+ */
+export class FileSessionStore implements SessionStore {
+  private history: Map<string, HistoryEntry[]>;
+  private turnLocks: Map<string, TurnLockState>;
+  private waitingQueues: Map<string, WaitingLock[]>;
+  private dataDir: string;
+
+  constructor(dataDir?: string) {
+    this.history = new Map();
+    this.turnLocks = new Map();
+    this.waitingQueues = new Map();
+    this.dataDir = dataDir || 'session_history';
+
+    // Ensure data directory exists
+    try {
+      mkdirSync(this.dataDir, { recursive: true });
+    } catch {
+      // Directory may already exist
+    }
+  }
+
+  // ===== History =====
+
+  async appendHistory(sessionId: string, entry: HistoryEntry): Promise<void> {
+    const entries = this.history.get(sessionId) || [];
+    entries.push(entry);
+    // Keep last 120 entries in memory
+    if (entries.length > DEFAULT_HISTORY_LIMIT) {
+      this.history.set(sessionId, entries.slice(-DEFAULT_HISTORY_LIMIT));
+    } else {
+      this.history.set(sessionId, entries);
+    }
+    // Write-through to file
+    this.persistHistory(sessionId);
+  }
+
+  async getHistory(sessionId: string, limit: number = DEFAULT_HISTORY_LIMIT): Promise<HistoryEntry[]> {
+    let entries = this.history.get(sessionId);
+    if (!entries) {
+      // Try loading from file
+      entries = this.loadHistoryFromDisk(sessionId);
+      if (entries.length > 0) {
+        this.history.set(sessionId, entries);
+      }
+    }
+    return entries.slice(-limit);
+  }
+
+  // ===== Turn Lock =====
+
+  async acquireTurnLock(sessionId: string, ttlMs: number): Promise<boolean> {
+    // Check if existing lock has expired (safety net)
+    this.expireIfStale(sessionId);
+
+    const existing = this.turnLocks.get(sessionId);
+    if (!existing) {
+      // Lock is free — acquire immediately
+      const holderId = `lock_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const timer = setTimeout(() => this.forceRelease(sessionId, holderId), ttlMs);
+      timer.unref(); // Don't keep process alive for TTL timer
+      this.turnLocks.set(sessionId, {
+        holder: holderId,
+        acquiredAt: Date.now(),
+        ttlMs,
+        timer,
+      });
+      return true;
+    }
+
+    // Lock is held — wait in queue
+    return new Promise<boolean>((resolve) => {
+      const queue = this.waitingQueues.get(sessionId) || [];
+      queue.push({ holderId: existing.holder, resolve });
+      this.waitingQueues.set(sessionId, queue);
+    });
+  }
+
+  async releaseTurnLock(sessionId: string): Promise<void> {
+    const lock = this.turnLocks.get(sessionId);
+    if (!lock) return;
+
+    clearTimeout(lock.timer);
+    this.turnLocks.delete(sessionId);
+
+    // Wake the next waiter in the FIFO queue
+    const queue = this.waitingQueues.get(sessionId);
+    if (queue && queue.length > 0) {
+      const next = queue.shift()!;
+      if (queue.length === 0) {
+        this.waitingQueues.delete(sessionId);
+      }
+
+      // The next waiter acquires the lock
+      const holderId = `lock_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const timer = setTimeout(() => this.forceRelease(sessionId, holderId), lock.ttlMs);
+      timer.unref();
+      this.turnLocks.set(sessionId, {
+        holder: holderId,
+        acquiredAt: Date.now(),
+        ttlMs: lock.ttlMs,
+        timer,
+      });
+
+      // Resolve the waiter's promise — false because it had to wait
+      next.resolve(false);
+    }
+  }
+
+  // ===== Private helpers =====
+
+  private expireIfStale(sessionId: string): void {
+    const lock = this.turnLocks.get(sessionId);
+    if (!lock) return;
+    if (Date.now() - lock.acquiredAt > lock.ttlMs) {
+      clearTimeout(lock.timer);
+      this.turnLocks.delete(sessionId);
+    }
+  }
+
+  private forceRelease(sessionId: string, expectedHolder: string): void {
+    const lock = this.turnLocks.get(sessionId);
+    if (lock && lock.holder === expectedHolder) {
+      this.turnLocks.delete(sessionId);
+      // Wake next waiter
+      const queue = this.waitingQueues.get(sessionId);
+      if (queue && queue.length > 0) {
+        const next = queue.shift()!;
+        if (queue.length === 0) this.waitingQueues.delete(sessionId);
+        const holderId = `lock_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const newTtl = lock.ttlMs;
+        const timer = setTimeout(() => this.forceRelease(sessionId, holderId), newTtl);
+        timer.unref();
+        this.turnLocks.set(sessionId, {
+          holder: holderId,
+          acquiredAt: Date.now(),
+          ttlMs: newTtl,
+          timer,
+        });
+        next.resolve(false);
+      }
+    }
+  }
+
+  private persistHistory(sessionId: string): void {
+    try {
+      const entries = this.history.get(sessionId);
+      if (!entries) return;
+      const filePath = join(this.dataDir, `${sessionId}_history.json`);
+      const bakPath = filePath + '.bak';
+      // Back up current file before overwriting
+      if (existsSync(filePath)) {
+        try { copyFileSync(filePath, bakPath); } catch { /* ignore */ }
+      }
+      const tmpPath = filePath + '.tmp';
+      writeFileSync(tmpPath, JSON.stringify(entries), 'utf-8');
+      // Windows-safe replacement
+      copyFileSync(tmpPath, filePath);
+      try { unlinkSync(tmpPath); } catch { /* ignore */ }
+    } catch {
+      // Write failure is non-critical — data is still in memory
+    }
+  }
+
+  private loadHistoryFromDisk(sessionId: string): HistoryEntry[] {
+    const filePath = join(this.dataDir, `${sessionId}_history.json`);
+    try {
+      if (!existsSync(filePath)) return [];
+      const raw = readFileSync(filePath, 'utf-8');
+      return JSON.parse(raw) as HistoryEntry[];
+    } catch {
+      // Main file corrupted — try backup
+      const bakPath = filePath + '.bak';
+      try {
+        if (!existsSync(bakPath)) return [];
+        const raw = readFileSync(bakPath, 'utf-8');
+        const entries = JSON.parse(raw) as HistoryEntry[];
+        // Restore backup
+        copyFileSync(bakPath, filePath);
+        return entries;
+      } catch {
+        return [];
+      }
+    }
+  }
+}
+
+
+

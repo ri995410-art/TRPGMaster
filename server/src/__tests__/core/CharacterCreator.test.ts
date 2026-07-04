@@ -26,7 +26,7 @@ const DOMAIN_CARD_LV2 = makeCard({ id: 'codex-book-of-vagras', name: '瓦格拉�
 const VALID_ATTRIBUTES = { agility: 2, strength: 1, finesse: 1, instinct: 0, presence: 0, knowledge: -1 };
 const VALID_EXPERIENCES = [
   { id: 'exp_1', name: '吟游诗人', modifier: 2 },
-  { id: 'exp_2', name: '旅行者', modifier: 1 },
+  { id: 'exp_2', name: '旅行者', modifier: 2 },
 ];
 
 function fillAllSteps(creator: CharacterCreator, overrides: Partial<CharacterCreationData> = {}): void {
@@ -206,13 +206,13 @@ describe('CharacterCreator', () => {
       expect(errors.experiences).toBeDefined();
     });
 
-    test('experiences step: missing +2 modifier', () => {
+    test('experiences step: non-+2 modifier', () => {
       const c = new CharacterCreator();
       c.setStepData({
         classId: CLASS_ID, ancestryId: ANCESTRY_ID, communityId: COMMUNITY_ID,
         attributes: VALID_ATTRIBUTES,
         experiences: [
-          { id: 'exp_1', name: '经历A', modifier: 1 },
+          { id: 'exp_1', name: '经历A', modifier: 2 },
           { id: 'exp_2', name: '经历B', modifier: 1 },
         ],
       });
@@ -220,22 +220,6 @@ describe('CharacterCreator', () => {
       const errors = c.validateCurrentStep();
       expect(errors.experiences).toBeDefined();
       expect(errors.experiences[0]).toContain('+2');
-    });
-
-    test('experiences step: missing +1 modifier', () => {
-      const c = new CharacterCreator();
-      c.setStepData({
-        classId: CLASS_ID, ancestryId: ANCESTRY_ID, communityId: COMMUNITY_ID,
-        attributes: VALID_ATTRIBUTES,
-        experiences: [
-          { id: 'exp_1', name: '经历A', modifier: 2 },
-          { id: 'exp_2', name: '经历B', modifier: 0 },
-        ],
-      });
-      c.goNext(); c.goNext(); c.goNext(); c.goNext();
-      const errors = c.validateCurrentStep();
-      expect(errors.experiences).toBeDefined();
-      expect(errors.experiences[0]).toContain('+1');
     });
 
     test('experiences step: valid passes', () => {
@@ -345,18 +329,18 @@ describe('CharacterCreator', () => {
       const { character, errors } = c.buildCharacter();
       expect(errors).toEqual([]);
       expect(character).toBeDefined();
-      expect(character.name).toBe('测试角色');
-      expect(character.classId).toBe(CLASS_ID);
-      expect(character.ancestryId).toBe(ANCESTRY_ID);
-      expect(character.level).toBe(1);
-      expect(character.tier).toBe(1);
-      expect(character.proficiency).toBe(1);
-      expect(character.hp).toBe(character.maxHp);
-      expect(character.stress).toBe(0);
-      expect(character.hope).toBe(2);
-      expect(character.domainCardConfig.loadout.length).toBe(2);
-      expect(character.inventory).toEqual([]);
-      expect(character.gold.coins).toBe(0);
+      expect(character!.name).toBe('测试角色');
+      expect(character!.classId).toBe(CLASS_ID);
+      expect(character!.ancestryId).toBe(ANCESTRY_ID);
+      expect(character!.level).toBe(1);
+      expect(character!.tier).toBe(1);
+      expect(character!.proficiency).toBe(1);
+      expect(character!.hp).toBe(character!.maxHp);
+      expect(character!.stress).toBe(0);
+      expect(character!.hope).toBe(2);
+      expect(character!.domainCardConfig.loadout.length).toBe(2);
+      expect(character!.inventory).toEqual([]);
+      expect(character!.gold.coins).toBe(0);
     });
 
     test('incomplete data returns errors', () => {
@@ -396,28 +380,28 @@ describe('CharacterCreator', () => {
       fillAllSteps(c);
       const { character } = c.buildCharacter();
       // padded-armor: armorSlots=3, evasionPenalty=0, baseThreshold=5, baseThresholdSevere=11
-      expect(character.maxArmorSlots).toBe(3);
-      expect(character.evasion).toBe(character.evasion); // class baseEvasion + 0
+      expect(character!.maxArmorSlots).toBe(3);
+      expect(character!.evasion).toBe(character!.evasion); // class baseEvasion + 0
       // Thresholds at level 1: minor = baseThreshold(5) + level(1) = 6
       // major = baseThresholdSevere(11) + level(1) = 12, severe = major * 2 = 24
-      expect(character.minorThreshold).toBe(6);
-      expect(character.majorThreshold).toBe(12);
-      expect(character.severeThreshold).toBe(24);
+      expect(character!.minorThreshold).toBe(6);
+      expect(character!.majorThreshold).toBe(12);
+      expect(character!.severeThreshold).toBe(24);
     });
 
     test('character with off-hand weapon', () => {
       const c = new CharacterCreator();
       fillAllSteps(c, { offWeaponId: OFF_WEAPON_ID });
       const { character } = c.buildCharacter();
-      expect(character.offWeapon).toBeDefined();
-      expect(character.offWeapon!.id).toBe(OFF_WEAPON_ID);
+      expect(character!.offWeapon).toBeDefined();
+      expect(character!.offWeapon!.id).toBe(OFF_WEAPON_ID);
     });
 
     test('character without off-hand weapon', () => {
       const c = new CharacterCreator();
       fillAllSteps(c);
       const { character } = c.buildCharacter();
-      expect(character.offWeapon).toBeUndefined();
+      expect(character!.offWeapon).toBeUndefined();
     });
   });
 
@@ -477,7 +461,7 @@ describe('CharacterCreator', () => {
       // Build
       const { character, errors } = c.buildCharacter();
       expect(errors).toEqual([]);
-      expect(character.name).toBe('测试角色');
+      expect(character!.name).toBe('测试角色');
     });
   });
 });

@@ -5,6 +5,7 @@ import type {
   SceneState,
   CombatState,
   CombatEnemy,
+  ConditionInstance,
   TimelineEntry,
   GameEvent,
   GameEventType,
@@ -14,7 +15,7 @@ import type {
   SafetyState,
 } from '@trpgmaster/shared';
 import { getTier } from '@trpgmaster/shared';
-import type { Character } from '@trpgmaster/shared';
+import type { Character, InventoryItem } from '@trpgmaster/shared';
 import type { PersistedSession, PersistedAdventureMessage } from './SessionPersistence';
 
 export class StateManager {
@@ -23,19 +24,23 @@ export class StateManager {
   private dirtyFlags: Set<string>;
   // Adventure messages — stored server-side for persistence
   private adventureMessages: PersistedAdventureMessage[];
+  // Track original creation timestamp across persist cycles
+  private createdAt: number;
 
   constructor(sessionId: string) {
     this.state = this.createInitialState(sessionId);
     this.listeners = new Map();
     this.dirtyFlags = new Set();
     this.adventureMessages = [];
+    this.createdAt = Date.now();
   }
 
   private createInitialState(sessionId: string): SessionState {
     return {
       sessionId,
+      systemId: 'daggerheart',
       status: 'setup',
-      character: null as unknown as Character, // Set during character creation (backward compat)
+      character: null,                   // Set during character creation
       characters: [],                           // Multi-player character list
       players: [],                              // Multi-player player list
       currentScene: {
@@ -80,7 +85,8 @@ export class StateManager {
     return JSON.parse(JSON.stringify(this.state));
   }
 
-  getCharacter(): Character {
+  getCharacter(): Character | null {
+    if (!this.state.character) return null;
     return JSON.parse(JSON.stringify(this.state.character));
   }
 
@@ -172,6 +178,10 @@ export class StateManager {
     } else {
       this.state.status = 'active';
     }
+    // Rules: Chapter 3 "恐惧点" — session start fear = player character count
+    if (this.state.fearPoints === 0 && this.state.players.length > 0) {
+      this.state.fearPoints = this.state.players.length;
+    }
     this.markDirty('session');
   }
 
@@ -210,16 +220,34 @@ export class StateManager {
 
   setCharacter(character: Character): void {
     this.state.character = { ...character };
-    // If no players yet, this is single-player mode — sync characters array
-    if (this.state.players.length === 0) {
-      const existingIdx = this.state.characters.findIndex(c => c.id === character.id);
-      if (existingIdx >= 0) {
-        this.state.characters[existingIdx] = { ...character };
-      } else {
-        this.state.characters.push({ ...character });
+
+    // Always sync characters array — find existing or push new
+    const existingIdx = this.state.characters.findIndex(c => c.id === character.id);
+    if (existingIdx >= 0) {
+      this.state.characters[existingIdx] = { ...character };
+    } else {
+      this.state.characters.push({ ...character });
+    }
+
+    // Always sync the matching player's character reference
+    const playerIdx = this.state.players.findIndex(p => p.character?.id === character.id);
+    if (playerIdx >= 0) {
+      this.state.players[playerIdx].character = { ...character };
+    }
+
+    this.markDirty('character');
+  }
+
+  /** Sync backward-compat state.character → state.players[0].character + state.characters[0] */
+  private syncBackwardCompat(): void {
+    if (!this.state.character) return;
+    if (this.state.players.length > 0 && this.state.players[0].character) {
+      this.state.players[0].character = { ...this.state.character };
+      const idx = this.state.characters.findIndex(c => c.id === this.state.character!.id);
+      if (idx >= 0) {
+        this.state.characters[idx] = { ...this.state.character };
       }
     }
-    this.markDirty('character');
   }
 
   updateCharacterHp(delta: number): boolean {
@@ -227,6 +255,22 @@ export class StateManager {
     if (!char) return false;
 
     char.hp = Math.max(0, Math.min(char.maxHp, char.hp + delta));
+
+    // HP dropped to 0 → enter Dying condition
+    if (char.hp <= 0 && delta < 0) {
+      const alreadyDying = char.conditions?.some(c => c.condition === 'dying');
+      if (!alreadyDying) {
+        char.conditions = char.conditions || [];
+        char.conditions.push({
+          condition: 'dying',
+          duration: 'special',
+          source: 'HP降至0',
+          clearCondition: '执行死亡行动后恢复',
+        });
+      }
+    }
+
+    this.syncBackwardCompat();
     this.markDirty('character');
     return true;
   }
@@ -236,6 +280,20 @@ export class StateManager {
     if (!char) return false;
 
     const newStress = char.stress + delta;
+    // Rules: Chapter 2 "状态" — when stress markers are full, character gains Vulnerable condition
+    if (newStress >= char.maxStress && delta > 0 && char.stress < char.maxStress) {
+      // Stress just filled up — apply Vulnerable condition
+      const alreadyVulnerable = char.conditions?.some(c => c.condition === 'vulnerable');
+      if (!alreadyVulnerable) {
+        char.conditions = char.conditions || [];
+        char.conditions.push({
+          condition: 'vulnerable',
+          duration: 'special',
+          source: '压力溢出',
+          clearCondition: '压力降至maxStress以下时解除',
+        });
+      }
+    }
     // If stress would overflow max, mark HP instead
     if (newStress > char.maxStress) {
       const overflow = newStress - char.maxStress;
@@ -244,6 +302,14 @@ export class StateManager {
     } else {
       char.stress = Math.max(0, newStress);
     }
+    // Remove Vulnerable if stress drops below maxStress
+    if (char.stress < char.maxStress && char.conditions?.some(c => c.condition === 'vulnerable')) {
+      const vulnIdx = char.conditions.findIndex(c => c.condition === 'vulnerable' && c.source === '压力溢出');
+      if (vulnIdx >= 0) {
+        char.conditions.splice(vulnIdx, 1);
+      }
+    }
+    this.syncBackwardCompat();
     this.markDirty('character');
     return true;
   }
@@ -253,6 +319,7 @@ export class StateManager {
     if (!char) return false;
 
     char.hope = Math.max(0, Math.min(char.maxHope, char.hope + delta));
+    this.syncBackwardCompat();
     this.markDirty('character');
     return true;
   }
@@ -266,6 +333,7 @@ export class StateManager {
     } else if (!used && char.armorSlots < char.maxArmorSlots) {
       char.armorSlots += 1;
     }
+    this.syncBackwardCompat();
     this.markDirty('character');
     return true;
   }
@@ -276,6 +344,7 @@ export class StateManager {
     if (!char) return false;
 
     char.armorSlots = Math.max(0, Math.min(char.maxArmorSlots, char.armorSlots + delta));
+    this.syncBackwardCompat();
     this.markDirty('character');
     return true;
   }
@@ -285,6 +354,7 @@ export class StateManager {
     if (!char) return false;
 
     Object.assign(char, updates);
+    this.syncBackwardCompat();
     this.markDirty('character');
     return true;
   }
@@ -302,9 +372,10 @@ export class StateManager {
         quantity: item.quantity,
         description: item.description,
         equipped: false,
-        category: (item.category as any) || 'misc',
+        category: (['consumable', 'tool', 'treasure', 'misc'].includes(item.category ?? '') ? item.category as InventoryItem['category'] : 'misc'),
       });
     }
+    this.syncBackwardCompat();
     this.markDirty('character');
   }
 
@@ -324,7 +395,15 @@ export class StateManager {
       char.gold.bags += Math.floor(char.gold.handfuls / 10);
       char.gold.handfuls = char.gold.handfuls % 10;
     }
+    this.syncBackwardCompat();
     this.markDirty('character');
+  }
+
+  incrementCombatRound(): void {
+    if (this.state.activeCombat) {
+      this.state.activeCombat.round++;
+      this.markDirty('combat');
+    }
   }
 
   // ===== Spotlight / Turn Management =====
@@ -351,8 +430,11 @@ export class StateManager {
 
   // ===== GM Resources =====
 
+  // Rules: Chapter 2 "恐惧点" — fear points cap at 12
+  private static readonly FEAR_POINT_CAP = 12;
+
   addFearPoints(points: number): void {
-    this.state.fearPoints += points;
+    this.state.fearPoints = Math.min(StateManager.FEAR_POINT_CAP, this.state.fearPoints + points);
     this.state.totalFearGained += points;
     this.markDirty('fearPoints');
   }
@@ -363,6 +445,130 @@ export class StateManager {
     this.state.totalFearSpent += points;
     this.markDirty('fearPoints');
     return true;
+  }
+
+  /** Mark an enemy as having acted this round */
+  markEnemyActed(enemyId: string): void {
+    const combat = this.state.activeCombat;
+    if (!combat) return;
+    const enemy = combat.enemies.find(e => e.id === enemyId);
+    if (enemy) {
+      enemy.hasActed = true;
+      this.markDirty('combat');
+    }
+  }
+
+  /** Add a condition to the character */
+  addCharacterCondition(condition: ConditionInstance): void {
+    const char = this.state.character;
+    if (!char) return;
+    char.conditions = char.conditions || [];
+    // Don't stack identical conditions — keep the longer duration
+    const existing = char.conditions.find(c => c.condition === condition.condition);
+    if (existing) {
+      if (condition.roundsRemaining !== undefined && existing.roundsRemaining !== undefined) {
+        if (condition.roundsRemaining > existing.roundsRemaining) {
+          existing.roundsRemaining = condition.roundsRemaining;
+          existing.source = condition.source;
+        }
+      }
+    } else {
+      char.conditions.push(condition);
+    }
+    this.markDirty('character');
+  }
+
+  /** Consume armor slots by count (not just 1) */
+  consumeCharacterArmorSlots(count: number): void {
+    const char = this.state.character;
+    if (!char) return;
+    char.armorSlots = Math.max(0, char.armorSlots - count);
+    this.markDirty('character');
+  }
+
+  /** Apply death move result: remove Dying condition and apply effects */
+  applyDeathMoveResult(result: {
+    characterDied: boolean;
+    hpRestored: number;
+    stressCleared: number;
+    scarGained: boolean;
+    conditionApplied?: string;
+    stressGained?: number;
+    fearGained?: number;
+  }): void {
+    const char = this.state.character;
+    if (!char) return;
+
+    // Remove Dying condition
+    char.conditions = (char.conditions || []).filter(c => c.condition !== 'dying');
+
+    if (result.characterDied) {
+      // Character is dead — set HP to 0 and mark as permanently dead
+      char.hp = 0;
+    } else {
+      // Restore HP
+      if (result.hpRestored > 0 && result.hpRestored < 999) {
+        char.hp = Math.min(char.maxHp, result.hpRestored);
+      } else if (result.hpRestored >= 999) {
+        char.hp = char.maxHp; // Desperate Gamble critical: full restore
+      }
+    }
+
+    // Clear stress
+    if (result.stressCleared > 0 && result.stressCleared < 999) {
+      char.stress = Math.max(0, char.stress - result.stressCleared);
+    } else if (result.stressCleared >= 999) {
+      char.stress = 0;
+    }
+
+    // Rules: Ch2 "回避死亡" — apply condition (unconscious)
+    if (result.conditionApplied) {
+      char.conditions = char.conditions || [];
+      if (!char.conditions.some(c => c.condition === result.conditionApplied)) {
+        char.conditions.push({
+          condition: result.conditionApplied,
+          duration: 'temporary',
+          source: '回避死亡',
+          clearCondition: '接受治疗或其他效果',
+        });
+      }
+    }
+
+    // Rules: Ch2 "局势恶化" — gain stress and fear
+    if (result.stressGained && result.stressGained > 0) {
+      this.updateCharacterStress(result.stressGained);
+    }
+    if (result.fearGained && result.fearGained > 0) {
+      this.addFearPoints(result.fearGained);
+    }
+
+    // Gain scar (reduces maxHope)
+    // Rules: Chapter 2 "死亡 — 伤痕" — crossing out last hope slot → character must retire
+    if (result.scarGained) {
+      char.maxHope = Math.max(0, char.maxHope - 1);
+      // Add Scar object
+      char.scars = char.scars || [];
+      char.scars.push({
+        id: `scar_${Date.now()}`,
+        name: '伤痕',
+        description: '因回避死亡获得的伤痕',
+        lostHopeSlot: true,
+        narrative: result.scarGained ? '回避死亡时获得伤痕，永久失去1希望槽' : '',
+      });
+      // If maxHope reaches 0, character must retire
+      if (char.maxHope <= 0) {
+        char.conditions = char.conditions || [];
+        char.conditions.push({
+          condition: 'mustRetire',
+          duration: 'permanent',
+          source: '伤痕耗尽所有希望槽',
+          clearCondition: '角色必须退役',
+        });
+      }
+    }
+
+    this.syncBackwardCompat();
+    this.markDirty('character');
   }
 
   // ===== Scene Management =====
@@ -585,7 +791,8 @@ export class StateManager {
       shortRestsSinceLong: this.state.shortRestsSinceLong,
       spotlightState: this.state.spotlightState,
       safetyState: this.state.safetyState,
-      createdAt: Date.now(),
+      activeCombat: this.state.activeCombat || undefined,
+      createdAt: this.createdAt,
     };
   }
 
@@ -629,7 +836,7 @@ export class StateManager {
         const matchedChar = (p.characterId && data.characters?.find(c => c.id === p.characterId))
           || data.characters?.find(c => c.name === p.characterName)
           || (data.character as Character)
-          || null as unknown as Character;
+          || null;
         return {
           id: p.id,
           name: p.name,
@@ -674,9 +881,17 @@ export class StateManager {
       this.adventureMessages = data.adventureMessages;
     }
 
-    // Reset combat state — can't meaningfully persist mid-combat
-    // (enemies, conditions, etc. will be recreated by AI GM on next narration)
-    this.state.activeCombat = undefined;
+    // Restore combat state if present
+    if (data.activeCombat) {
+      this.state.activeCombat = data.activeCombat;
+    } else {
+      this.state.activeCombat = undefined;
+    }
+
+    // Preserve original creation timestamp
+    if (data.createdAt) {
+      this.createdAt = data.createdAt;
+    }
 
     this.notifyListeners();
   }

@@ -7,10 +7,20 @@ import type {
   ClassData,
   ArmorData,
   WeaponData,
+  CharacterCore,
+  SystemCharacter,
+  CreationFlowDef,
+  AncestryFeature,
+  CommunityFeature,
 } from '@trpgmaster/shared';
 import { getTier, calculateThresholds } from '@trpgmaster/shared';
 import { validateCharacterSheet } from '../rules/systems/DaggerHeartRules';
 import daggerheartData from '../rules/data/daggerheart';
+import { getRulesEngine } from '../rules/RulesEngineFactory';
+import type { IRulesEngine } from '../rules/IRulesEngine';
+import { collectTraitEffects, getPermanentResourceBonuses } from '../rules/systems/traitEffects';
+
+// ===== 旧 API 类型（向后兼容） =====
 
 export type CharacterCreationStep =
   | 'class'
@@ -46,8 +56,8 @@ export interface CharacterCreationData {
   classId: string;
   ancestryId: string;
   secondAncestryId?: string;
-  mixedAncestryFeature1?: string; // Feature picked from first ancestry (for mixed ancestry)
-  mixedAncestryFeature2?: string; // Feature picked from second ancestry (for mixed ancestry)
+  mixedAncestryFeature1?: string;
+  mixedAncestryFeature2?: string;
   communityId: string;
   attributes: Record<Attribute, number>;
   experiences: Experience[];
@@ -65,14 +75,21 @@ const ALL_ATTRIBUTES: Attribute[] = ['agility', 'strength', 'finesse', 'instinct
 
 export class CharacterCreator {
   private state: CharacterCreationState;
+  private rulesEngine: IRulesEngine;
 
-  constructor() {
+  constructor(rulesEngine?: IRulesEngine) {
+    this.rulesEngine = rulesEngine ?? getRulesEngine('daggerheart');
     this.state = {
       currentStep: 0,
       totalSteps: CREATION_STEPS.length,
       data: {},
       errors: {},
     };
+  }
+
+  /** 获取当前规则系统的创建流程定义 */
+  getCreationFlow(): CreationFlowDef {
+    return this.rulesEngine.getCreationFlow();
   }
 
   getState(): CharacterCreationState {
@@ -111,7 +128,6 @@ export class CharacterCreator {
 
   goToStep(step: number): boolean {
     if (step < 0 || step >= CREATION_STEPS.length) return false;
-    // Validate all steps up to the target
     for (let i = 0; i < step; i++) {
       const savedStep = this.state.currentStep;
       this.state.currentStep = i;
@@ -129,6 +145,20 @@ export class CharacterCreator {
   }
 
   validateCurrentStep(): Record<string, string[]> {
+    // 委托给 IRulesEngine 的通用验证
+    const flow = this.rulesEngine.getCreationFlow();
+    const currentStepDef = flow.steps[this.state.currentStep];
+    const expectedStep = CREATION_STEPS[this.state.currentStep];
+    // Only delegate if the flow step matches the expected CREATION_STEPS step
+    if (currentStepDef && currentStepDef.id === expectedStep) {
+      return this.rulesEngine.validateCreationStep(currentStepDef.id, this.state.data as Record<string, unknown>);
+    }
+    // 回退到旧验证逻辑（向后兼容）
+    return this.validateCurrentStepLegacy();
+  }
+
+  /** 旧验证逻辑，作为回退保留 */
+  private validateCurrentStepLegacy(): Record<string, string[]> {
     const errors: Record<string, string[]> = {};
     const step = this.getCurrentStep();
     const d = this.state.data;
@@ -154,13 +184,12 @@ export class CharacterCreator {
         }
         break;
       case 'experiences':
+        // Rules: Ch1 "第七步" — initial 2 experiences, each +2 modifier
         if (!d.experiences || d.experiences.length < 2) {
           errors.experiences = ['至少需要2个经历'];
         } else {
-          const hasPlus2 = d.experiences.some(e => e.modifier === 2);
-          const plus1Count = d.experiences.filter(e => e.modifier === 1).length;
-          if (!hasPlus2) errors.experiences = ['需要一个+2经历'];
-          if (plus1Count < 1) errors.experiences = ['至少需要一个+1经历'];
+          const allPlus2 = d.experiences.every(e => e.modifier === 2);
+          if (!allPlus2) errors.experiences = ['初始经历的加值必须均为+2'];
         }
         break;
       case 'weapons':
@@ -175,7 +204,6 @@ export class CharacterCreator {
         } else if (d.domainCards.length > 5) {
           errors.domainCards = ['最多配置5张领域卡'];
         } else {
-          // Level 1 characters can only select Level 1 domain cards
           const hasNonLevel1 = d.domainCards.some(c => c.level !== 1);
           if (hasNonLevel1) {
             errors.domainCards = ['一级角色只能选择一级领域卡'];
@@ -192,70 +220,133 @@ export class CharacterCreator {
     return errors;
   }
 
-  buildCharacter(): { character: Character; errors: string[] } {
+  /**
+   * 构建角色（向后兼容版本，返回 Character）
+   * 内部委托给 IRulesEngine.buildCharacter() 然后转换为旧格式
+   */
+  buildCharacter(): { character: Character | null; errors: string[] } {
     const d = this.state.data;
     const errors: string[] = [];
 
+    // experiences is optional — no creation step collects it, defaults to []
     if (!d.classId || !d.ancestryId || !d.communityId || !d.attributes ||
-        !d.experiences || !d.mainWeaponId || !d.armorId || !d.domainCards || !d.name) {
+        !d.mainWeaponId || !d.armorId || !d.domainCards || !d.name) {
       errors.push('请完成所有创建步骤');
-      return { character: null as unknown as Character, errors };
+      return { character: null, errors };
+    }
+
+    // 构建 CharacterCore
+    const core: CharacterCore = {
+      id: uuidv4(),
+      name: d.name,
+      level: 1,
+      backstory: d.backstory || '',
+      personalQuest: d.personalQuest || '',
+      relationships: [],
+      adventureSummaries: [],
+      systemVersions: {},
+    };
+
+    try {
+      const sysChar = this.rulesEngine.buildCharacter(core, d as Record<string, unknown>);
+
+      // 将 SystemCharacter 转回旧 Character 格式（向后兼容）
+      const sd = sysChar.systemData as Record<string, unknown>;
+      const character: Character = {
+        id: core.id,
+        name: core.name,
+        level: core.level,
+        ...sd,
+        hp: sysChar.hp,
+        maxHp: sysChar.maxHp,
+        inventory: sysChar.inventory,
+        backstory: core.backstory,
+        personalQuest: core.personalQuest,
+        relationships: core.relationships,
+        adventureSummaries: core.adventureSummaries,
+      } as Character;
+
+      const validationErrors = validateCharacterSheet(character);
+      if (validationErrors.length > 0) {
+        errors.push(...validationErrors);
+      }
+
+      return { character, errors };
+    } catch (e) {
+      // 回退到旧构建逻辑
+      return this.buildCharacterLegacy();
+    }
+  }
+
+  /** 旧构建逻辑，作为回退保留 */
+  private buildCharacterLegacy(): { character: Character | null; errors: string[] } {
+    const d = this.state.data;
+    const errors: string[] = [];
+
+    // experiences is optional — no creation step collects it
+    if (!d.classId || !d.ancestryId || !d.communityId || !d.attributes ||
+        !d.mainWeaponId || !d.armorId || !d.domainCards || !d.name) {
+      errors.push('请完成所有创建步骤');
+      return { character: null, errors };
     }
 
     const level = 1;
     const tier = getTier(level);
     const proficiency = 1;
 
-    // Look up class data from game data
     const classData = daggerheartData.classes.find(c => c.id === d.classId) as ClassData | undefined;
     if (!classData) {
       errors.push(`未找到职业: ${d.classId}`);
-      return { character: null as unknown as Character, errors };
+      return { character: null, errors };
     }
 
-    // Look up armor data from game data
     const armorData = daggerheartData.armor.find(a => a.id === d.armorId) as ArmorData | undefined;
     if (!armorData) {
       errors.push(`未找到护甲: ${d.armorId}`);
-      return { character: null as unknown as Character, errors };
+      return { character: null, errors };
     }
 
-    // Note: In Daggerheart, ancestry does not provide direct attribute modifiers.
-    // Ancestry features (traits/actions/passives) are tracked separately.
-
-    // Calculate resources from class data
     const maxHp = classData.baseHp;
     const maxStress = classData.baseStress;
-    const maxHope = 6; // Default hope slots, reduced by scars
+    const maxHope = 6;
     const maxArmorSlots = armorData.armorSlots;
-
-    // Calculate evasion from class + armor penalty + ancestry
     let evasion = classData.baseEvasion + armorData.evasionPenalty;
-    // Some ancestries give evasion bonus (e.g. apefolk +1)
-    // This is handled through features, not modifiers, so we don't auto-apply
 
-    // Calculate thresholds from armor data
+    // Apply permanent trait bonuses (e.g., Giant +1 HP, Human +1 Stress, Apefolk +1 Evasion)
+    const ancestryData = daggerheartData.ancestries.find(a => a.id === d.ancestryId);
+    const communityData = daggerheartData.communities.find(c => c.id === d.communityId);
+    const traitSource: import('../rules/systems/traitEffects').CharacterTraitSource = {
+      ancestryFeatures: (ancestryData?.features ?? []) as AncestryFeature[],
+      communityFeature: (communityData?.feature ?? null) as CommunityFeature | null,
+      classData: classData ?? null,
+    };
+    const allTraitEffects = collectTraitEffects(traitSource);
+    const bonuses = getPermanentResourceBonuses(allTraitEffects);
+    const effectiveMaxHp = maxHp + bonuses.hp;
+    const effectiveMaxStress = maxStress + bonuses.stress;
+    const effectiveMaxHope = maxHope + bonuses.hope;
+    evasion += bonuses.evasion;
+
     const thresholds = calculateThresholds(
       armorData.baseThreshold,
       armorData.baseThresholdSevere,
       level
     );
+    if (bonuses.thresholdBonus > 0 && proficiency) {
+      thresholds.minor += proficiency;
+      thresholds.major += proficiency;
+      thresholds.severe += proficiency;
+    }
 
-    // Validate domain cards belong to class domains
     for (const card of d.domainCards) {
       if (!classData.domains.includes(card.domain)) {
         errors.push(`领域卡"${card.name}"的领域(${card.domain})不属于${classData.name}的可用领域`);
       }
     }
 
-    // Build attribute marks (all false initially)
     const attributeMarks: Record<Attribute, boolean> = {
-      agility: false,
-      strength: false,
-      finesse: false,
-      instinct: false,
-      presence: false,
-      knowledge: false,
+      agility: false, strength: false, finesse: false,
+      instinct: false, presence: false, knowledge: false,
     };
 
     const character: Character = {
@@ -273,12 +364,12 @@ export class CharacterCreator {
       proficiency,
       attributes: d.attributes,
       attributeMarks,
-      hp: maxHp,
-      maxHp,
+      hp: effectiveMaxHp,
+      maxHp: effectiveMaxHp,
       stress: 0,
-      maxStress,
+      maxStress: effectiveMaxStress,
       hope: 2,
-      maxHope,
+      maxHope: effectiveMaxHope,
       armorSlots: maxArmorSlots,
       maxArmorSlots,
       evasion,
@@ -290,12 +381,8 @@ export class CharacterCreator {
       armor: armorData,
       inventory: [],
       gold: { coins: 0, handfuls: 0, bags: 0, chests: 0 },
-      experiences: d.experiences,
-      domainCardConfig: {
-        loadout: d.domainCards,
-        vault: [],
-        maxLoadout: 5,
-      },
+      experiences: d.experiences || [],
+      domainCardConfig: { loadout: d.domainCards, vault: [], maxLoadout: 5 },
       featureUses: {},
       adventureSummaries: [],
       scars: [],

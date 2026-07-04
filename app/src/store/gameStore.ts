@@ -15,8 +15,17 @@ import type {
   SpotlightState,
   SafetyState,
   CombatState,
+  CharacterCore,
+  RollResultType,
+  DamageSeverity,
+  ReactionTrigger,
+  ReactionType,
+  Attribute,
 } from '@trpgmaster/shared';
 import { mmkvStorage } from './mmkvStorage';
+
+/** Maximum adventure messages kept per session before truncation */
+export const MAX_ADVENTURE_MESSAGES = 500;
 
 // ===== Game data for display (fetched from server API) =====
 
@@ -35,7 +44,7 @@ interface GameDataState {
 
 export interface AdventureMessage {
   id: string;
-  role: 'player' | 'narrator' | 'npc' | 'system';
+  role: 'player' | 'narrator' | 'npc' | 'system' | 'combat';
   content: string;
   timestamp: number;
   npcName?: string;
@@ -68,12 +77,14 @@ export interface DiceResult {
   fearDie: number;
   modifier: number;
   difficulty: number;
-  outcome: string;
+  outcome: RollResultType;
   isCritical: boolean;
   withHope: boolean;
   withFear: boolean;
   hopeGain: number;
   fearGain: number;
+  stressCleared: number;
+  canTakeFreeAction: boolean;
   success: boolean;
   total: number;
 }
@@ -94,6 +105,9 @@ interface GameStore {
   // Multi-character support
   characters: Character[];           // All local characters
   activeCharacterId: string | null;  // Currently active character ID
+
+  // CharacterCore roster (cross-system identities)
+  characterCores: CharacterCore[];
 
   // Game data (classes, weapons, armor, domains for display)
   gameData: GameDataState;
@@ -150,6 +164,28 @@ interface GameStore {
   // Pending loot (from combat end or scene search)
   pendingLoot: import('@trpgmaster/shared').LootResult | null;
 
+  // Pending reaction prompt (from enemy attack triggers)
+  pendingReactionPrompt: {
+    trigger: ReactionTrigger;
+    sourceId: string;
+    sourceType: string;
+    targetId: string;
+    rawDamage?: number;
+    severity?: DamageSeverity;
+    attackName?: string;
+    availableReactions: Array<{
+      type: ReactionType;
+      name: string;
+      description: string;
+      attribute?: Attribute;
+      difficulty?: number;
+      hopeCost?: number;
+      usesReaction: boolean;
+      sourceId?: string;
+      sourceType?: string;
+    }>;
+  } | null;
+
   // Save slot tracking — which sessions each character has participated in
   characterSessionHistory: Record<string, string[]>;
 
@@ -168,6 +204,9 @@ interface GameStore {
   isAdventureEnding: boolean;         // True while summary is streaming
   streamingSummaryText: string;       // Live text as it streams in
 
+  // OOC (out-of-character) chat messages
+  oocMessages: Array<{ id: string; sender: string; text: string; timestamp: number }>;
+
   // AI config (fetched from server)
   aiConfig: {
     apiKey: string;           // 脱敏显示（如 ••••a1b2）
@@ -178,6 +217,11 @@ interface GameStore {
     maxTokens: number;
     aiConnected: boolean;     // AI API 是否连通
   } | null;
+
+  // User preferences (persisted)
+  autoScroll: boolean;
+  showDiceAnimation: boolean;
+  narrationSpeed: 'slow' | 'normal' | 'fast';
 
   // Actions
   setCampaign: (campaignId: string, state: SessionState) => void;
@@ -209,6 +253,10 @@ interface GameStore {
   removeCharacter: (characterId: string) => void;
   setActiveCharacter: (characterId: string) => void;
   updateCharacterById: (characterId: string, updates: Partial<Character>) => void;
+  // CharacterCore actions
+  addCharacterCore: (core: CharacterCore) => void;
+  updateCharacterCore: (id: string, updates: Partial<CharacterCore>) => void;
+  getCharacterCore: (id: string) => CharacterCore | undefined;
   // Multi-player session actions
   setSessionCode: (code: string | null) => void;
   setIsHost: (isHost: boolean) => void;
@@ -227,6 +275,8 @@ interface GameStore {
   clearPendingDiceResult: () => void;
   // Loot actions
   setPendingLoot: (loot: import('@trpgmaster/shared').LootResult | null) => void;
+  // Reaction actions
+  setPendingReactionPrompt: (prompt: GameStore['pendingReactionPrompt']) => void;
   // Save slot actions
   addCharacterSession: (characterId: string, sessionId: string) => void;
   setPastRooms: (rooms: GameStore['pastRooms']) => void;
@@ -236,9 +286,15 @@ interface GameStore {
   setIsAdventureEnding: (ending: boolean) => void;
   appendStreamingSummary: (delta: string) => void;
   finalizeStreamingSummary: (text: string) => void;
+  // OOC chat actions
+  addOocMessage: (msg: { id: string; sender: string; text: string; timestamp: number }) => void;
+  clearOocMessages: () => void;
   // AI config actions
   setAiConfig: (config: GameStore['aiConfig']) => void;
   setAiConnected: (connected: boolean) => void;
+  setAutoScroll: (autoScroll: boolean) => void;
+  setShowDiceAnimation: (show: boolean) => void;
+  setNarrationSpeed: (speed: 'slow' | 'normal' | 'fast') => void;
   initPlayerId: () => void;           // Generate playerId if not set
   reset: () => void;
 }
@@ -252,6 +308,7 @@ const initialState = {
   character: null,
   characters: [],
   activeCharacterId: null,
+  characterCores: [],
   gameData: { classes: [], subclasses: [], weapons: [], armor: [], domainCards: [], ancestries: [], communities: [], loaded: false },
   adventureMessagesBySession: {},
   aiProcessing: false,
@@ -274,12 +331,17 @@ const initialState = {
   combatState: null,
   pendingDiceResult: null,
   pendingLoot: null,
+  pendingReactionPrompt: null,
   characterSessionHistory: {},
   pastRooms: [],
   adventureSummaryText: null,
   isAdventureEnding: false,
   streamingSummaryText: '',
+  oocMessages: [],
   aiConfig: null,
+  autoScroll: true,
+  showDiceAnimation: true,
+  narrationSpeed: 'normal' as const,
 };
 
 export const useGameStore = create<GameStore>()(
@@ -313,10 +375,13 @@ export const useGameStore = create<GameStore>()(
       addAdventureMessage: (msg) => set((state) => {
         const key = state.campaignId || '_default';
         const existing = state.adventureMessagesBySession[key] || [];
+        if (existing.length >= MAX_ADVENTURE_MESSAGES) {
+          console.warn(`[gameStore] Adventure messages truncated to ${MAX_ADVENTURE_MESSAGES} for session ${key}`);
+        }
         return {
           adventureMessagesBySession: {
             ...state.adventureMessagesBySession,
-            [key]: [...existing.slice(-500), msg],
+            [key]: [...existing.slice(-MAX_ADVENTURE_MESSAGES), msg],
           },
         };
       }),
@@ -466,6 +531,21 @@ export const useGameStore = create<GameStore>()(
         };
       }),
 
+      // CharacterCore actions
+      addCharacterCore: (core) => set((state) => {
+        const existing = state.characterCores.find(c => c.id === core.id);
+        if (existing) {
+          return { characterCores: state.characterCores.map(c => c.id === core.id ? core : c) };
+        }
+        return { characterCores: [...state.characterCores, core] };
+      }),
+      updateCharacterCore: (id, updates) => set((state) => ({
+        characterCores: state.characterCores.map(c =>
+          c.id === id ? { ...c, ...updates } : c
+        ),
+      })),
+      getCharacterCore: (id) => get().characterCores.find(c => c.id === id),
+
       // Multi-player session actions
       setSessionCode: (code) => set({ sessionCode: code }),
       setIsHost: (isHost) => set({ isHost }),
@@ -486,6 +566,7 @@ export const useGameStore = create<GameStore>()(
 
   // Loot actions
   setPendingLoot: (loot) => set({ pendingLoot: loot }),
+  setPendingReactionPrompt: (prompt) => set({ pendingReactionPrompt: prompt }),
 
   // Save slot actions
   addCharacterSession: (characterId, sessionId) => set((state) => {
@@ -532,12 +613,18 @@ export const useGameStore = create<GameStore>()(
   appendStreamingSummary: (delta) => set((state) => ({ streamingSummaryText: state.streamingSummaryText + delta })),
   finalizeStreamingSummary: (text) => set({ adventureSummaryText: text, isAdventureEnding: false, streamingSummaryText: text }),
 
+  addOocMessage: (msg) => set((state) => ({ oocMessages: [...state.oocMessages, msg].slice(-100) })),
+  clearOocMessages: () => set({ oocMessages: [] }),
+
   // AI config actions
       setAiConfig: (config) => set({ aiConfig: config }),
       setAiConnected: (connected) => set((state) => {
         if (!state.aiConfig) return {};
         return { aiConfig: { ...state.aiConfig, aiConnected: connected } };
       }),
+      setAutoScroll: (autoScroll) => set({ autoScroll }),
+      setShowDiceAnimation: (showDiceAnimation) => set({ showDiceAnimation }),
+      setNarrationSpeed: (narrationSpeed) => set({ narrationSpeed }),
 
       initPlayerId: () => set((state) => {
         if (state.playerId) return {};
@@ -556,9 +643,10 @@ export const useGameStore = create<GameStore>()(
         character: state.character,
         characters: state.characters,
         activeCharacterId: state.activeCharacterId,
+        characterCores: state.characterCores,
         characterSessionHistory: state.characterSessionHistory,
         adventureMessagesBySession: Object.fromEntries(
-          Object.entries(state.adventureMessagesBySession).map(([k, v]) => [k, v.slice(-100)])
+          Object.entries(state.adventureMessagesBySession).map(([k, v]) => [k, v.slice(-MAX_ADVENTURE_MESSAGES)])
         ),
         journalEntries: state.journalEntries,
         currentLocationName: state.currentLocationName,
@@ -567,8 +655,11 @@ export const useGameStore = create<GameStore>()(
         sessionCode: state.sessionCode,
         aiConfig: state.aiConfig ? {
           ...state.aiConfig,
-          apiKey: '',  // Don't persist API key for security
+          // API key persisted in MMKV (encrypted native storage, not visible to other apps)
         } : null,
+        autoScroll: state.autoScroll,
+        showDiceAnimation: state.showDiceAnimation,
+        narrationSpeed: state.narrationSpeed,
       }),
       merge: (persisted, current) => {
         const p = persisted as unknown as Record<string, unknown>;
@@ -580,6 +671,11 @@ export const useGameStore = create<GameStore>()(
           merged.adventureMessagesBySession = { [key]: p.adventureMessages };
         }
         delete merged.adventureMessages;
+        // Validate enum fields from persisted data
+        const validSpeeds = new Set(['slow', 'normal', 'fast']);
+        if (!validSpeeds.has(merged.narrationSpeed as string)) {
+          merged.narrationSpeed = 'normal';
+        }
         return { ...current, ...merged } as GameStore;
       },
     },

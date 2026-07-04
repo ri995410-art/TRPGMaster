@@ -14,15 +14,18 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useGameStore } from '../store/gameStore';
 import { sendCampaignReset } from '../hooks/useSocket';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../navigation/AppNavigator';
 
 // ===== AI Preset Providers =====
 
 const AI_PRESETS = [
-  { id: 'siliconflow', name: '硅基流动', baseUrl: 'https://api.siliconflow.cn/v1', defaultModel: 'nex-agi/Nex-N2-Pro' },
-  { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o' },
-  { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', defaultModel: 'deepseek-chat' },
-  { id: 'ollama', name: 'Ollama本地', baseUrl: 'http://localhost:11434/v1', defaultModel: 'llama3' },
-  { id: 'custom', name: '自定义', baseUrl: '', defaultModel: '' },
+  { id: 'siliconflow', name: '硅基流动', baseUrl: 'https://api.siliconflow.cn/v1', defaultModel: 'deepseek-ai/DeepSeek-V4-Flash', signupHint: '前往 siliconflow.cn 注册获取' },
+  { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', defaultModel: 'deepseek-chat', signupHint: '前往 platform.deepseek.com 注册获取' },
+  { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o', signupHint: '前往 platform.openai.com 注册获取' },
+  { id: 'ollama', name: 'Ollama本地', baseUrl: 'http://localhost:11434/v1', defaultModel: 'llama3', signupHint: '本地运行，无需密钥' },
+  { id: 'custom', name: '自定义', baseUrl: '', defaultModel: '', signupHint: '' },
 ];
 
 const TEMPERATURE_PRESETS = [
@@ -32,16 +35,20 @@ const TEMPERATURE_PRESETS = [
 ];
 
 export function SettingsScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const character = useGameStore((s) => s.character);
   const isConnected = useGameStore((s) => s.isConnected);
+  const isHost = useGameStore((s) => s.isHost);
   const serverUrl = useGameStore((s) => s.serverUrl);
   const aiConfig = useGameStore((s) => s.aiConfig);
   const setAiConfig = useGameStore((s) => s.setAiConfig);
   const reset = useGameStore((s) => s.reset);
-
-  const [autoScroll, setAutoScroll] = useState(true);
-  const [showDiceAnimation, setShowDiceAnimation] = useState(true);
-  const [narrationSpeed, setNarrationSpeed] = useState<'slow' | 'normal' | 'fast'>('normal');
+  const autoScroll = useGameStore((s) => s.autoScroll);
+  const setAutoScroll = useGameStore((s) => s.setAutoScroll);
+  const showDiceAnimation = useGameStore((s) => s.showDiceAnimation);
+  const setShowDiceAnimation = useGameStore((s) => s.setShowDiceAnimation);
+  const narrationSpeed = useGameStore((s) => s.narrationSpeed);
+  const setNarrationSpeed = useGameStore((s) => s.setNarrationSpeed);
 
   // AI Config local state
   const [apiKey, setApiKey] = useState('');
@@ -55,6 +62,17 @@ export function SettingsScreen() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Wizard state
+  const needsWizard = !aiConfig || !aiConfig.apiKey;
+  const [wizardStep, setWizardStep] = useState(needsWizard ? 1 : 0);
+  const [wizardPreset, setWizardPreset] = useState<string | null>(null);
+  const [wizardApiKey, setWizardApiKey] = useState('');
+  const [wizardShowApiKey, setWizardShowApiKey] = useState(false);
+  const [wizardBaseUrl, setWizardBaseUrl] = useState('');
+  const [wizardModel, setWizardModel] = useState('');
+  const [wizardTesting, setWizardTesting] = useState(false);
+  const [wizardTestResult, setWizardTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Load AI config from store into local state
   useEffect(() => {
@@ -76,6 +94,83 @@ export function SettingsScreen() {
     } else {
       setBaseUrl('');
       setDefaultModel('');
+    }
+  };
+
+  const handleWizardPresetSelect = (preset: typeof AI_PRESETS[0]) => {
+    setWizardPreset(preset.id);
+    if (preset.id !== 'custom') {
+      setWizardBaseUrl(preset.baseUrl);
+      setWizardModel(preset.defaultModel);
+    } else {
+      setWizardBaseUrl('');
+      setWizardModel('');
+    }
+    setWizardStep(2);
+  };
+
+  const handleWizardTestAndSave = async () => {
+    if (!serverUrl) {
+      Alert.alert('未连接', '请先返回首页连接服务器');
+      return;
+    }
+
+    setWizardTesting(true);
+    setWizardTestResult(null);
+    try {
+      const saveRes = await fetch(`${serverUrl}/api/ai/config`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey: wizardApiKey,
+          baseUrl: wizardBaseUrl,
+          defaultModel: wizardModel,
+          temperature: 0.8,
+          maxTokens: 4096,
+        }),
+      });
+      const saveData = await saveRes.json();
+      if (!saveData.success) {
+        setWizardTestResult({ success: false, message: saveData.errors?.join('\n') || '保存失败' });
+        setWizardTesting(false);
+        return;
+      }
+
+      const testRes = await fetch(`${serverUrl}/api/ai/test`, { method: 'POST' });
+      const testData = await testRes.json();
+      if (testData.success) {
+        setAiConfig({
+          apiKey: saveData.config.apiKey || '',
+          baseUrl: saveData.config.baseUrl || '',
+          defaultModel: saveData.config.defaultModel || '',
+          narratorModel: '',
+          temperature: 0.8,
+          maxTokens: 4096,
+          aiConnected: true,
+        });
+        setWizardTestResult({
+          success: true,
+          message: `连接成功 · 模型: ${testData.model} · 响应: ${testData.responseTime}ms`,
+        });
+      } else {
+        setAiConfig({
+          apiKey: saveData.config.apiKey || '',
+          baseUrl: saveData.config.baseUrl || '',
+          defaultModel: saveData.config.defaultModel || '',
+          narratorModel: '',
+          temperature: 0.8,
+          maxTokens: 4096,
+          aiConnected: false,
+        });
+        setWizardTestResult({
+          success: false,
+          message: `保存成功但AI连接失败: ${testData.error || '未知错误'}`,
+        });
+      }
+    } catch (err: any) {
+      setWizardTestResult({ success: false, message: `请求失败: ${err.message}` });
+    } finally {
+      setWizardTesting(false);
     }
   };
 
@@ -155,6 +250,10 @@ export function SettingsScreen() {
   };
 
   const handleResetCampaign = () => {
+    if (!isHost) {
+      Alert.alert('权限不足', '只有主持人(GM)才能重置战役');
+      return;
+    }
     Alert.alert(
       '重置战役',
       '确定要重置当前战役吗？所有进度将丢失。',
@@ -181,6 +280,202 @@ export function SettingsScreen() {
     }
     return 'custom';
   };
+
+  const selectedWizardPreset = AI_PRESETS.find(p => p.id === wizardPreset);
+
+  if (wizardStep > 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          <View style={styles.wizardCard}>
+            <View style={styles.wizardHeader}>
+              <Ionicons name="sparkles" size={28} color="#9b59b6" />
+              <Text style={styles.wizardTitle}>配置AI管家</Text>
+            </View>
+            <Text style={styles.wizardSubtitle}>AI管家将为你讲述故事、扮演NPC、管理战斗</Text>
+
+            {/* Step indicators */}
+            <View style={styles.wizardStepIndicators}>
+              {[1, 2, 3, 4].map((step) => (
+                <View key={step} style={styles.wizardStepDotRow}>
+                  <View style={[styles.wizardStepDot, wizardStep >= step && styles.wizardStepDotActive]}>
+                    <Text style={[styles.wizardStepDotText, wizardStep >= step && styles.wizardStepDotTextActive]}>{step}</Text>
+                  </View>
+                  {step < 4 && <View style={[styles.wizardStepLine, wizardStep > step && styles.wizardStepLineActive]} />}
+                </View>
+              ))}
+            </View>
+            <View style={styles.wizardStepLabels}>
+              <Text style={[styles.wizardStepLabel, wizardStep >= 1 && styles.wizardStepLabelActive]}>选择服务商</Text>
+              <Text style={[styles.wizardStepLabel, wizardStep >= 2 && styles.wizardStepLabelActive]}>输入密钥</Text>
+              <Text style={[styles.wizardStepLabel, wizardStep >= 3 && styles.wizardStepLabelActive]}>选择模型</Text>
+              <Text style={[styles.wizardStepLabel, wizardStep >= 4 && styles.wizardStepLabelActive]}>测试连接</Text>
+            </View>
+
+            {/* Step 1: Choose provider */}
+            {wizardStep === 1 && (
+              <View style={styles.wizardContent}>
+                <Text style={styles.wizardFieldLabel}>选择AI服务商</Text>
+                {AI_PRESETS.map((preset) => (
+                  <TouchableOpacity
+                    key={preset.id}
+                    style={[styles.wizardProviderCard, wizardPreset === preset.id && styles.wizardProviderCardActive]}
+                    onPress={() => handleWizardPresetSelect(preset)}
+                  >
+                    <View style={styles.wizardProviderInfo}>
+                      <Text style={[styles.wizardProviderName, wizardPreset === preset.id && styles.wizardProviderNameActive]}>{preset.name}</Text>
+                      {preset.id !== 'custom' && (
+                        <Text style={styles.wizardProviderUrl}>{preset.baseUrl}</Text>
+                      )}
+                    </View>
+                    <Ionicons name={wizardPreset === preset.id ? 'checkmark-circle' : 'ellipse-outline'} size={22} color={wizardPreset === preset.id ? '#9b59b6' : '#2c3e50'} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {/* Step 2: Enter API Key */}
+            {wizardStep === 2 && (
+              <View style={styles.wizardContent}>
+                <Text style={styles.wizardFieldLabel}>API 密钥</Text>
+                {selectedWizardPreset?.signupHint ? (
+                  <Text style={styles.wizardHint}>{selectedWizardPreset.signupHint}</Text>
+                ) : null}
+                <View style={styles.inputRow}>
+                  <TextInput
+                    style={styles.textInput}
+                    value={wizardApiKey}
+                    onChangeText={setWizardApiKey}
+                    placeholder="输入API Key"
+                    placeholderTextColor="#7f8c8d"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    secureTextEntry={!wizardShowApiKey}
+                  />
+                  <TouchableOpacity style={styles.eyeButton} onPress={() => setWizardShowApiKey(!wizardShowApiKey)}>
+                    <Ionicons name={wizardShowApiKey ? 'eye-off' : 'eye'} size={18} color="#7f8c8d" />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.wizardNavRow}>
+                  <TouchableOpacity style={styles.wizardBackButton} onPress={() => setWizardStep(1)}>
+                    <Ionicons name="arrow-back" size={16} color="#bdc3c7" />
+                    <Text style={styles.wizardBackText}>上一步</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.wizardNextButton, !wizardApiKey && styles.wizardNextButtonDisabled]}
+                    onPress={() => wizardApiKey && setWizardStep(3)}
+                    disabled={!wizardApiKey}
+                  >
+                    <Text style={styles.wizardNextText}>下一步</Text>
+                    <Ionicons name="arrow-forward" size={16} color="#ecf0f1" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* Step 3: Choose model */}
+            {wizardStep === 3 && (
+              <View style={styles.wizardContent}>
+                <Text style={styles.wizardFieldLabel}>模型</Text>
+                <TextInput
+                  style={styles.textInputFull}
+                  value={wizardModel}
+                  onChangeText={setWizardModel}
+                  placeholder="模型名称"
+                  placeholderTextColor="#7f8c8d"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <Text style={styles.wizardFieldLabel}>API 地址</Text>
+                <TextInput
+                  style={styles.textInputFull}
+                  value={wizardBaseUrl}
+                  onChangeText={setWizardBaseUrl}
+                  placeholder="https://api.siliconflow.cn/v1"
+                  placeholderTextColor="#7f8c8d"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                />
+                <View style={styles.wizardNavRow}>
+                  <TouchableOpacity style={styles.wizardBackButton} onPress={() => setWizardStep(2)}>
+                    <Ionicons name="arrow-back" size={16} color="#bdc3c7" />
+                    <Text style={styles.wizardBackText}>上一步</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.wizardNextButton, (!wizardModel || !wizardBaseUrl) && styles.wizardNextButtonDisabled]}
+                    onPress={() => wizardModel && wizardBaseUrl && setWizardStep(4)}
+                    disabled={!wizardModel || !wizardBaseUrl}
+                  >
+                    <Text style={styles.wizardNextText}>下一步</Text>
+                    <Ionicons name="arrow-forward" size={16} color="#ecf0f1" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* Step 4: Test connection */}
+            {wizardStep === 4 && (
+              <View style={styles.wizardContent}>
+                <View style={styles.wizardSummary}>
+                  <View style={styles.wizardSummaryRow}>
+                    <Text style={styles.wizardSummaryLabel}>服务商</Text>
+                    <Text style={styles.wizardSummaryValue}>{selectedWizardPreset?.name || '自定义'}</Text>
+                  </View>
+                  <View style={styles.wizardSummaryRow}>
+                    <Text style={styles.wizardSummaryLabel}>API地址</Text>
+                    <Text style={styles.wizardSummaryValue} numberOfLines={1}>{wizardBaseUrl}</Text>
+                  </View>
+                  <View style={styles.wizardSummaryRow}>
+                    <Text style={styles.wizardSummaryLabel}>模型</Text>
+                    <Text style={styles.wizardSummaryValue}>{wizardModel}</Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={[styles.wizardTestButton, wizardTesting && styles.actionButtonDisabled]}
+                  onPress={handleWizardTestAndSave}
+                  disabled={wizardTesting}
+                >
+                  {wizardTesting ? (
+                    <ActivityIndicator size="small" color="#ecf0f1" />
+                  ) : (
+                    <>
+                      <Ionicons name="pulse" size={18} color="#ecf0f1" />
+                      <Text style={styles.wizardTestButtonText}>测试并保存</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+                {wizardTestResult && (
+                  <View style={[styles.testResult, wizardTestResult.success ? styles.testSuccess : styles.testFail]}>
+                    <Ionicons
+                      name={wizardTestResult.success ? 'checkmark-circle' : 'close-circle'}
+                      size={16}
+                      color={wizardTestResult.success ? '#2ecc71' : '#e74c3c'}
+                    />
+                    <Text style={[styles.testResultText, { color: wizardTestResult.success ? '#2ecc71' : '#e74c3c' }]}>
+                      {wizardTestResult.message}
+                    </Text>
+                  </View>
+                )}
+                {wizardTestResult?.success && (
+                  <TouchableOpacity style={styles.wizardFinishButton} onPress={() => setWizardStep(0)}>
+                    <Text style={styles.wizardFinishText}>完成，开始使用</Text>
+                  </TouchableOpacity>
+                )}
+                <View style={styles.wizardNavRow}>
+                  <TouchableOpacity style={styles.wizardBackButton} onPress={() => setWizardStep(3)}>
+                    <Ionicons name="arrow-back" size={16} color="#bdc3c7" />
+                    <Text style={styles.wizardBackText}>上一步</Text>
+                  </TouchableOpacity>
+                  <View />
+                </View>
+              </View>
+            )}
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -440,12 +735,46 @@ export function SettingsScreen() {
           </View>
         </View>
 
+        {/* Tutorial */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>新手教程</Text>
+          <TouchableOpacity
+            style={styles.menuButton}
+            onPress={() => navigation.navigate('Tutorial')}
+          >
+            <Ionicons name="school" size={20} color="#2ecc71" />
+            <Text style={styles.menuButtonText}>规则教程</Text>
+            <Ionicons name="chevron-forward" size={16} color="#7f8c8d" />
+          </TouchableOpacity>
+        </View>
+
+        {/* GM Tools */}
+        {isHost && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>GM工具</Text>
+            <TouchableOpacity
+              style={styles.menuButton}
+              onPress={() => navigation.navigate('GMPanel')}
+            >
+              <Ionicons name="construct" size={20} color="#3498db" />
+              <Text style={styles.menuButtonText}>GM控制面板</Text>
+              <Ionicons name="chevron-forward" size={16} color="#7f8c8d" />
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Danger Zone */}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: '#e74c3c' }]}>危险操作</Text>
-          <TouchableOpacity style={styles.dangerButton} onPress={handleResetCampaign}>
-            <Ionicons name="trash" size={16} color="#e74c3c" />
-            <Text style={styles.dangerButtonText}>重置战役</Text>
+          <TouchableOpacity
+            style={[styles.dangerButton, !isHost && styles.dangerButtonDisabled]}
+            onPress={handleResetCampaign}
+            disabled={!isHost}
+          >
+            <Ionicons name="trash" size={16} color={isHost ? '#e74c3c' : '#555'} />
+            <Text style={[styles.dangerButtonText, !isHost && styles.dangerButtonTextDisabled]}>
+              重置战役{!isHost ? '（仅主持人）' : ''}
+            </Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -738,6 +1067,21 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   // Danger zone
+  menuButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#1a1a3e',
+    borderRadius: 8,
+  },
+  menuButtonText: {
+    flex: 1,
+    color: '#ecf0f1',
+    fontSize: 15,
+    fontWeight: '500',
+  },
   dangerButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -747,5 +1091,213 @@ const styles = StyleSheet.create({
   dangerButtonText: {
     color: '#e74c3c',
     fontSize: 14,
+  },
+  dangerButtonDisabled: {
+    opacity: 0.4,
+  },
+  dangerButtonTextDisabled: {
+    color: '#555',
+  },
+  // Wizard styles
+  wizardCard: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  wizardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 4,
+  },
+  wizardTitle: {
+    color: '#ecf0f1',
+    fontSize: 22,
+    fontWeight: 'bold',
+  },
+  wizardSubtitle: {
+    color: '#7f8c8d',
+    fontSize: 13,
+    marginBottom: 16,
+  },
+  wizardStepIndicators: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  wizardStepDotRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  wizardStepDot: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#2c3e50',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  wizardStepDotActive: {
+    backgroundColor: '#9b59b6',
+  },
+  wizardStepDotText: {
+    color: '#7f8c8d',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  wizardStepDotTextActive: {
+    color: '#ecf0f1',
+  },
+  wizardStepLine: {
+    width: 24,
+    height: 2,
+    backgroundColor: '#2c3e50',
+  },
+  wizardStepLineActive: {
+    backgroundColor: '#9b59b6',
+  },
+  wizardStepLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  wizardStepLabel: {
+    color: '#7f8c8d',
+    fontSize: 10,
+    flex: 1,
+    textAlign: 'center',
+  },
+  wizardStepLabelActive: {
+    color: '#9b59b6',
+  },
+  wizardContent: {
+    marginTop: 8,
+  },
+  wizardFieldLabel: {
+    color: '#bdc3c7',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  wizardHint: {
+    color: '#9b59b6',
+    fontSize: 12,
+    marginBottom: 8,
+  },
+  wizardProviderCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#16213e',
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#2c3e50',
+  },
+  wizardProviderCardActive: {
+    borderColor: '#9b59b6',
+    backgroundColor: '#9b59b611',
+  },
+  wizardProviderInfo: {
+    flex: 1,
+  },
+  wizardProviderName: {
+    color: '#ecf0f1',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  wizardProviderNameActive: {
+    color: '#9b59b6',
+  },
+  wizardProviderUrl: {
+    color: '#7f8c8d',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  wizardNavRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  wizardBackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  wizardBackText: {
+    color: '#bdc3c7',
+    fontSize: 14,
+  },
+  wizardNextButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#9b59b6',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  wizardNextButtonDisabled: {
+    opacity: 0.4,
+  },
+  wizardNextText: {
+    color: '#ecf0f1',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  wizardSummary: {
+    backgroundColor: '#16213e',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 14,
+  },
+  wizardSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+  },
+  wizardSummaryLabel: {
+    color: '#7f8c8d',
+    fontSize: 13,
+  },
+  wizardSummaryValue: {
+    color: '#ecf0f1',
+    fontSize: 13,
+    fontWeight: 'bold',
+    flex: 1,
+    textAlign: 'right',
+    marginLeft: 12,
+  },
+  wizardTestButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#9b59b6',
+    borderRadius: 8,
+    paddingVertical: 12,
+  },
+  wizardTestButtonText: {
+    color: '#ecf0f1',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  wizardFinishButton: {
+    backgroundColor: '#2ecc71',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  wizardFinishText: {
+    color: '#ecf0f1',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });

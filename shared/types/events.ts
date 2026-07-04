@@ -5,9 +5,23 @@ import type {
   ConditionInstance,
   RestType,
   DeathMoveType,
+  ReactionTrigger,
+  ReactionType,
 } from './rules';
-import type { Character, EnemyStatBlock, Faction, NPC, Gold } from './character';
+import type {
+  Character,
+  EnemyStatBlock,
+  EnemyFeature,
+  Faction,
+  NPC,
+  Gold,
+  EnemyBehaviorType,
+  EnemyAttack,
+  EnemyExperienceData,
+  EnemyType,
+} from './character';
 import type { SpotlightState, SafetyState } from './safety';
+import type { GameCampaignState } from './base';
 
 // ===== 游戏事件类型 =====
 
@@ -51,6 +65,9 @@ export type GameEventType =
   | 'combat:conditionRemove'
   | 'combat:enemyDefeated'
   | 'combat:focus'
+  | 'combat:reactionPrompt'
+  | 'combat:reactionDeclare'
+  | 'combat:reactionResult'
   // 场景事件
   | 'scene:describe'
   | 'scene:transition'
@@ -124,6 +141,57 @@ export interface CombatAttackEvent extends GameEvent {
   armorSlotUsed: boolean;
 }
 
+/** Server prompts a player that they can use a reaction */
+export interface CombatReactionPromptEvent extends GameEvent {
+  type: 'combat:reactionPrompt';
+  trigger: ReactionTrigger;
+  sourceId: string;
+  sourceType: 'enemy' | 'gm' | 'environment';
+  targetId: string;
+  rawDamage?: number;
+  severity?: DamageSeverity;
+  attackName?: string;
+  availableReactions: Array<{
+    type: ReactionType;
+    name: string;
+    description: string;
+    attribute?: Attribute;
+    difficulty?: number;
+    hopeCost?: number;
+    usesReaction: boolean;
+    sourceId?: string;
+    sourceType?: 'ancestry' | 'class' | 'community' | 'domainCard';
+  }>;
+}
+
+/** Player declares which reaction to use */
+export interface CombatReactionDeclareEvent extends GameEvent {
+  type: 'combat:reactionDeclare';
+  reactionType: ReactionType;
+  hopeDie?: number;
+  fearDie?: number;
+  armorSlotsToSpend?: number;
+  sourceId?: string;
+}
+
+/** Server broadcasts the result of a resolved reaction */
+export interface CombatReactionResultEvent extends GameEvent {
+  type: 'combat:reactionResult';
+  reactionType: ReactionType;
+  characterId: string;
+  success: boolean;
+  isCritical: boolean;
+  damagePrevented: number;
+  newSeverity?: DamageSeverity;
+  armorSlotsSpent: number;
+  counterDamage?: number;
+  counterTargetHpLoss?: number;
+  hopeGain: number;
+  hopeCost: number;
+  reactionUsed: boolean;
+  narrationHint: string;
+}
+
 export interface CombatDamageEvent extends GameEvent {
   type: 'combat:damage';
   targetId: string;
@@ -177,7 +245,8 @@ export interface SessionState {
   sessionId: string;
   sessionCode?: string;          // 6位房间码，多人模式使用
   status: SessionStatus;
-  character: Character;          // 保留向后兼容（单人模式下 = characters[0]）
+  systemId: string;              // 规则系统: 'daggerheart' | 'coc' | 'dnd5e' 等，默认 'daggerheart'
+  character: Character | null;     // 保留向后兼容（单人模式下 = characters[0]），null until set
   characters: Character[];       // 多人模式下的角色列表
   players: Player[];             // 多人模式下的玩家列表
   currentScene: SceneState;
@@ -229,6 +298,29 @@ export interface CombatEnemy {
   isFocused: boolean;
   hasActed: boolean;
   evasion: number;
+  behavior: EnemyBehaviorType;
+  attacks: EnemyAttack[];
+  features: EnemyFeature[];
+  experiences?: EnemyExperienceData[];
+  fearTraits?: EnemyFearTrait[];
+  type?: EnemyType;               // 敌人类型，默认'elite'
+  majorThreshold?: number;        // 重度伤害阈值
+  severeThreshold?: number;       // 严重伤害阈值
+  minionDefeatThreshold?: number; // 杂兵额外击败阈值
+  /** Rules: Ch4 "集群" — horde damage when at or below half HP */
+  hordeDamage?: number;
+  /** Rules: Ch4 "无情" — number of times this enemy can be focused per GM turn */
+  relentlessCount?: number;
+  /** Rules: Ch4 "迟缓" — first focus does nothing, needs second focus to act */
+  isSlow?: boolean;
+  /** Track how many times focused this turn (for relentless/slow) */
+  timesFocusedThisTurn?: number;
+}
+
+export interface EnemyFearTrait {
+  name: string;
+  cost: number;
+  description: string;
 }
 
 export interface ActiveCondition {
@@ -261,11 +353,9 @@ export interface Countdown {
   triggerEffect: string;
 }
 
-// ===== 战役状态（德拉肯海姆） =====
+// ===== 战役状态 =====
 
-export interface CampaignState {
-  campaignId: 'drakkenheim';
-  currentLocation: string;
+export interface CampaignState extends GameCampaignState {
   visitedLocations: string[];
   factionRelations: Record<string, number>;
   personalQuestProgress: Record<string, QuestProgress>;

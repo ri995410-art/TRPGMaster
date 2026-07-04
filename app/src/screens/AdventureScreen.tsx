@@ -20,7 +20,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import { useGameStore, type AdventureMessage, type AdventureChoice, type DiceResult, useCurrentAdventureMessages } from '../store/gameStore';
-import { sendPlayerAction, sendPlayerChoice, sendDiceRoll, sendActionRoll, sendAdventureEnd, requestSpotlight, submitS0, activateXCard, resumeSafety, sendUseFeature } from '../hooks/useSocket';
+import { sendPlayerAction, sendPlayerChoice, sendDiceRoll, sendActionRoll, sendAdventureEnd, requestSpotlight, submitS0, activateXCard, resumeSafety, sendUseFeature, cancelNarration, sendChatMessage } from '../hooks/useSocket';
 import type { Attribute } from '@trpgmaster/shared';
 import { ATTRIBUTE_LABELS } from '@trpgmaster/shared';
 import { theme } from '../theme/theme';
@@ -63,6 +63,7 @@ export function AdventureScreen() {
   const combatState = useGameStore((s) => s.combatState);
   const pendingDiceResult = useGameStore((s) => s.pendingDiceResult);
   const clearPendingDiceResult = useGameStore((s) => s.clearPendingDiceResult);
+  const oocMessages = useGameStore((s) => s.oocMessages);
   const adventureSummaryText = useGameStore((s) => s.adventureSummaryText);
   const isAdventureEnding = useGameStore((s) => s.isAdventureEnding);
   const streamingSummaryText = useGameStore((s) => s.streamingSummaryText);
@@ -85,6 +86,8 @@ export function AdventureScreen() {
   const [s0Veils, setS0Veils] = useState('');
   const [s0Tone, setS0Tone] = useState('');
   const [showDiceTray, setShowDiceTray] = useState(false);
+  const [showChatPanel, setShowChatPanel] = useState(false);
+  const [chatInput, setChatInput] = useState('');
   const [adventureSummary, setAdventureSummary] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
@@ -124,16 +127,18 @@ export function AdventureScreen() {
     return '描述你的行动...';
   };
 
+  const autoScroll = useGameStore((s) => s.autoScroll);
+
   const inputPlaceholder = getInputPlaceholder();
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll to bottom on new messages (respects autoScroll setting)
   useEffect(() => {
-    if (adventureMessages.length > 0 || streamingText.length > 0) {
+    if (autoScroll && (adventureMessages.length > 0 || streamingText.length > 0)) {
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
     }
-  }, [adventureMessages.length, streamingText.length]);
+  }, [adventureMessages.length, streamingText.length, autoScroll]);
 
   const handleSend = () => {
     if (!inputText.trim() || aiProcessing || !canAct) return;
@@ -274,6 +279,13 @@ export function AdventureScreen() {
     <View style={styles.quickActions}>
       <TouchableOpacity
         style={styles.quickActionButton}
+        onPress={() => setShowChatPanel(!showChatPanel)}
+      >
+        <Ionicons name={showChatPanel ? 'chatbubbles' : 'chatbubble-outline'} size={16} color={theme.color.accent} />
+        <Text style={styles.quickActionText}>聊天</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.quickActionButton}
         onPress={() => navigation.navigate('Combat')}
       >
         <Ionicons name="cut" size={16} color={theme.color.danger} />
@@ -310,8 +322,13 @@ export function AdventureScreen() {
         </TouchableOpacity>
       )}
       <TouchableOpacity
-        style={styles.quickActionButton}
+        style={[styles.quickActionButton, !isHost && styles.disabledAction]}
+        disabled={!isHost}
         onPress={() => {
+          if (!isHost) {
+            Alert.alert('权限不足', '只有主持人(GM)才能结束冒险');
+            return;
+          }
           Alert.alert(
             '结束冒险',
             '确定要结束当前冒险吗？AI管家将为你生成冒险总结。',
@@ -361,6 +378,9 @@ export function AdventureScreen() {
                 <View style={styles.processingIndicator}>
                   <ActivityIndicator size="small" color={theme.color.accent} />
                   <Text style={styles.processingText}>GM正在落笔…</Text>
+                  <TouchableOpacity onPress={cancelNarration} style={styles.cancelNarrationButton}>
+                    <Ionicons name="close-circle" size={20} color="#e74c3c" />
+                  </TouchableOpacity>
                 </View>
               )
             ) : null
@@ -474,13 +494,68 @@ export function AdventureScreen() {
           />
         </View>
       )}
+      {/* OOC Chat panel overlay */}
+      {showChatPanel && (
+        <View style={styles.chatOverlay}>
+          <View style={styles.chatHeader}>
+            <Ionicons name="chatbubbles" size={16} color={theme.color.accent} />
+            <Text style={styles.chatTitle}>玩家聊天</Text>
+            <TouchableOpacity onPress={() => setShowChatPanel(false)}>
+              <Ionicons name="close" size={20} color={theme.color.parchment} />
+            </TouchableOpacity>
+          </View>
+          <FlatList
+            data={oocMessages}
+            keyExtractor={(m) => m.id}
+            renderItem={({ item: msg }) => (
+              <View style={styles.chatMessage}>
+                <Text style={styles.chatSender}>{msg.sender}</Text>
+                <Text style={styles.chatText}>{msg.text}</Text>
+              </View>
+            )}
+            contentContainerStyle={styles.chatList}
+            ListEmptyComponent={
+              <Text style={styles.chatEmpty}>暂无消息，说点什么吧</Text>
+            }
+          />
+          <View style={styles.chatInputRow}>
+            <TextInput
+              style={styles.chatInput}
+              value={chatInput}
+              onChangeText={setChatInput}
+              placeholder="说点什么..."
+              placeholderTextColor={theme.color.muted}
+              maxLength={200}
+              onSubmitEditing={() => {
+                if (chatInput.trim()) {
+                  sendChatMessage(chatInput.trim());
+                  setChatInput('');
+                }
+              }}
+              returnKeyType="send"
+            />
+            <TouchableOpacity
+              style={[styles.chatSendBtn, !chatInput.trim() && styles.chatSendBtnDisabled]}
+              onPress={() => {
+                if (chatInput.trim()) {
+                  sendChatMessage(chatInput.trim());
+                  setChatInput('');
+                }
+              }}
+              disabled={!chatInput.trim()}
+            >
+              <Ionicons name="send" size={16} color={theme.color.parchment} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
       {/* Pending dice result banner */}
       {pendingDiceResult && (
         <View style={styles.diceBanner}>
           <View style={styles.diceBannerContent}>
             <Ionicons name="dice" size={16} color={pendingDiceResult.success ? theme.color.emerald : theme.color.danger} />
             <Text style={styles.diceBannerText}>
-              {pendingDiceResult.isCritical ? '大成功! ' : ''}
+              {pendingDiceResult.isCritical ? '关键成功! ' : ''}
               {pendingDiceResult.success ? '成功' : '失败'}
               {'  '}
               <Text style={{ color: theme.color.emerald }}>希望骰:{pendingDiceResult.hopeDie}</Text>
@@ -490,6 +565,8 @@ export function AdventureScreen() {
               {' = '}{pendingDiceResult.total} vs {pendingDiceResult.difficulty}
               {pendingDiceResult.hopeGain > 0 && `  +${pendingDiceResult.hopeGain}希望`}
               {pendingDiceResult.fearGain > 0 && `  +${pendingDiceResult.fearGain}恐惧`}
+              {pendingDiceResult.stressCleared > 0 && `  -${pendingDiceResult.stressCleared}压力`}
+              {pendingDiceResult.canTakeFreeAction && '  可执行免费行动'}
             </Text>
           </View>
           <TouchableOpacity onPress={() => clearPendingDiceResult()}>
@@ -700,6 +777,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: theme.font.body,
   },
+  cancelNarrationButton: {
+    marginLeft: 8,
+    padding: 4,
+  },
   // Quick actions
   quickActions: {
     flexDirection: 'row',
@@ -715,6 +796,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     gap: 4,
+  },
+  disabledAction: {
+    opacity: 0.4,
   },
   quickActionText: {
     color: theme.color.textDim,
@@ -853,6 +937,88 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     fontFamily: theme.font.display,
+  },
+  // OOC Chat overlay
+  chatOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 320,
+    backgroundColor: theme.color.bgCard,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    borderWidth: 1,
+    borderColor: theme.color.accent,
+    zIndex: 100,
+    elevation: 10,
+  },
+  chatHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.color.fog,
+  },
+  chatTitle: {
+    color: theme.color.accent,
+    fontSize: 14,
+    fontWeight: 'bold',
+    flex: 1,
+    marginLeft: 6,
+  },
+  chatList: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  chatMessage: {
+    marginBottom: 8,
+  },
+  chatSender: {
+    color: theme.color.accent,
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  chatText: {
+    color: theme.color.text,
+    fontSize: 14,
+  },
+  chatEmpty: {
+    color: theme.color.muted,
+    fontSize: 13,
+    textAlign: 'center',
+    paddingVertical: 20,
+  },
+  chatInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: theme.color.fog,
+    gap: 8,
+  },
+  chatInput: {
+    flex: 1,
+    backgroundColor: theme.color.bgInput,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    color: theme.color.text,
+    fontSize: 14,
+    maxHeight: 60,
+  },
+  chatSendBtn: {
+    backgroundColor: theme.color.accent,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  chatSendBtnDisabled: {
+    opacity: 0.4,
   },
   // Dice result banner
   diceBanner: {

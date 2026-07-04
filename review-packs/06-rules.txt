@@ -1,0 +1,1750 @@
+=== 项目: TRPGMaster - Daggerheart TRPG ===
+=== 模块: 06-rules ===
+=== 生成时间: Sun Jun 28 14:42:31     2026 ===
+
+######## FILE: server/src/rules/combatResolver.ts ########
+/**
+ * Combat resolver — pure functions for Daggerheart combat resolution
+ * All functions are deterministic (no StateManager side effects), easy to unit test.
+ * Uses existing DaggerHeartRules primitives.
+ */
+import {
+  resolveRoll,
+  rollWeaponDamage,
+  calculateCriticalDamage,
+  calculateDamageSeverity,
+  applyArmorSlot,
+  getHpLossFromSeverity,
+  rollDualD12,
+} from './systems/DaggerHeartRules';
+import type { Character } from '@trpgmaster/shared';
+import type { CombatEnemy } from '@trpgmaster/shared';
+import type {
+  ActionDeclaration,
+  AttackResolution,
+  DamageResolution,
+  RollDeclaration,
+  RollResolution,
+} from '@trpgmaster/shared';
+import type { DamageSeverity } from '@trpgmaster/shared';
+import { CONDITION_EFFECTS, HIDDEN_ATTACK_ADVANTAGE } from '@trpgmaster/shared';
+
+/** 玩家攻击敌人：掷骰判定命中 → 命中则掷武器伤害 → 敌人直接扣 HP */
+export function resolvePlayerAttack(
+  attacker: Character,
+  enemy: CombatEnemy,
+  decl: ActionDeclaration,
+): AttackResolution {
+  // Compute condition-based advantage/disadvantage
+  let conditionAdvantage = decl.advantage ?? 0;
+  let conditionDisadvantage = decl.disadvantage ?? 0;
+
+  // Attacker is Hidden → advantage on attack
+  if (attacker.conditions?.some(c => c.condition === 'hidden')) {
+    conditionAdvantage += 1;
+  }
+  // Attacker is Blind or Restrained → disadvantage on attack
+  if (attacker.conditions?.some(c => c.condition === 'blind' || c.condition === 'restrained')) {
+    conditionDisadvantage += 1;
+  }
+  // Target is Restrained/Surprised/Vulnerable/Unconscious → attacker advantage
+  const targetEffects = enemy.conditions.map(c => CONDITION_EFFECTS[c.condition]).filter(Boolean);
+  if (targetEffects.some(e => e.attackerAdvantage)) {
+    conditionAdvantage += 1;
+  }
+
+  // 1) 攻击掷骰（客户端提供 or 后端代掷）
+  const dice = decl.hopeDie != null && decl.fearDie != null
+    ? { hopeDie: decl.hopeDie, fearDie: decl.fearDie }
+    : rollDualD12();
+  const modifier = traitModifier(attacker, decl.trait);
+  const roll = resolveRoll(
+    dice.hopeDie, dice.fearDie, modifier, decl.difficulty,
+    conditionAdvantage, conditionDisadvantage,
+  );
+
+  let damageRolled = 0;
+  let hpLossToTarget = 0;
+
+  if (roll.success) {
+    // 2) 武器伤害；关键成功用 calculateCriticalDamage
+    const w = attacker.mainWeapon;
+    const dmg = roll.isCritical
+      ? calculateCriticalDamage(attacker.proficiency, w.damageDie, w.damageModifier ?? 0).totalDamage
+      : rollWeaponDamage(attacker.proficiency, w.damageDie, w.damageModifier ?? 0).total;
+    damageRolled = dmg;
+    // Vulnerable target takes +1 damage
+    if (enemy.conditions.some(c => c.condition === 'vulnerable')) {
+      damageRolled += 1;
+    }
+    // 敌人按 HP 直接结算
+    hpLossToTarget = dmg;
+  }
+
+  return {
+    outcome: roll.type,
+    success: roll.success,
+    isCritical: roll.isCritical,
+    hopeDie: roll.hopeDie,
+    fearDie: roll.fearDie,
+    total: roll.total,
+    difficulty: roll.difficulty,
+    hopeGain: roll.hopeGained,
+    fearGain: roll.fearGained,
+    stressCleared: roll.stressCleared,
+    canTakeFreeAction: roll.canTakeFreeAction,
+    damageRolled,
+    hpLossToTarget,
+    severity: 'none',
+    narrationHint: roll.success
+      ? `攻击命中（${zhOutcome(roll.type)}），对${enemy.name}造成${damageRolled}点伤害。`
+      : `攻击未命中（${zhOutcome(roll.type)}）。`,
+  };
+}
+
+/** 对玩家角色施加伤害：原始伤害 → 严重度(用角色阈值) → 可选护甲降级 → HP 标记数 */
+export function resolveDamageToCharacter(
+  target: Character,
+  rawDamage: number,
+  spendArmorSlots: number = autoArmorPolicy(target, rawDamage),
+): DamageResolution {
+  // Vulnerable condition: extra +1 HP mark
+  const isVulnerable = target.conditions?.some(c => c.condition === 'vulnerable') ?? false;
+  const effectiveDamage = isVulnerable ? rawDamage + 2 : rawDamage; // +2 raw damage roughly equals +1 severity tier
+
+  const sevBefore = calculateDamageSeverity(
+    effectiveDamage, target.minorThreshold, target.majorThreshold, target.severeThreshold,
+  );
+  const slots = Math.min(spendArmorSlots, target.armorSlots);
+  const { newSeverity, slotsSpent } = applyArmorSlot(sevBefore, slots);
+  const hpLoss = getHpLossFromSeverity(newSeverity);
+  return {
+    rawDamage: effectiveDamage,
+    severityBeforeArmor: sevBefore,
+    severityAfterArmor: newSeverity,
+    armorSlotsSpent: slotsSpent,
+    hpLoss,
+    stressGain: 0,
+    narrationHint: `${target.name}受到${zhSeverity(newSeverity)}伤害，失去${hpLoss}点生命${slotsSpent ? `（消耗${slotsSpent}护甲槽）` : ''}。`,
+  };
+}
+
+/** 属性检定（行动掷骰）：玩家描述行动 + 选属性 → 后端掷骰 → 结算 hope/fear */
+export function resolveAbilityCheck(
+  character: Character,
+  decl: RollDeclaration,
+): RollResolution {
+  const dice = rollDualD12();
+  const modifier = decl.attribute
+    ? (character.attributes as Record<string, number>)[decl.attribute] ?? 0
+    : 0;
+  const roll = resolveRoll(
+    dice.hopeDie, dice.fearDie, modifier, decl.difficulty,
+    decl.advantage ?? 0, decl.disadvantage ?? 0,
+  );
+
+  const attrLabel = decl.attribute ? `使用${decl.attribute}` : '无属性';
+
+  return {
+    outcome: roll.type,
+    success: roll.success,
+    isCritical: roll.isCritical,
+    hopeDie: roll.hopeDie,
+    fearDie: roll.fearDie,
+    total: roll.total,
+    difficulty: roll.difficulty,
+    modifier,
+    hopeGain: roll.hopeGained,
+    fearGain: roll.fearGained,
+    stressCleared: roll.stressCleared,
+    canTakeFreeAction: roll.canTakeFreeAction,
+    narrationHint: `${character.name}尝试"${decl.action}"（${attrLabel}，难度${decl.difficulty}）：${zhOutcome(roll.type)}（${roll.total} vs ${decl.difficulty}）${roll.isCritical ? '——关键成功！' : ''}`,
+  };
+}
+
+// --- 辅助 ---
+
+function traitModifier(c: Character, trait?: string): number {
+  if (!trait) return 0;
+  return (c.attributes as Record<string, number>)[trait] ?? 0;
+}
+
+function autoArmorPolicy(c: Character, raw: number): number {
+  if (c.armorSlots <= 0) return 0;
+  const sev = calculateDamageSeverity(raw, c.minorThreshold, c.majorThreshold, c.severeThreshold);
+  return sev === 'major' || sev === 'severe' ? 1 : 0;
+}
+
+function zhOutcome(t: string): string {
+  const map: Record<string, string> = {
+    criticalSuccess: '关键成功',
+    hopeSuccess: '希望成功',
+    fearSuccess: '恐惧成功',
+    hopeFailure: '希望失败',
+    fearFailure: '恐惧失败',
+  };
+  return map[t] ?? t;
+}
+
+function zhSeverity(s: DamageSeverity): string {
+  return { none: '无', minor: '轻度', major: '重度', severe: '严重' }[s];
+}
+
+// ===== 敌人攻击玩家 =====
+
+export interface EnemyAttackResolution {
+  /** Enemy that attacked */
+  enemyId: string;
+  enemyName: string;
+  /** Attack used */
+  attackName: string;
+  /** Target player */
+  targetId: string;
+  /** Total raw damage */
+  rawDamage: number;
+  /** Damage after severity conversion (HP marks lost by player) */
+  hpLoss: number;
+  /** Severity tier */
+  severity: DamageSeverity;
+  /** Armor slots spent to reduce */
+  armorSlotsSpent: number;
+  /** Stress damage applied */
+  stressDamage: number;
+  /** Condition applied */
+  conditionApplied?: string;
+  conditionDuration?: number;
+  /** Fear cost spent (if this was a fear-trait attack) */
+  fearCost: number;
+  /** Narrative hint for AI */
+  narrationHint: string;
+}
+
+/**
+ * Resolve an enemy attacking a player character.
+ * Unlike player attacks (which use the duality dice), enemy attacks
+ * are deterministic: damage is rolled from the formula, then converted
+ * to severity using the player's thresholds.
+ *
+ * This is the core of "rules drive combat, AI only narrates."
+ */
+export function resolveEnemyAttack(
+  enemy: { id: string; name: string },
+  target: Character,
+  rawDamage: number,
+  options?: {
+    attackName?: string;
+    stressDamage?: number;
+    conditionApplied?: string;
+    conditionDuration?: number;
+    fearCost?: number;
+    autoArmorSlots?: number;
+  },
+): EnemyAttackResolution {
+  const attackName = options?.attackName ?? '攻击';
+  const stressDamage = options?.stressDamage ?? 0;
+  const fearCost = options?.fearCost ?? 0;
+
+  // Calculate damage severity against the player's thresholds
+  const severityBefore = calculateDamageSeverity(
+    rawDamage, target.minorThreshold, target.majorThreshold, target.severeThreshold,
+  );
+
+  // Auto-spend armor slots for major/severe damage
+  const autoSlots = options?.autoArmorSlots ?? autoArmorPolicy(target, rawDamage);
+  const slotsToSpend = Math.min(autoSlots, target.armorSlots);
+  const { newSeverity, slotsSpent } = applyArmorSlot(severityBefore, slotsToSpend);
+  const hpLoss = getHpLossFromSeverity(newSeverity);
+
+  const hint = `${enemy.name}对${target.name}使用"${attackName}"，造成${rawDamage}点伤害（${zhSeverity(newSeverity)}，失去${hpLoss}点生命${slotsSpent ? `，消耗${slotsSpent}护甲槽` : ''}）${stressDamage ? `，附加${stressDamage}点压力` : ''}${options?.conditionApplied ? `，施加${options.conditionApplied}状态` : ''}。`;
+
+  return {
+    enemyId: enemy.id,
+    enemyName: enemy.name,
+    attackName,
+    targetId: target.id,
+    rawDamage,
+    hpLoss,
+    severity: newSeverity,
+    armorSlotsSpent: slotsSpent,
+    stressDamage,
+    conditionApplied: options?.conditionApplied,
+    conditionDuration: options?.conditionDuration,
+    fearCost,
+    narrationHint: hint,
+  };
+}
+
+
+
+######## FILE: server/src/rules/lootResolver.ts ########
+/**
+ * Loot resolver — generates post-combat loot and scene search results
+ * Uses loot.json and consumables.json catalogs with dice-roll selection
+ */
+import lootData from './data/daggerheart/loot.json';
+import consumablesData from './data/daggerheart/consumables.json';
+import type { LootResult } from '@trpgmaster/shared';
+import { rollDualD12 } from './systems/DaggerHeartRules';
+
+/** Loot table entry structure */
+interface LootTableEntry {
+  id: string;
+  name: string;
+  description?: string;
+  roll: number;
+}
+
+/** Consumable data structure */
+interface ConsumableEntry {
+  id: string;
+  name: string;
+  description?: string;
+  rarity: 'common' | 'uncommon' | 'rare';
+}
+
+const typedLootData = lootData as LootTableEntry[];
+const typedConsumablesData = consumablesData as ConsumableEntry[];
+
+/** Simple dN roll */
+function rollD(n: number): number {
+  return Math.floor(Math.random() * n) + 1;
+}
+
+/** Roll for post-combat loot based on difficulty tier */
+export function rollLootTable(difficulty: number, tier: number = 1): LootResult {
+  const items: LootResult['items'] = [];
+  const gold: LootResult['gold'] = { coins: 0, handfuls: 0, bags: 0, chests: 0 };
+
+  // Number of items scales with difficulty
+  const itemCount = difficulty >= 20 ? 2 : 1;
+
+  // Roll for consumables (1 per combat, tier-based)
+  const consumablePool = typedConsumablesData.filter(c => {
+    if (tier >= 3) return true;
+    if (tier >= 2) return c.rarity !== 'rare';
+    return c.rarity === 'common';
+  });
+
+  for (let i = 0; i < itemCount; i++) {
+    // 50% chance loot item, 50% chance consumable
+    if (Math.random() < 0.5 && typedLootData.length > 0) {
+      const roll = rollD(Math.min(typedLootData.length, 20));
+      const entry = typedLootData.find(l => l.roll === roll);
+      if (entry) {
+        items.push({
+          id: entry.id,
+          name: entry.name,
+          description: entry.description,
+          category: 'treasure',
+          quantity: 1,
+        });
+      }
+    } else if (consumablePool.length > 0) {
+      const idx = Math.floor(Math.random() * consumablePool.length);
+      const entry = consumablePool[idx];
+      items.push({
+        id: entry.id,
+        name: entry.name,
+        description: entry.description,
+        category: 'consumable',
+        quantity: 1,
+      });
+    }
+  }
+
+  // Gold reward scales with difficulty
+  const coinRoll = rollD(difficulty >= 20 ? 20 : difficulty >= 15 ? 12 : 6);
+  gold.coins = coinRoll;
+
+  return { items, gold };
+}
+
+/** Roll for scene search results (smaller loot) */
+export function rollSceneSearchLoot(): LootResult {
+  const items: LootResult['items'] = [];
+  const gold: LootResult['gold'] = { coins: 0, handfuls: 0, bags: 0, chests: 0 };
+
+  // Scene search gives fewer items
+  if (Math.random() < 0.4) {
+    // 40% chance to find a consumable
+    const pool = typedConsumablesData.filter(c => c.rarity === 'common');
+    if (pool.length > 0) {
+      const idx = Math.floor(Math.random() * pool.length);
+      const entry = pool[idx];
+      items.push({
+        id: entry.id,
+        name: entry.name,
+        description: entry.description,
+        category: 'consumable',
+        quantity: 1,
+      });
+    }
+  }
+
+  // Small gold find
+  gold.coins = rollD(4);
+
+  return { items, gold };
+}
+
+
+
+######## FILE: server/src/rules/systems/DaggerHeartRules.ts ########
+/**
+ * DaggerHeart 完整规则引擎
+ * 实现匕首之心核心机制：二元骰、伤害阈值、希望/恐惧、压力、休整、死亡行动、升级、污染
+ *
+ * 对齐 shared/types 中的类型定义，移除已废弃的 massive/critical 伤害等级，
+ * 更新阈值为 minor/major/severe，移除多人机制，新增单人战役相关规则。
+ *
+ * v2: 实现 IRulesEngine 接口，同时保留旧导出函数向后兼容
+ */
+import type {
+  RollResultType,
+  RollResult,
+  DamageSeverity,
+  Attribute,
+  Tier,
+  DeathMoveType,
+  DeathMoveResult,
+  RestType,
+  ShortRestAction,
+  LongRestAction,
+  RestResult,
+  ConditionInstance,
+  DamageType,
+  DamageDie,
+  Resistance,
+  ContaminationLevel,
+  CharacterCore,
+  SystemCharacter,
+  CreationFlowDef,
+} from '@trpgmaster/shared';
+import { DAMAGE_SEVERITY_HP, getTier, calculateThresholds as calcThresholds } from '@trpgmaster/shared';
+import type { Character, ClassData, ArmorData, WeaponData, Experience, DomainCard, Countdown } from '@trpgmaster/shared';
+import type {
+  IRulesEngine,
+  CharacterValidationResult,
+  DamageResult,
+  AttackResult,
+  LevelUpOption,
+  LevelUpResult,
+} from '../IRulesEngine';
+import { getDataProvider } from '../DataProviderRegistry';
+
+// ===== 内部类型定义 =====
+
+export interface DualD12Result {
+  hopeDie: number;
+  fearDie: number;
+  total: number;
+}
+
+export interface DualityDiceResult {
+  hopeDie: number;
+  fearDie: number;
+  modifier: number;
+  total: number;
+  difficulty: number;
+  outcome: RollResultType;
+  isCritical: boolean;
+  withHope: boolean;
+  withFear: boolean;
+  hopeGain: number;
+  fearGain: number;
+  success: boolean;
+  stressCleared: number;
+  canTakeFreeAction: boolean;
+}
+
+export interface ReactionRollResult {
+  hopeDie: number;
+  fearDie: number;
+  total: number;
+  isCritical: boolean;
+  success: boolean;
+  hopeGained: number;
+  fearGained: number;
+}
+
+export interface StressOverflowResult {
+  stressApplied: number;
+  hpOverflow: number;
+  newStress: number;
+  shouldApplyVulnerable: boolean;
+}
+
+export interface LevelUpBenefit {
+  type: 'domainCard' | 'attributeBoost' | 'hpSlot' | 'stressSlot' | 'armorSlot' | 'experience' | 'proficiency' | 'subclassFeature';
+  description: string;
+  mandatory?: boolean;
+}
+
+type DrakkenheimZone = 'village' | 'outer' | 'inner' | 'heavy';
+
+// ===== DaggerHeartRules 类 =====
+
+export class DaggerHeartRules implements IRulesEngine {
+  readonly systemId = 'daggerheart';
+  readonly systemName = 'Daggerheart（匕首之心）';
+  readonly maxLevel = 10;
+
+  // ===== IRulesEngine 通用方法 =====
+
+  rollCheck(modifier: number, difficulty: number, options?: Record<string, unknown>): RollResult {
+    const advantageCount = (options?.advantageCount as number) ?? 0;
+    const disadvantageCount = (options?.disadvantageCount as number) ?? 0;
+    const dice = this.rollDualD12();
+    return this.resolveRoll(
+      dice.hopeDie, dice.fearDie, modifier, difficulty,
+      advantageCount, disadvantageCount,
+    );
+  }
+
+  validateCharacter(data: unknown): CharacterValidationResult {
+    const character = data as Partial<Character>;
+    const errors = this.validateCharacterSheet(character);
+    return { valid: errors.length === 0, errors };
+  }
+
+  resolveDamage(rawDamage: number, defender: Character): DamageResult {
+    const severity = this.calculateDamageSeverity(
+      rawDamage, defender.minorThreshold, defender.majorThreshold, defender.severeThreshold,
+    );
+    const hpLoss = this.getHpLossFromSeverity(severity);
+    return {
+      rawDamage,
+      hpLoss,
+      severity,
+      narrationHint: `${defender.name}受到${severity}伤害，失去${hpLoss}点生命。`,
+    };
+  }
+
+  applyDamage(character: Character, result: DamageResult): Character {
+    const updated = { ...character };
+    updated.hp = Math.max(0, updated.hp - result.hpLoss);
+    return updated;
+  }
+
+  getAttackDifficulty(attacker: Character, defender: { evasion?: number; armorClass?: number; [key: string]: unknown }): number {
+    return defender.evasion ?? 10;
+  }
+
+  executeRest(type: RestType, character: Character, actions: (ShortRestAction | LongRestAction)[], context?: Record<string, unknown>): RestResult {
+    const shortRestsSinceLong = (context?.shortRestsSinceLong as number) ?? 0;
+    const result = this.executeRestInternal(type, actions, character, shortRestsSinceLong);
+    // Strip newShortRestCount from the internal return; RestResult doesn't have it
+    return {
+      type: result.type,
+      actions: result.actions,
+      hpRestored: result.hpRestored,
+      stressCleared: result.stressCleared,
+      armorSlotsCleared: result.armorSlotsCleared,
+      hopeGained: result.hopeGained,
+      fearGainedByGM: result.fearGainedByGM,
+      domainCardsSwapped: result.domainCardsSwapped,
+    };
+  }
+
+  handleDeath(character: Character, moveType: string, dice?: Record<string, number>): DeathMoveResult {
+    switch (moveType) {
+      case 'gloriousSacrifice':
+        return this.gloriousSacrifice();
+      case 'avoidDeath':
+        return this.avoidDeath(character.level, dice?.hopeDie ?? Math.floor(Math.random() * 12) + 1);
+      case 'desperateGamble':
+        return this.desperateGamble(
+          dice?.hopeDie ?? Math.floor(Math.random() * 12) + 1,
+          dice?.fearDie ?? Math.floor(Math.random() * 12) + 1,
+        );
+      default:
+        return {
+          type: moveType as DeathMoveType,
+          characterDied: true,
+          hpRestored: 0,
+          stressCleared: 0,
+          scarGained: false,
+          narrative: `未知的死亡行动类型：${moveType}`,
+        };
+    }
+  }
+
+  getDeathMoveTypes(): string[] {
+    return ['gloriousSacrifice', 'avoidDeath', 'desperateGamble'];
+  }
+
+  getLevelUpOptions(character: Character, newLevel: number): LevelUpOption[] {
+    // Daggerheart: at each level you get 2 upgrade slots
+    // Map DaggerHeartRules.getLevelUpOptions(level) to the generic LevelUpOption[]
+    const benefits = this.getLevelUpBenefits(newLevel);
+    return benefits.map(b => ({
+      type: b.type,
+      label: b.description,
+      description: b.description,
+      slotCost: b.mandatory ? 0 : 1,
+      available: true,
+      mandatory: b.mandatory,
+    }));
+  }
+
+  applyLevelUp(character: Character, newLevel: number, choices: Record<string, unknown>): LevelUpResult {
+    // This is a simplified adapter — the full implementation lives in CharacterLevelUp
+    // which uses DaggerHeartRules primitives. Here we provide a basic stub.
+    const oldTier = getTier(character.level);
+    const newTier = getTier(newLevel);
+    const errors: string[] = [];
+
+    if (newLevel !== character.level + 1) {
+      errors.push(`升级必须逐级进行`);
+      return { success: false, errors, tierChanged: false, oldTier, newTier };
+    }
+    if (newLevel > this.maxLevel) {
+      errors.push(`最高等级为${this.maxLevel}级`);
+      return { success: false, errors, tierChanged: false, oldTier, newTier };
+    }
+
+    // Stub: actual level-up logic is in CharacterLevelUp which composes DaggerHeartRules functions
+    return {
+      success: true,
+      character: { ...character, level: newLevel, tier: newTier },
+      errors: [],
+      tierChanged: oldTier !== newTier,
+      oldTier,
+      newTier,
+    };
+  }
+
+  addCondition(conditions: ConditionInstance[], condition: ConditionInstance): ConditionInstance[] {
+    return this.addConditionInternal(conditions, condition);
+  }
+
+  removeCondition(conditions: ConditionInstance[], conditionName: string): ConditionInstance[] {
+    return conditions.filter(c => c.condition !== conditionName);
+  }
+
+  tickConditions(conditions: ConditionInstance[]): { updated: ConditionInstance[]; expired: string[] } {
+    return this.tickConditionsInternal(conditions);
+  }
+
+  applyResistance(damage: number, damageType: DamageType, resistances: Resistance[]): { finalDamage: number; resisted: boolean; immune: boolean } {
+    return this.applyResistanceInternal(damage, damageType, resistances);
+  }
+
+  calculateThresholds(params: Record<string, number>): { minor: number; major: number; severe: number } {
+    return this.calculateThresholdsInternal(
+      params.armorBaseMinor ?? 0,
+      params.armorBaseMajor ?? 0,
+      params.level ?? 1,
+      params.modifiers ?? 0,
+    );
+  }
+
+  // ===== 角色创建（IRulesEngine 扩展） =====
+
+  getCreationFlow(): CreationFlowDef {
+    return {
+      systemId: 'daggerheart',
+      steps: [
+        { id: 'class', label: '职业', description: '选择你的职业和子职业', dataKey: 'classId', renderer: 'select-one', rendererConfig: { dataKey: 'classes' } },
+        { id: 'ancestry', label: '种族', description: '选择你的种族', dataKey: 'ancestryId', renderer: 'select-one', rendererConfig: { dataKey: 'ancestries' } },
+        { id: 'community', label: '社群', description: '选择你的成长社群', dataKey: 'communityId', renderer: 'select-one', rendererConfig: { dataKey: 'communities' } },
+        { id: 'attributes', label: '属性', description: '分配属性值 (+2,+1,+1,0,0,-1)', dataKey: 'attributes', renderer: 'attribute-allocate', rendererConfig: { values: [2, 1, 1, 0, 0, -1], keys: ['agility', 'strength', 'finesse', 'instinct', 'presence', 'knowledge'] } },
+        { id: 'resources', label: '资源', description: '记录基础资源（闪避值、生命点、压力点、希望恐惧点）', dataKey: 'resources', renderer: 'resource-preview', optional: true },
+        { id: 'equipment', label: '装备', description: '选择武器和护甲', dataKey: 'mainWeaponId', renderer: 'select-one', rendererConfig: { dataKey: 'weapons+armor' } },
+        { id: 'backstory', label: '背景', description: '创作你的背景故事', dataKey: 'name', renderer: 'text-input', rendererConfig: { fields: ['name', 'backstory', 'personalQuest'] } },
+        { id: 'domainCards', label: '领域卡', description: '选择两张1级领域卡', dataKey: 'domainCards', renderer: 'multi-select', rendererConfig: { min: 2, max: 5, levelRestriction: 1, dataKey: 'domainCards' } },
+        { id: 'connections', label: '人际关系', description: '创作你的人际关系', dataKey: 'connections', renderer: 'connection-list', optional: true },
+      ],
+    };
+  }
+
+  validateCreationStep(stepId: string, data: Record<string, unknown>): Record<string, string[]> {
+    const errors: Record<string, string[]> = {};
+    const ALL_ATTRIBUTES: Attribute[] = ['agility', 'strength', 'finesse', 'instinct', 'presence', 'knowledge'];
+    const VALID_ATTRIBUTE_DISTRIBUTION = [2, 1, 1, 0, 0, -1];
+
+    switch (stepId) {
+      case 'class':
+        if (!data.classId) errors.classId = ['请选择一个职业'];
+        break;
+      case 'ancestry':
+        if (!data.ancestryId) errors.ancestryId = ['请选择一个血统'];
+        break;
+      case 'community':
+        if (!data.communityId) errors.communityId = ['请选择一个社区'];
+        break;
+      case 'attributes':
+        if (!data.attributes || Object.keys(data.attributes as Record<string, number>).length !== 6) {
+          errors.attributes = ['请分配所有6个属性'];
+        } else {
+          const attrs = data.attributes as Record<Attribute, number>;
+          const values = ALL_ATTRIBUTES.map(a => attrs[a]).sort((a, b) => b - a);
+          if (!values.every((v, i) => v === VALID_ATTRIBUTE_DISTRIBUTION[i])) {
+            errors.attributes = ['属性分配必须为+2,+1,+1,0,0,-1的排列'];
+          }
+        }
+        break;
+      case 'domainCards':
+        const cards = data.domainCards as DomainCard[] | undefined;
+        if (!cards || cards.length < 2) {
+          errors.domainCards = ['至少选择2张领域卡'];
+        } else if (cards.length > 5) {
+          errors.domainCards = ['最多配置5张领域卡'];
+        } else if (cards.some(c => c.level !== 1)) {
+          errors.domainCards = ['一级角色只能选择一级领域卡'];
+        }
+        break;
+      case 'backstory':
+        if (!data.name || (data.name as string).trim().length === 0) {
+          errors.name = ['请输入角色名称'];
+        }
+        break;
+    }
+    return errors;
+  }
+
+  buildCharacter(core: CharacterCore, creationData: Record<string, unknown>): SystemCharacter {
+    const dp = getDataProvider('daggerheart');
+    const level = core.level || 1;
+    const tier = getTier(level);
+    const proficiency = 1;
+
+    const classData = dp.getClasses().find(c => c.id === creationData.classId) as ClassData | undefined;
+    const armorData = dp.getArmor().find(a => a.id === creationData.armorId) as ArmorData | undefined;
+    const mainWeapon = dp.getWeapons().find(w => w.id === creationData.mainWeaponId) as WeaponData | undefined;
+
+    if (!classData || !armorData || !mainWeapon) {
+      throw new Error('Missing required creation data: classId, armorId, or mainWeaponId');
+    }
+
+    const maxHp = classData.baseHp;
+    const maxStress = classData.baseStress;
+    const maxHope = 6;
+    const maxArmorSlots = armorData.armorSlots;
+    const evasion = classData.baseEvasion + armorData.evasionPenalty;
+    const thresholds = calcThresholds(armorData.baseThreshold, armorData.baseThresholdSevere, level);
+
+    const attrs = creationData.attributes as Record<Attribute, number>;
+    const attributeMarks: Record<Attribute, boolean> = {
+      agility: false, strength: false, finesse: false,
+      instinct: false, presence: false, knowledge: false,
+    };
+
+    const offWeapon = creationData.offWeaponId
+      ? dp.getWeapons().find(w => w.id === creationData.offWeaponId) as WeaponData | undefined
+      : undefined;
+
+    const domainCards = (creationData.domainCards as DomainCard[] | undefined) ?? [];
+    const experiences = (creationData.experiences as Experience[] | undefined) ?? [];
+
+    return {
+      coreId: core.id,
+      systemId: 'daggerheart',
+      systemData: {
+        classId: creationData.classId as string,
+        subclassId: creationData.subclassId as string ?? '',
+        ancestryId: creationData.ancestryId as string,
+        secondAncestryId: creationData.secondAncestryId as string | undefined,
+        mixedAncestryFeature1: creationData.mixedAncestryFeature1 as string | undefined,
+        mixedAncestryFeature2: creationData.mixedAncestryFeature2 as string | undefined,
+        communityId: creationData.communityId as string,
+        tier,
+        proficiency,
+        attributes: attrs,
+        attributeMarks,
+        stress: 0,
+        maxStress,
+        hope: 2,
+        maxHope,
+        armorSlots: maxArmorSlots,
+        maxArmorSlots,
+        evasion,
+        minorThreshold: thresholds.minor,
+        majorThreshold: thresholds.major,
+        severeThreshold: thresholds.severe,
+        mainWeapon,
+        offWeapon,
+        armor: armorData,
+        gold: { coins: 0, handfuls: 1, bags: 0, chests: 0 },
+        experiences,
+        domainCardConfig: { loadout: domainCards.slice(0, 5), vault: domainCards.slice(5), maxLoadout: 5 },
+        featureUses: {},
+        scars: [],
+        conditions: [],
+        resistances: [],
+        reactionsUsed: 0,
+      },
+      hp: maxHp,
+      maxHp,
+      inventory: [],
+    };
+  }
+
+  // ===== Daggerheart 特有方法（保留所有原始函数签名） =====
+
+  /** 掷二元骰 (2d12) */
+  rollDualD12(): DualD12Result {
+    const hopeDie = Math.floor(Math.random() * 12) + 1;
+    const fearDie = Math.floor(Math.random() * 12) + 1;
+    return { hopeDie, fearDie, total: hopeDie + fearDie };
+  }
+
+  /** 判定掷骰结果（完整版，返回 RollResult） */
+  resolveRoll(
+    hopeDie: number,
+    fearDie: number,
+    modifier: number,
+    difficulty: number,
+    advantageCount: number = 0,
+    disadvantageCount: number = 0,
+  ): RollResult {
+    const isCritical = hopeDie === fearDie;
+    const baseTotal = hopeDie + fearDie + modifier;
+    const hopeHigher = hopeDie > fearDie;
+
+    const { d6Result, finalTotal } = this.rollAdvantageDisadvantage(
+      baseTotal, advantageCount, disadvantageCount,
+    );
+
+    const isSuccess = isCritical || finalTotal >= difficulty;
+
+    let type: RollResultType;
+    let hopeGained = 0;
+    let fearGained = 0;
+
+    if (isCritical) {
+      type = 'criticalSuccess';
+      hopeGained = 1;
+    } else if (isSuccess && hopeHigher) {
+      type = 'hopeSuccess';
+      hopeGained = 1;
+    } else if (isSuccess && !hopeHigher) {
+      type = 'fearSuccess';
+      fearGained = 1;
+    } else if (!isSuccess && hopeHigher) {
+      type = 'hopeFailure';
+      hopeGained = 1;
+    } else {
+      type = 'fearFailure';
+      fearGained = 1;
+    }
+
+    return {
+      type, hopeDie, fearDie, modifier,
+      total: finalTotal, difficulty,
+      success: isSuccess, hopeGained, fearGained, isCritical,
+      stressCleared: isCritical ? 1 : 0,
+      canTakeFreeAction: isCritical,
+      advantageDice: advantageCount, disadvantageDice: disadvantageCount,
+    };
+  }
+
+  /** 服务端骰子结算入口 */
+  resolveDualityDice(
+    hopeDie: number,
+    fearDie: number,
+    modifier: number,
+    difficulty: number,
+  ): DualityDiceResult {
+    const roll = this.resolveRoll(hopeDie, fearDie, modifier, difficulty);
+    return {
+      hopeDie: roll.hopeDie, fearDie: roll.fearDie,
+      modifier: roll.modifier, total: roll.total,
+      difficulty: roll.difficulty, outcome: roll.type,
+      isCritical: roll.isCritical,
+      withHope: roll.hopeGained > 0, withFear: roll.fearGained > 0,
+      hopeGain: roll.hopeGained, fearGain: roll.fearGained,
+      success: roll.success,
+      stressCleared: roll.stressCleared,
+      canTakeFreeAction: roll.canTakeFreeAction,
+    };
+  }
+
+  /** 优势/劣势 d6 骰处理 */
+  rollAdvantageDisadvantage(
+    baseTotal: number,
+    advantageCount: number,
+    disadvantageCount: number,
+  ): { netAdvantage: number; d6Result: number | null; finalTotal: number } {
+    const netAdvantage = advantageCount - disadvantageCount;
+    let d6Result: number | null = null;
+    let finalTotal = baseTotal;
+
+    if (netAdvantage > 0) {
+      d6Result = Math.floor(Math.random() * 6) + 1;
+      finalTotal = baseTotal + d6Result;
+    } else if (netAdvantage < 0) {
+      d6Result = Math.floor(Math.random() * 6) + 1;
+      finalTotal = baseTotal - d6Result;
+    }
+
+    return { netAdvantage, d6Result, finalTotal };
+  }
+
+  /** 反应掷骰 */
+  resolveReactionRoll(
+    hopeDie: number,
+    fearDie: number,
+    modifier: number,
+    difficulty: number,
+  ): ReactionRollResult {
+    const total = hopeDie + fearDie + modifier;
+    const isCritical = hopeDie === fearDie;
+    const success = isCritical || total >= difficulty;
+    return { hopeDie, fearDie, total, isCritical, success, hopeGained: 0, fearGained: 0 };
+  }
+
+  /** 计算伤害阈值 */
+  calculateThresholdsInternal(
+    armorBaseMinor: number,
+    armorBaseMajor: number,
+    level: number,
+    modifiers: number = 0,
+  ): { minor: number; major: number; severe: number } {
+    const minor = armorBaseMinor + level + modifiers;
+    const major = armorBaseMajor + level + modifiers;
+    const severe = major * 2;
+    return { minor, major, severe };
+  }
+
+  /** 判定伤害等级 */
+  calculateDamageSeverity(
+    damage: number,
+    minorThreshold: number,
+    majorThreshold: number,
+    severeThreshold: number,
+  ): DamageSeverity {
+    if (damage >= severeThreshold) return 'severe';
+    if (damage >= majorThreshold) return 'major';
+    if (damage >= minorThreshold) return 'minor';
+    if (damage > 0) return 'minor';
+    return 'none';
+  }
+
+  /** 伤害等级对应的HP标记数 */
+  getHpLossFromSeverity(severity: DamageSeverity): number {
+    return DAMAGE_SEVERITY_HP[severity];
+  }
+
+  /** 使用护甲槽降低伤害等级 */
+  applyArmorSlot(
+    severity: DamageSeverity,
+    armorSlotsToSpend: number = 1,
+  ): { newSeverity: DamageSeverity; slotsSpent: number } {
+    const severityOrder: DamageSeverity[] = ['none', 'minor', 'major', 'severe'];
+    const currentIndex = severityOrder.indexOf(severity);
+    const newIndex = Math.max(0, currentIndex - armorSlotsToSpend);
+    const actualSpent = currentIndex - newIndex;
+    return { newSeverity: severityOrder[newIndex], slotsSpent: Math.max(0, actualSpent) };
+  }
+
+  /** 计算关键成功的额外伤害 */
+  calculateCriticalDamage(
+    proficiency: number,
+    damageDie: DamageDie,
+    modifier: number = 0,
+  ): { maxDieValue: number; normalDamage: number; totalDamage: number } {
+    const dieSides = parseInt(damageDie.slice(1));
+    const rolls = Array.from({ length: proficiency }, () =>
+      Math.floor(Math.random() * dieSides) + 1,
+    );
+    const maxDieValue = dieSides;
+    const normalDamage = rolls.reduce((sum, r) => sum + r, 0) + modifier;
+    const totalDamage = maxDieValue + normalDamage;
+    return { maxDieValue, normalDamage, totalDamage };
+  }
+
+  /** 计算武器伤害掷骰 */
+  rollWeaponDamage(
+    proficiency: number,
+    damageDie: DamageDie,
+    modifier: number = 0,
+  ): { rolls: number[]; total: number } {
+    const dieSides = parseInt(damageDie.slice(1));
+    const rolls = Array.from({ length: proficiency }, () =>
+      Math.floor(Math.random() * dieSides) + 1,
+    );
+    const total = rolls.reduce((sum, r) => sum + r, 0) + modifier;
+    return { rolls, total };
+  }
+
+  // ===== 希望点/恐惧点系统 =====
+
+  /** 消耗希望点 */
+  spendHope(currentHope: number, amount: number): number | null {
+    const newHope = currentHope - amount;
+    if (newHope < 0) return null;
+    return newHope;
+  }
+
+  /** 获得希望点（不超过上限） */
+  gainHope(currentHope: number, maxHope: number, amount: number): number {
+    return Math.min(currentHope + amount, maxHope);
+  }
+
+  /** GM获得恐惧点（休整时） */
+  gainFearOnRest(restType: RestType): number {
+    const d4 = Math.floor(Math.random() * 4) + 1;
+    if (restType === 'short') return d4;
+    return d4 + 2;
+  }
+
+  // ===== 压力系统 =====
+
+  /** 应用压力溢出 */
+  applyStressOverflow(
+    currentStress: number,
+    maxStress: number,
+    stressAmount: number,
+  ): StressOverflowResult {
+    const newStress = currentStress + stressAmount;
+    const shouldApplyVulnerable = newStress >= maxStress && currentStress < maxStress;
+
+    if (newStress <= maxStress) {
+      return { stressApplied: stressAmount, hpOverflow: 0, newStress, shouldApplyVulnerable };
+    }
+
+    const overflow = newStress - maxStress;
+    return {
+      stressApplied: maxStress - currentStress,
+      hpOverflow: overflow,
+      newStress: maxStress,
+      shouldApplyVulnerable: true,
+    };
+  }
+
+  /** 检查是否应施加脆弱状态 */
+  shouldApplyVulnerableOnStress(
+    currentStress: number,
+    maxStress: number,
+    stressToAdd: number,
+  ): boolean {
+    const newStress = currentStress + stressToAdd;
+    return newStress >= maxStress && currentStress < maxStress;
+  }
+
+  /** 清除压力点 */
+  clearStress(currentStress: number, amount: number): number {
+    return Math.max(0, currentStress - amount);
+  }
+
+  // ===== 休整系统 =====
+
+  /** 短休可选行动 */
+  getShortRestActions(): { id: ShortRestAction; name: string; description: string }[] {
+    return [
+      { id: 'treatWounds', name: '处理伤口', description: '恢复1d4+位阶生命点' },
+      { id: 'relieveStress', name: '缓解压力', description: '清除1d4+位阶压力点' },
+      { id: 'repairArmor', name: '修理护甲', description: '清除1d4+位阶护甲槽' },
+      { id: 'prepare', name: '做好准备', description: '获得1希望点' },
+    ];
+  }
+
+  /** 长休可选行动 */
+  getLongRestActions(): { id: LongRestAction; name: string; description: string }[] {
+    return [
+      { id: 'treatAllWounds', name: '处理所有伤口', description: '恢复所有生命点' },
+      { id: 'relieveAllStress', name: '缓解所有压力', description: '清除所有压力点' },
+      { id: 'repairAllArmor', name: '修理所有护甲', description: '清除所有护甲槽' },
+      { id: 'prepareFully', name: '做好充分准备', description: '获得2希望点' },
+      { id: 'advanceProject', name: '推进长期项目', description: '推进一个长期项目或研究' },
+    ];
+  }
+
+  /** 执行短休行动 */
+  executeShortRestAction(
+    action: ShortRestAction,
+    character: Character,
+  ): Partial<RestResult> {
+    const tier = getTier(character.level);
+    const d4 = Math.floor(Math.random() * 4) + 1;
+    const tierBonus = tier;
+
+    switch (action) {
+      case 'treatWounds': return { hpRestored: d4 + tierBonus };
+      case 'relieveStress': return { stressCleared: d4 + tierBonus };
+      case 'repairArmor': return { armorSlotsCleared: d4 + tierBonus };
+      case 'prepare': return { hopeGained: 1 };
+    }
+  }
+
+  /** 执行长休行动 */
+  executeLongRestAction(
+    action: LongRestAction,
+    character: Character,
+  ): Partial<RestResult> {
+    switch (action) {
+      case 'treatAllWounds': return { hpRestored: character.maxHp - character.hp };
+      case 'relieveAllStress': return { stressCleared: character.stress };
+      case 'repairAllArmor': return { armorSlotsCleared: character.armorSlots };
+      case 'prepareFully': return { hopeGained: 2 };
+      case 'advanceProject': return {};
+    }
+  }
+
+  /** 执行完整休整 */
+  executeRestInternal(
+    type: RestType,
+    actions: (ShortRestAction | LongRestAction)[],
+    character: Character,
+    shortRestsSinceLong: number,
+  ): RestResult & { newShortRestCount: number } {
+    let hpRestored = 0;
+    let stressCleared = 0;
+    let armorSlotsCleared = 0;
+    let hopeGained = 0;
+
+    for (const action of actions) {
+      if (type === 'short') {
+        const result = this.executeShortRestAction(action as ShortRestAction, character);
+        hpRestored += result.hpRestored ?? 0;
+        stressCleared += result.stressCleared ?? 0;
+        armorSlotsCleared += result.armorSlotsCleared ?? 0;
+        hopeGained += result.hopeGained ?? 0;
+      } else {
+        const result = this.executeLongRestAction(action as LongRestAction, character);
+        hpRestored += result.hpRestored ?? 0;
+        stressCleared += result.stressCleared ?? 0;
+        armorSlotsCleared += result.armorSlotsCleared ?? 0;
+        hopeGained += result.hopeGained ?? 0;
+      }
+    }
+
+    const fearGainedByGM = this.gainFearOnRest(type);
+    const newShortRestCount = type === 'long' ? 0 : shortRestsSinceLong + 1;
+
+    return {
+      type, actions,
+      hpRestored, stressCleared, armorSlotsCleared, hopeGained,
+      fearGainedByGM,
+      domainCardsSwapped: type === 'long',
+      newShortRestCount,
+    };
+  }
+
+  /** 检查是否可以进行短休 */
+  canShortRest(shortRestsSinceLong: number): boolean {
+    return shortRestsSinceLong < 3;
+  }
+
+  // ===== 死亡行动 =====
+
+  /** 光荣就义 */
+  gloriousSacrifice(): DeathMoveResult {
+    return {
+      type: 'gloriousSacrifice',
+      characterDied: true,
+      hpRestored: 0,
+      stressCleared: 0,
+      scarGained: false,
+      narrative: '角色接受命运，执行一次关键成功的最后行动后英勇谢幕。',
+    };
+  }
+
+  /** 回避死亡 */
+  avoidDeath(level: number, hopeDie: number): DeathMoveResult {
+    if (hopeDie <= level) {
+      return {
+        type: 'avoidDeath', characterDied: false, hpRestored: 1, stressCleared: 0,
+        scarGained: true,
+        narrative: `希望骰${hopeDie} ≤ 等级${level}，获得一道伤痕（永久失去1希望槽），恢复1生命点。`,
+      };
+    }
+    return {
+      type: 'avoidDeath', characterDied: false, hpRestored: 1, stressCleared: 0,
+      scarGained: false,
+      narrative: `希望骰${hopeDie} > 等级${level}，恢复1生命点，但局势恶化。`,
+    };
+  }
+
+  /** 孤注一掷 */
+  desperateGamble(hopeDie: number, fearDie: number): DeathMoveResult {
+    if (hopeDie === fearDie) {
+      return {
+        type: 'desperateGamble', characterDied: false, hpRestored: 999, stressCleared: 999,
+        scarGained: false,
+        narrative: '关键成功！恢复所有生命点和压力点。',
+      };
+    }
+    if (hopeDie > fearDie) {
+      return {
+        type: 'desperateGamble', characterDied: false, hpRestored: hopeDie, stressCleared: hopeDie,
+        scarGained: false,
+        narrative: `希望骰(${hopeDie}) > 恐惧骰(${fearDie})，恢复${hopeDie}生命点和压力点。`,
+      };
+    }
+    return {
+      type: 'desperateGamble', characterDied: true, hpRestored: 0, stressCleared: 0,
+      scarGained: false,
+      narrative: `恐惧骰(${fearDie}) > 希望骰(${hopeDie})，角色死亡。`,
+    };
+  }
+
+  // ===== 升级系统 =====
+
+  /** 升级时可选择的收益 */
+  getLevelUpBenefits(level: number): LevelUpBenefit[] {
+    const base: LevelUpBenefit[] = [
+      { type: 'domainCard', description: '新领域卡' },
+      { type: 'attributeBoost', description: '属性提升（+1）' },
+      { type: 'hpSlot', description: '额外生命槽' },
+      { type: 'stressSlot', description: '额外压力槽' },
+      { type: 'armorSlot', description: '额外护甲槽' },
+      { type: 'experience', description: '新经历' },
+    ];
+
+    if (level >= 2 && level <= 9) {
+      base.push({ type: 'proficiency', description: '熟练值+1' });
+    }
+
+    return base;
+  }
+
+  /** 升阶成就（2/5/8级时触发） */
+  getTierUpBenefits(level: number): LevelUpBenefit[] {
+    const benefits: LevelUpBenefit[] = [];
+
+    if (level === 2 || level === 5 || level === 8) {
+      benefits.push({ type: 'experience', description: '+1经历', mandatory: true });
+      benefits.push({ type: 'proficiency', description: '熟练值+1', mandatory: true });
+    }
+    if (level === 5 || level === 8) {
+      benefits.push({ type: 'attributeBoost', description: '清除所有属性标记（允许再次提升）', mandatory: true });
+    }
+
+    return benefits;
+  }
+
+  /** 获取升级后的熟练值 */
+  getProficiencyForTier(tier: Tier): number {
+    return tier;
+  }
+
+  // ===== 抗性/免疫系统 =====
+
+  /** 应用抗性/免疫到伤害 */
+  applyResistanceInternal(
+    damage: number,
+    damageType: DamageType,
+    resistances: Resistance[],
+  ): { finalDamage: number; resisted: boolean; immune: boolean } {
+    const matching = resistances.find(r => r.damageType === damageType);
+    if (!matching) {
+      return { finalDamage: damage, resisted: false, immune: false };
+    }
+    if (matching.mode === 'immunity') {
+      return { finalDamage: 0, resisted: false, immune: true };
+    }
+    return { finalDamage: Math.floor(damage / 2), resisted: true, immune: false };
+  }
+
+  // ===== 状态管理 =====
+
+  /** 添加状态到角色 */
+  addConditionInternal(conditions: ConditionInstance[], condition: ConditionInstance): ConditionInstance[] {
+    const existing = conditions.find(c => c.condition === condition.condition);
+    if (existing) {
+      if (condition.roundsRemaining !== undefined && existing.roundsRemaining !== undefined) {
+        if (condition.roundsRemaining > existing.roundsRemaining) {
+          return conditions.map(c => c.condition === condition.condition ? condition : c);
+        }
+      }
+      return conditions;
+    }
+    return [...conditions, condition];
+  }
+
+  /** 回合结束时推进临时状态 */
+  tickConditionsInternal(conditions: ConditionInstance[]): { updated: ConditionInstance[]; expired: string[] } {
+    const expired: string[] = [];
+    const updated: ConditionInstance[] = [];
+
+    for (const cond of conditions) {
+      if (cond.duration === 'temporary' && cond.roundsRemaining !== undefined) {
+        const remaining = cond.roundsRemaining - 1;
+        if (remaining <= 0) {
+          expired.push(cond.condition);
+        } else {
+          updated.push({ ...cond, roundsRemaining: remaining });
+        }
+      } else {
+        updated.push(cond);
+      }
+    }
+
+    return { updated, expired };
+  }
+
+  /** 检查角色是否有指定状态 */
+  hasCondition(conditions: ConditionInstance[], conditionName: string): boolean {
+    return conditions.some(c => c.condition === conditionName);
+  }
+
+  // ===== 领域卡系统 =====
+
+  /** 回想领域卡 */
+  recallDomainCard(
+    cardId: string,
+    loadout: DomainCard[],
+    vault: DomainCard[],
+    availableRecallCost: number,
+  ): { newLoadout: DomainCard[]; newVault: DomainCard[]; costPaid: number } | null {
+    const cardInVault = vault.find(c => c.id === cardId);
+    if (!cardInVault) return null;
+    if (cardInVault.recallCost > availableRecallCost) return null;
+    if (loadout.length >= 5) return null;
+
+    const newVault = vault.filter(c => c.id !== cardId);
+    const newLoadout = [...loadout, cardInVault];
+
+    return { newLoadout, newVault, costPaid: cardInVault.recallCost };
+  }
+
+  /** 交换领域卡 */
+  swapDomainCard(
+    loadoutCardId: string,
+    vaultCardId: string,
+    loadout: DomainCard[],
+    vault: DomainCard[],
+  ): { newLoadout: DomainCard[]; newVault: DomainCard[] } | null {
+    const loadoutCard = loadout.find(c => c.id === loadoutCardId);
+    const vaultCard = vault.find(c => c.id === vaultCardId);
+    if (!loadoutCard || !vaultCard) return null;
+
+    const newLoadout = loadout.map(c => c.id === loadoutCardId ? vaultCard : c);
+    const newVault = vault.map(c => c.id === vaultCardId ? loadoutCard : c);
+
+    return { newLoadout, newVault };
+  }
+
+  // ===== 倒计时系统 =====
+
+  /** 推进倒计时 */
+  tickCountdown(countdown: Countdown): Countdown {
+    if (countdown.triggered) return countdown;
+    const newValue = countdown.currentValue - 1;
+    const triggered = newValue <= countdown.triggerAt;
+    return { ...countdown, currentValue: newValue, triggered };
+  }
+
+  /** 根据事件类型推进所有匹配的倒计时 */
+  tickCountdowns(
+    countdowns: Countdown[],
+    triggerOn: Countdown['decrementOn'],
+  ): { updated: Countdown[]; triggered: Countdown[] } {
+    const triggered: Countdown[] = [];
+    const updated = countdowns.map(cd => {
+      if (cd.triggered || cd.decrementOn !== triggerOn) return cd;
+      const newCd = this.tickCountdown(cd);
+      if (newCd.triggered) triggered.push(newCd);
+      return newCd;
+    });
+    return { updated, triggered };
+  }
+
+  // ===== 角色卡验证 =====
+
+  /** 验证角色卡的合法性 */
+  validateCharacterSheet(character: Partial<Character>): string[] {
+    const errors: string[] = [];
+
+    if (character.hp !== undefined && character.maxHp !== undefined) {
+      if (character.hp > character.maxHp) errors.push('HP不能超过maxHp');
+      if (character.hp < 0) errors.push('HP不能为负');
+    }
+
+    if (character.hope !== undefined && character.maxHope !== undefined) {
+      if (character.hope > character.maxHope) errors.push('希望点不能超过maxHope');
+      if (character.maxHope > 6) errors.push('希望点上限不能超过6');
+    }
+
+    if (character.attributes) {
+      const attrValues = Object.values(character.attributes) as number[];
+      const sum = attrValues.reduce((a: number, b: number) => a + b, 0);
+      if (sum !== 3) errors.push('属性调整值之和应为+3（+2,+1,+1,0,0,-1）');
+
+      const sorted = [...attrValues].sort((a: number, b: number) => b - a);
+      const expectedDistribution = [2, 1, 1, 0, 0, -1];
+      const matchesDistribution = sorted.every((v, i) => v === expectedDistribution[i]);
+      if (!matchesDistribution) errors.push('属性分配必须为+2,+1,+1,0,0,-1的排列');
+    }
+
+    if (character.experiences) {
+      if (character.experiences.length < 2) errors.push('至少需要2个经历');
+      character.experiences.forEach(exp => {
+        if (exp.modifier < 1 || exp.modifier > 5) {
+          errors.push(`经历"${exp.name}"的调整值应在+1到+5之间`);
+        }
+      });
+    }
+
+    if (character.domainCardConfig) {
+      if (character.domainCardConfig.loadout.length > 5) errors.push('配置中的领域卡不能超过5张');
+      character.domainCardConfig.loadout.forEach(card => {
+        if (card.level > (character.level ?? 1)) {
+          errors.push(`领域卡"${card.name}"的等级(${card.level})超过角色等级`);
+        }
+      });
+    }
+
+    return errors;
+  }
+
+  // ===== 德拉肯海姆特有机制 =====
+
+  /** 污染等级验证 */
+  validateContaminationLevel(level: number): boolean {
+    return Number.isInteger(level) && level >= 0 && level <= 6;
+  }
+
+  /** 污染是否达到终末 */
+  isContaminationTerminal(level: number): boolean {
+    return level >= 6;
+  }
+
+  /** 是否应抽取变异卡 */
+  shouldDrawMutationCard(newLevel: number, previousLevel: number): boolean {
+    if (previousLevel < 3 && newLevel >= 3) return true;
+    if (previousLevel < 5 && newLevel >= 5) return true;
+    return false;
+  }
+
+  /** 获取探险倒计时 */
+  getExplorationTimer(zone: DrakkenheimZone): number {
+    switch (zone) {
+      case 'village': return Infinity;
+      case 'outer': return 4;
+      case 'inner': return 3;
+      case 'heavy': return 2;
+    }
+  }
+
+  /** 污霭暴露反应难度 */
+  getHazeReactionDifficulty(zone: DrakkenheimZone): number {
+    switch (zone) {
+      case 'village': return 0;
+      case 'outer': return 12;
+      case 'inner': return 14;
+      case 'heavy': return 16;
+    }
+  }
+
+  /** 污染暴露风险 */
+  getContaminationRisk(zone: DrakkenheimZone): number {
+    switch (zone) {
+      case 'village': return 0;
+      case 'outer': return 1;
+      case 'inner': return 2;
+      case 'heavy': return 3;
+    }
+  }
+
+  /** 翠晶拾取污染风险 */
+  getDeleriumContaminationRisk(
+    deleriumType: 'fragment' | 'shard' | 'crystal' | 'vein',
+  ): number {
+    switch (deleriumType) {
+      case 'fragment': return 1;
+      case 'shard': return 2;
+      case 'crystal': return 3;
+      case 'vein': return 4;
+    }
+  }
+
+  /** 派系关系标签 */
+  getFactionRelationLabel(level: number): string {
+    if (level <= 2) return '敌对';
+    if (level <= 4) return '不友好';
+    if (level <= 6) return '中立';
+    if (level <= 8) return '友好';
+    return '同盟';
+  }
+
+  /** 派系关系等级变化 */
+  changeFactionRelation(currentRelation: number, change: number): number {
+    return Math.max(1, Math.min(10, currentRelation + change));
+  }
+
+  // ===== 闪避值系统 =====
+
+  /** 计算角色闪避值 */
+  calculateEvasion(
+    baseEvasion: number,
+    agilityModifier: number,
+    armorPenalty: number,
+  ): number {
+    return baseEvasion + agilityModifier - armorPenalty;
+  }
+
+  // ===== 辅助工具 =====
+
+  /** 掷 N 面骰 */
+  rollDie(sides: number): number {
+    return Math.floor(Math.random() * sides) + 1;
+  }
+
+  /** 掷多个骰子 */
+  rollDice(count: number, sides: number): number[] {
+    return Array.from({ length: count }, () => this.rollDie(sides));
+  }
+
+  /** 解析伤害字符串并掷骰 */
+  rollDamageString(damageString: string): number {
+    const match = damageString.match(/^(\d+)d(\d+)([+-]\d+)?$/);
+    if (!match) return 0;
+    const count = parseInt(match[1]);
+    const sides = parseInt(match[2]);
+    const modifier = match[3] ? parseInt(match[3]) : 0;
+    const rolls = this.rollDice(count, sides);
+    return rolls.reduce((sum, r) => sum + r, 0) + modifier;
+  }
+
+  /** 属性值 → 调整值映射 */
+  attributeToModifier(attributeValue: number): number {
+    if (attributeValue <= 4) return -2;
+    if (attributeValue <= 8) return -1;
+    if (attributeValue <= 12) return 0;
+    if (attributeValue <= 16) return 1;
+    if (attributeValue <= 20) return 2;
+    return 3;
+  }
+}
+
+// ===== 单例实例 =====
+
+export const daggerHeartRules = new DaggerHeartRules();
+
+// ===== 向后兼容导出函数（转发到单例） =====
+// 所有旧代码 `import { xxx } from './systems/DaggerHeartRules'` 继续工作
+
+export function rollDualD12(): DualD12Result { return daggerHeartRules.rollDualD12(); }
+
+export function resolveRoll(
+  hopeDie: number, fearDie: number, modifier: number, difficulty: number,
+  advantageCount: number = 0, disadvantageCount: number = 0,
+): RollResult { return daggerHeartRules.resolveRoll(hopeDie, fearDie, modifier, difficulty, advantageCount, disadvantageCount); }
+
+export function resolveDualityDice(
+  hopeDie: number, fearDie: number, modifier: number, difficulty: number,
+): DualityDiceResult { return daggerHeartRules.resolveDualityDice(hopeDie, fearDie, modifier, difficulty); }
+
+export function rollAdvantageDisadvantage(
+  baseTotal: number, advantageCount: number, disadvantageCount: number,
+): { netAdvantage: number; d6Result: number | null; finalTotal: number } {
+  return daggerHeartRules.rollAdvantageDisadvantage(baseTotal, advantageCount, disadvantageCount);
+}
+
+export function resolveReactionRoll(
+  hopeDie: number, fearDie: number, modifier: number, difficulty: number,
+): ReactionRollResult { return daggerHeartRules.resolveReactionRoll(hopeDie, fearDie, modifier, difficulty); }
+
+export function calculateThresholds(
+  armorBaseMinor: number, armorBaseMajor: number, level: number, modifiers: number = 0,
+): { minor: number; major: number; severe: number } {
+  return daggerHeartRules.calculateThresholdsInternal(armorBaseMinor, armorBaseMajor, level, modifiers);
+}
+
+export function calculateDamageSeverity(
+  damage: number, minorThreshold: number, majorThreshold: number, severeThreshold: number,
+): DamageSeverity { return daggerHeartRules.calculateDamageSeverity(damage, minorThreshold, majorThreshold, severeThreshold); }
+
+export function getHpLossFromSeverity(severity: DamageSeverity): number {
+  return daggerHeartRules.getHpLossFromSeverity(severity);
+}
+
+export function applyArmorSlot(
+  severity: DamageSeverity, armorSlotsToSpend: number = 1,
+): { newSeverity: DamageSeverity; slotsSpent: number } {
+  return daggerHeartRules.applyArmorSlot(severity, armorSlotsToSpend);
+}
+
+export function calculateCriticalDamage(
+  proficiency: number, damageDie: DamageDie, modifier: number = 0,
+): { maxDieValue: number; normalDamage: number; totalDamage: number } {
+  return daggerHeartRules.calculateCriticalDamage(proficiency, damageDie, modifier);
+}
+
+export function rollWeaponDamage(
+  proficiency: number, damageDie: DamageDie, modifier: number = 0,
+): { rolls: number[]; total: number } {
+  return daggerHeartRules.rollWeaponDamage(proficiency, damageDie, modifier);
+}
+
+export function spendHope(currentHope: number, amount: number): number | null {
+  return daggerHeartRules.spendHope(currentHope, amount);
+}
+
+export function gainHope(currentHope: number, maxHope: number, amount: number): number {
+  return daggerHeartRules.gainHope(currentHope, maxHope, amount);
+}
+
+export function gainFearOnRest(restType: RestType): number {
+  return daggerHeartRules.gainFearOnRest(restType);
+}
+
+export function applyStressOverflow(
+  currentStress: number, maxStress: number, stressAmount: number,
+): StressOverflowResult { return daggerHeartRules.applyStressOverflow(currentStress, maxStress, stressAmount); }
+
+export function shouldApplyVulnerableOnStress(
+  currentStress: number, maxStress: number, stressToAdd: number,
+): boolean { return daggerHeartRules.shouldApplyVulnerableOnStress(currentStress, maxStress, stressToAdd); }
+
+export function clearStress(currentStress: number, amount: number): number {
+  return daggerHeartRules.clearStress(currentStress, amount);
+}
+
+export function getShortRestActions(): { id: ShortRestAction; name: string; description: string }[] {
+  return daggerHeartRules.getShortRestActions();
+}
+
+export function getLongRestActions(): { id: LongRestAction; name: string; description: string }[] {
+  return daggerHeartRules.getLongRestActions();
+}
+
+export function executeShortRestAction(
+  action: ShortRestAction, character: Character,
+): Partial<RestResult> { return daggerHeartRules.executeShortRestAction(action, character); }
+
+export function executeLongRestAction(
+  action: LongRestAction, character: Character,
+): Partial<RestResult> { return daggerHeartRules.executeLongRestAction(action, character); }
+
+export function executeRest(
+  type: RestType, actions: (ShortRestAction | LongRestAction)[], character: Character, shortRestsSinceLong: number,
+): RestResult & { newShortRestCount: number } {
+  return daggerHeartRules.executeRestInternal(type, actions, character, shortRestsSinceLong);
+}
+
+export function canShortRest(shortRestsSinceLong: number): boolean {
+  return daggerHeartRules.canShortRest(shortRestsSinceLong);
+}
+
+export function gloriousSacrifice(): DeathMoveResult { return daggerHeartRules.gloriousSacrifice(); }
+
+export function avoidDeath(level: number, hopeDie: number): DeathMoveResult {
+  return daggerHeartRules.avoidDeath(level, hopeDie);
+}
+
+export function desperateGamble(hopeDie: number, fearDie: number): DeathMoveResult {
+  return daggerHeartRules.desperateGamble(hopeDie, fearDie);
+}
+
+export function getLevelUpOptions(level: number): LevelUpBenefit[] {
+  return daggerHeartRules.getLevelUpBenefits(level);
+}
+
+export function getTierUpBenefits(level: number): LevelUpBenefit[] {
+  return daggerHeartRules.getTierUpBenefits(level);
+}
+
+export function getProficiencyForTier(tier: Tier): number {
+  return daggerHeartRules.getProficiencyForTier(tier);
+}
+
+export function applyResistance(
+  damage: number, damageType: DamageType, resistances: Resistance[],
+): { finalDamage: number; resisted: boolean; immune: boolean } {
+  return daggerHeartRules.applyResistanceInternal(damage, damageType, resistances);
+}
+
+export function addCondition(
+  conditions: ConditionInstance[], condition: ConditionInstance,
+): ConditionInstance[] { return daggerHeartRules.addConditionInternal(conditions, condition); }
+
+export function removeCondition(
+  conditions: ConditionInstance[], conditionName: string,
+): ConditionInstance[] { return daggerHeartRules.removeCondition(conditions, conditionName); }
+
+export function tickConditions(
+  conditions: ConditionInstance[],
+): { updated: ConditionInstance[]; expired: string[] } {
+  return daggerHeartRules.tickConditionsInternal(conditions);
+}
+
+export function hasCondition(conditions: ConditionInstance[], conditionName: string): boolean {
+  return daggerHeartRules.hasCondition(conditions, conditionName);
+}
+
+export function recallDomainCard(
+  cardId: string, loadout: DomainCard[], vault: DomainCard[], availableRecallCost: number,
+): { newLoadout: DomainCard[]; newVault: DomainCard[]; costPaid: number } | null {
+  return daggerHeartRules.recallDomainCard(cardId, loadout, vault, availableRecallCost);
+}
+
+export function swapDomainCard(
+  loadoutCardId: string, vaultCardId: string, loadout: DomainCard[], vault: DomainCard[],
+): { newLoadout: DomainCard[]; newVault: DomainCard[] } | null {
+  return daggerHeartRules.swapDomainCard(loadoutCardId, vaultCardId, loadout, vault);
+}
+
+export function tickCountdown(countdown: Countdown): Countdown {
+  return daggerHeartRules.tickCountdown(countdown);
+}
+
+export function tickCountdowns(
+  countdowns: Countdown[], triggerOn: Countdown['decrementOn'],
+): { updated: Countdown[]; triggered: Countdown[] } {
+  return daggerHeartRules.tickCountdowns(countdowns, triggerOn);
+}
+
+export function validateCharacterSheet(character: Partial<Character>): string[] {
+  return daggerHeartRules.validateCharacterSheet(character);
+}
+
+export function validateContaminationLevel(level: number): boolean {
+  return daggerHeartRules.validateContaminationLevel(level);
+}
+
+export function isContaminationTerminal(level: number): boolean {
+  return daggerHeartRules.isContaminationTerminal(level);
+}
+
+export function shouldDrawMutationCard(newLevel: number, previousLevel: number): boolean {
+  return daggerHeartRules.shouldDrawMutationCard(newLevel, previousLevel);
+}
+
+export function getExplorationTimer(zone: DrakkenheimZone): number {
+  return daggerHeartRules.getExplorationTimer(zone);
+}
+
+export function getHazeReactionDifficulty(zone: DrakkenheimZone): number {
+  return daggerHeartRules.getHazeReactionDifficulty(zone);
+}
+
+export function getContaminationRisk(zone: DrakkenheimZone): number {
+  return daggerHeartRules.getContaminationRisk(zone);
+}
+
+export function getDeleriumContaminationRisk(
+  deleriumType: 'fragment' | 'shard' | 'crystal' | 'vein',
+): number { return daggerHeartRules.getDeleriumContaminationRisk(deleriumType); }
+
+export function getFactionRelationLabel(level: number): string {
+  return daggerHeartRules.getFactionRelationLabel(level);
+}
+
+export function changeFactionRelation(currentRelation: number, change: number): number {
+  return daggerHeartRules.changeFactionRelation(currentRelation, change);
+}
+
+export function calculateEvasion(
+  baseEvasion: number, agilityModifier: number, armorPenalty: number,
+): number { return daggerHeartRules.calculateEvasion(baseEvasion, agilityModifier, armorPenalty); }
+
+export function rollDie(sides: number): number { return daggerHeartRules.rollDie(sides); }
+
+export function rollDice(count: number, sides: number): number[] {
+  return daggerHeartRules.rollDice(count, sides);
+}
+
+export function rollDamageString(damageString: string): number {
+  return daggerHeartRules.rollDamageString(damageString);
+}
+
+export function attributeToModifier(attributeValue: number): number {
+  return daggerHeartRules.attributeToModifier(attributeValue);
+}
+
+
+

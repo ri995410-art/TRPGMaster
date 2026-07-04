@@ -225,7 +225,7 @@ export class AIGateway {
 
       let fullText = '';
 
-      for await (const chunk of this.httpClient.postStream(url, { headers, body, timeout: 0 }, signal)) {
+      for await (const chunk of this.httpClient.postStream(url, { headers, body, timeout: 120000 }, signal)) {
         fullText += chunk;
         onChunk(chunk);
       }

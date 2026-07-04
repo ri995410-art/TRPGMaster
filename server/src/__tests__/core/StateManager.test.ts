@@ -5,6 +5,10 @@
 import { StateManager } from '../../core/StateManager';
 import type { Player, Character } from '@trpgmaster/shared';
 
+function getChar(sm: StateManager): Character {
+  return sm.getCharacter()!;
+}
+
 function makeCharacter(overrides: Partial<Character> = {}): Character {
   return {
     id: 'char-1', name: 'TestChar',
@@ -34,25 +38,25 @@ describe('StateManager — clamping 和溢出（任务 1.3）', () => {
     it('正常扣减 HP', () => {
       const sm = setupStateManagerWithCharacter();
       sm.updateCharacterHp(-3);
-      expect(sm.getCharacter().hp).toBe(7);
+      expect(sm.getCharacter()!.hp).toBe(7);
     });
 
     it('HP 不能低于 0', () => {
       const sm = setupStateManagerWithCharacter(makeCharacter({ hp: 2, maxHp: 10 }));
       sm.updateCharacterHp(-5);
-      expect(sm.getCharacter().hp).toBe(0);
+      expect(getChar(sm).hp).toBe(0);
     });
 
     it('HP 不能超过 maxHp', () => {
       const sm = setupStateManagerWithCharacter(makeCharacter({ hp: 9, maxHp: 10 }));
       sm.updateCharacterHp(5);
-      expect(sm.getCharacter().hp).toBe(10);
+      expect(getChar(sm).hp).toBe(10);
     });
 
     it('恢复 HP 到 maxHp', () => {
       const sm = setupStateManagerWithCharacter(makeCharacter({ hp: 5, maxHp: 10 }));
       sm.updateCharacterHp(5);
-      expect(sm.getCharacter().hp).toBe(10);
+      expect(getChar(sm).hp).toBe(10);
     });
   });
 
@@ -60,42 +64,42 @@ describe('StateManager — clamping 和溢出（任务 1.3）', () => {
     it('正常增加压力', () => {
       const sm = setupStateManagerWithCharacter();
       sm.updateCharacterStress(2);
-      expect(sm.getCharacter().stress).toBe(2);
+      expect(getChar(sm).stress).toBe(2);
     });
 
     it('压力不能低于 0', () => {
       const sm = setupStateManagerWithCharacter(makeCharacter({ stress: 1, maxStress: 3 }));
       sm.updateCharacterStress(-3);
-      expect(sm.getCharacter().stress).toBe(0);
+      expect(getChar(sm).stress).toBe(0);
     });
 
     it('压力不能超过 maxStress（截断到 maxStress）', () => {
       const sm = setupStateManagerWithCharacter();
       sm.updateCharacterStress(5);
-      expect(sm.getCharacter().stress).toBe(3);
+      expect(getChar(sm).stress).toBe(3);
     });
 
     it('压力溢出到 HP', () => {
       const sm = setupStateManagerWithCharacter(makeCharacter({ hp: 10, maxHp: 10, stress: 2, maxStress: 3 }));
       sm.updateCharacterStress(3);
       // stress=2+3=5, overflow=5-3=2, stress capped at 3, HP=10-2=8
-      expect(sm.getCharacter().stress).toBe(3);
-      expect(sm.getCharacter().hp).toBe(8);
+      expect(getChar(sm).stress).toBe(3);
+      expect(getChar(sm).hp).toBe(8);
     });
 
     it('压力大幅溢出，HP 仍不低于 0', () => {
       const sm = setupStateManagerWithCharacter(makeCharacter({ hp: 2, maxHp: 10, stress: 2, maxStress: 3 }));
       sm.updateCharacterStress(10);
       // stress=2+10=12, overflow=12-3=9, HP=2-9→clamped to 0
-      expect(sm.getCharacter().stress).toBe(3);
-      expect(sm.getCharacter().hp).toBe(0);
+      expect(getChar(sm).stress).toBe(3);
+      expect(getChar(sm).hp).toBe(0);
     });
 
     it('减少压力不触发溢出', () => {
       const sm = setupStateManagerWithCharacter(makeCharacter({ stress: 2, maxStress: 3, hp: 10 }));
       sm.updateCharacterStress(-1);
-      expect(sm.getCharacter().stress).toBe(1);
-      expect(sm.getCharacter().hp).toBe(10);
+      expect(getChar(sm).stress).toBe(1);
+      expect(getChar(sm).hp).toBe(10);
     });
   });
 
@@ -103,19 +107,19 @@ describe('StateManager — clamping 和溢出（任务 1.3）', () => {
     it('正常增加希望', () => {
       const sm = setupStateManagerWithCharacter();
       sm.updateCharacterHope(1);
-      expect(sm.getCharacter().hope).toBe(3);
+      expect(getChar(sm).hope).toBe(3);
     });
 
     it('希望不能超过 maxHope', () => {
       const sm = setupStateManagerWithCharacter(makeCharacter({ hope: 3, maxHope: 3 }));
       sm.updateCharacterHope(1);
-      expect(sm.getCharacter().hope).toBe(3);
+      expect(getChar(sm).hope).toBe(3);
     });
 
     it('希望不能低于 0', () => {
       const sm = setupStateManagerWithCharacter(makeCharacter({ hope: 1, maxHope: 3 }));
       sm.updateCharacterHope(-3);
-      expect(sm.getCharacter().hope).toBe(0);
+      expect(getChar(sm).hope).toBe(0);
     });
   });
 
@@ -150,25 +154,25 @@ describe('StateManager — clamping 和溢出（任务 1.3）', () => {
     it('使用护甲槽', () => {
       const sm = setupStateManagerWithCharacter(makeCharacter({ armorSlots: 3, maxArmorSlots: 3 }));
       sm.updateCharacterArmorSlots(true);
-      expect(sm.getCharacter().armorSlots).toBe(2);
+      expect(getChar(sm).armorSlots).toBe(2);
     });
 
     it('恢复护甲槽', () => {
       const sm = setupStateManagerWithCharacter(makeCharacter({ armorSlots: 1, maxArmorSlots: 3 }));
       sm.updateCharacterArmorSlots(false);
-      expect(sm.getCharacter().armorSlots).toBe(2);
+      expect(getChar(sm).armorSlots).toBe(2);
     });
 
     it('护甲槽不能低于0', () => {
       const sm = setupStateManagerWithCharacter(makeCharacter({ armorSlots: 0, maxArmorSlots: 3 }));
       sm.updateCharacterArmorSlots(true);
-      expect(sm.getCharacter().armorSlots).toBe(0);
+      expect(getChar(sm).armorSlots).toBe(0);
     });
 
     it('护甲槽不能超过maxArmorSlots', () => {
       const sm = setupStateManagerWithCharacter(makeCharacter({ armorSlots: 3, maxArmorSlots: 3 }));
       sm.updateCharacterArmorSlots(false);
-      expect(sm.getCharacter().armorSlots).toBe(3);
+      expect(getChar(sm).armorSlots).toBe(3);
     });
   });
 
@@ -185,13 +189,13 @@ describe('StateManager — clamping 和溢出（任务 1.3）', () => {
       sm.addPlayer({ id: 'p1', name: 'Player1-updated', character: makeCharacter({ name: 'CharB' }), isConnected: true, joinedAt: Date.now() });
       expect(sm.getPlayers().length).toBe(1);
       expect(sm.getPlayers()[0].name).toBe('Player1-updated');
-      expect(sm.getCharacter().name).toBe('CharB');
+      expect(getChar(sm).name).toBe('CharB');
     });
 
     it('backward compat — first player syncs to state.character', () => {
       const sm = new StateManager('test-session');
       sm.addPlayer({ id: 'p1', name: 'Player1', character: makeCharacter({ name: 'FirstChar' }), isConnected: true, joinedAt: Date.now() });
-      expect(sm.getCharacter().name).toBe('FirstChar');
+      expect(getChar(sm).name).toBe('FirstChar');
     });
   });
 

@@ -1,0 +1,2653 @@
+=== 项目: TRPGMaster - Daggerheart TRPG ===
+=== 模块: 07a-screens-game ===
+=== 生成时间: Sun Jun 28 14:42:31     2026 ===
+
+######## FILE: app/src/screens/AdventureScreen.tsx ########
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  FlatList,
+  TouchableOpacity,
+  StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+  StatusBar,
+  Alert,
+  Modal,
+  ScrollView,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../navigation/AppNavigator';
+import { useGameStore, type AdventureMessage, type AdventureChoice, type DiceResult, useCurrentAdventureMessages } from '../store/gameStore';
+import { sendPlayerAction, sendPlayerChoice, sendDiceRoll, sendActionRoll, sendAdventureEnd, requestSpotlight, submitS0, activateXCard, resumeSafety, sendUseFeature, cancelNarration, sendChatMessage } from '../hooks/useSocket';
+import type { Attribute } from '@trpgmaster/shared';
+import { ATTRIBUTE_LABELS } from '@trpgmaster/shared';
+import { theme } from '../theme/theme';
+import { NarrativeCard } from '../components/NarrativeCard';
+import { ResourceGauge } from '../components/ResourceGauge';
+import { SpotlightIndicator } from '../components/SpotlightIndicator';
+import { SafetyOverlay } from '../components/SafetyOverlay';
+import { DiceTray } from '../components/DiceTray/DiceTray';
+import { FeatureTray, type FeatureItem } from '../components/FeatureTray';
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+const S0_PHASE_LABELS: Record<string, string> = {
+  safety: '安全工具',
+  worldbuilding: '世界观共创',
+  connections: '角色联系',
+  expectations: '战役期望',
+  narrativePact: '共创契约',
+};
+
+export function AdventureScreen() {
+  const navigation = useNavigation<NavigationProp>();
+  const character = useGameStore((s) => s.character);
+  const campaignId = useGameStore((s) => s.campaignId);
+  const adventureMessages = useCurrentAdventureMessages();
+  const aiProcessing = useGameStore((s) => s.aiProcessing);
+  const gmTyping = useGameStore((s) => s.gmTyping);
+  const streamingText = useGameStore((s) => s.streamingText);
+  const currentLocationName = useGameStore((s) => s.currentLocationName);
+  const fearPoints = useGameStore((s) => s.fearPoints);
+  const sessionZeroPhase = useGameStore((s) => s.sessionZeroPhase);
+  const addAdventureMessage = useGameStore((s) => s.addAdventureMessage);
+  const isConnected = useGameStore((s) => s.isConnected);
+  const spotlightState = useGameStore((s) => s.spotlightState);
+  const playerId = useGameStore((s) => s.playerId);
+  const players = useGameStore((s) => s.players);
+  const safetyState = useGameStore((s) => s.safetyState);
+  const xcardPaused = useGameStore((s) => s.xcardPaused);
+  const isHost = useGameStore((s) => s.isHost);
+  const combatState = useGameStore((s) => s.combatState);
+  const pendingDiceResult = useGameStore((s) => s.pendingDiceResult);
+  const clearPendingDiceResult = useGameStore((s) => s.clearPendingDiceResult);
+  const oocMessages = useGameStore((s) => s.oocMessages);
+  const adventureSummaryText = useGameStore((s) => s.adventureSummaryText);
+  const isAdventureEnding = useGameStore((s) => s.isAdventureEnding);
+  const streamingSummaryText = useGameStore((s) => s.streamingSummaryText);
+  const setAdventureSummaryText = useGameStore((s) => s.setAdventureSummaryText);
+  const setCampaignId = useGameStore((s) => s.setCampaignId);
+
+  // Spotlight: can this player act?
+  const canAct = (!spotlightState || spotlightState.current === null || spotlightState.current === playerId)
+    && (!safetyState || (safetyState.phase === 'play' && !safetyState.xcardActive));
+  const isHoldingSpotlight = spotlightState?.current === playerId;
+  const queuePosition = spotlightState?.queue.indexOf(playerId) ?? -1;
+  const currentSpotlightPlayer = spotlightState?.current
+    ? players.find(p => p.id === spotlightState.current)
+    : null;
+
+  const [inputText, setInputText] = useState('');
+  const [selectedAttribute, setSelectedAttribute] = useState<Attribute | null>(null);
+  const [selectedFeature, setSelectedFeature] = useState<FeatureItem | null>(null);
+  const [s0Lines, setS0Lines] = useState('');
+  const [s0Veils, setS0Veils] = useState('');
+  const [s0Tone, setS0Tone] = useState('');
+  const [showDiceTray, setShowDiceTray] = useState(false);
+  const [showChatPanel, setShowChatPanel] = useState(false);
+  const [chatInput, setChatInput] = useState('');
+  const [adventureSummary, setAdventureSummary] = useState<string | null>(null);
+  const flatListRef = useRef<FlatList>(null);
+
+  // Auto-navigate to combat when combatState appears
+  useEffect(() => {
+    if (combatState && combatState.enemies.length > 0) {
+      navigation.navigate('Combat');
+    }
+  }, [combatState?.id]);
+
+  // Navigate back to home when campaign ends (campaignId cleared, after summary dismissed)
+  useEffect(() => {
+    if (!campaignId && !adventureSummaryText && !isAdventureEnding && navigation.canGoBack()) {
+      navigation.navigate('Home');
+    }
+  }, [campaignId, adventureSummaryText, isAdventureEnding]);
+
+  // Compute dynamic placeholder based on latest narrator message
+  const getInputPlaceholder = (): string => {
+    if (sessionZeroPhase) {
+      const phaseLabels: Record<string, string> = {
+        safety: '分享你的边界和舒适度...',
+        worldbuilding: '描述你想象中的世界细节...',
+        connections: '讲述你们之间的故事...',
+        expectations: '告诉我你期待的体验...',
+        narrativePact: '确认你准备好共创了吗...',
+      };
+      return phaseLabels[sessionZeroPhase] || '你的回答...';
+    }
+
+    // Check if the last narrator message ends with a question
+    const lastNarratorMsg = [...adventureMessages].reverse().find(m => m.role === 'narrator' || m.role === 'npc');
+    if (lastNarratorMsg?.content.endsWith('？') || lastNarratorMsg?.content.endsWith('?')) {
+      return '你的回答...';
+    }
+
+    return '描述你的行动...';
+  };
+
+  const autoScroll = useGameStore((s) => s.autoScroll);
+
+  const inputPlaceholder = getInputPlaceholder();
+
+  // Auto-scroll to bottom on new messages (respects autoScroll setting)
+  useEffect(() => {
+    if (autoScroll && (adventureMessages.length > 0 || streamingText.length > 0)) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    }
+  }, [adventureMessages.length, streamingText.length, autoScroll]);
+
+  const handleSend = () => {
+    if (!inputText.trim() || aiProcessing || !canAct) return;
+
+    const text = inputText.trim();
+    setInputText('');
+
+    if (selectedFeature) {
+      // Feature + action: send useFeature with optional attribute roll
+      const featureAction = `[${selectedFeature.name}] ${text}`;
+      sendUseFeature(
+        selectedFeature.id,
+        selectedFeature.type,
+        featureAction,
+        undefined, // targetId — set when in combat
+        selectedAttribute ?? undefined,
+      );
+      setSelectedFeature(null);
+      setSelectedAttribute(null);
+    } else if (selectedAttribute) {
+      // Contextual action roll: send with attribute (GM decides difficulty)
+      sendActionRoll({
+        action: text,
+        attribute: selectedAttribute,
+        difficulty: 0,
+      });
+      setSelectedAttribute(null);
+    } else {
+      // Free text: plain player action
+      const playerMsg: AdventureMessage = {
+        id: `msg_${Date.now()}_player`,
+        role: 'player',
+        content: text,
+        timestamp: Date.now(),
+      };
+      addAdventureMessage(playerMsg);
+      sendPlayerAction(text);
+    }
+  };
+
+  const handleChoice = (choice: AdventureChoice) => {
+    if (aiProcessing) return;
+
+    const playerMsg: AdventureMessage = {
+      id: `msg_${Date.now()}_choice`,
+      role: 'player',
+      content: choice.text,
+      timestamp: Date.now(),
+    };
+
+    addAdventureMessage(playerMsg);
+
+    // Send choice to AI GM via Socket
+    sendPlayerChoice(choice.id, choice.text);
+  };
+
+  const renderMessage = ({ item }: { item: AdventureMessage }) => {
+    if (item.role === 'player') {
+      return (
+        <View style={styles.playerMessage}>
+          <Text style={styles.playerMessageText}>{item.content}</Text>
+          <Text style={styles.messageTime}>
+            {new Date(item.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+          </Text>
+        </View>
+      );
+    }
+
+    if (item.role === 'npc') {
+      return (
+        <View style={styles.npcMessage}>
+          <Text style={styles.npcName}>{item.npcName || 'NPC'}</Text>
+          <Text style={styles.npcMessageText}>{item.content}</Text>
+          {item.choices && renderChoices(item.choices)}
+        </View>
+      );
+    }
+
+    // narrator or system
+    return (
+      <View style={styles.narratorMessage}>
+        <Text style={styles.narratorMessageText}>{item.content}</Text>
+        {item.choices && renderChoices(item.choices)}
+      </View>
+    );
+  };
+
+  const renderChoices = (choices: AdventureChoice[]) => (
+    <View style={styles.choicesContainer}>
+      {choices.map((choice) => (
+        <TouchableOpacity
+          key={choice.id}
+          style={styles.choiceButton}
+          onPress={() => handleChoice(choice)}
+          disabled={aiProcessing}
+        >
+          <Text style={styles.choiceText}>{choice.text}</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+
+  const renderResourceBar = () => {
+    if (!character) return null;
+    return (
+      <View style={styles.resourceBar}>
+        <ResourceGauge label="HP" current={character.hp} max={character.maxHp} icon="heart" color={theme.color.danger} />
+        <ResourceGauge label="压力" current={character.stress} max={character.maxStress} icon="flash" color={theme.color.warning} />
+        <ResourceGauge label="希望" current={character.hope} max={character.maxHope} icon="sunny" color={theme.color.emerald} />
+        <ResourceGauge label="护甲" current={character.armorSlots} max={character.maxArmorSlots} icon="shield" color={theme.color.fog} />
+        <ResourceGauge label="恐惧" current={fearPoints} max={99} icon="skull" color={theme.color.blood} />
+      </View>
+    );
+  };
+
+  const renderLocationBar = () => {
+    if (sessionZeroPhase) {
+      return (
+        <View style={[styles.locationBar, styles.s0LocationBar]}>
+          <Ionicons name="people" size={14} color={theme.color.warning} />
+          <Text style={styles.s0LocationText}>
+            Session Zero · {S0_PHASE_LABELS[sessionZeroPhase] || sessionZeroPhase}
+          </Text>
+        </View>
+      );
+    }
+    return (
+      <View style={styles.locationBar}>
+        <Ionicons name="location" size={14} color={theme.color.emerald} />
+        <Text style={styles.locationText}>
+          {currentLocationName || '余烬村'}
+        </Text>
+      </View>
+    );
+  };
+
+  const renderQuickActions = () => (
+    <View style={styles.quickActions}>
+      <TouchableOpacity
+        style={styles.quickActionButton}
+        onPress={() => setShowChatPanel(!showChatPanel)}
+      >
+        <Ionicons name={showChatPanel ? 'chatbubbles' : 'chatbubble-outline'} size={16} color={theme.color.accent} />
+        <Text style={styles.quickActionText}>聊天</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.quickActionButton}
+        onPress={() => navigation.navigate('Combat')}
+      >
+        <Ionicons name="cut" size={16} color={theme.color.danger} />
+        <Text style={styles.quickActionText}>战斗</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.quickActionButton}
+        onPress={() => navigation.navigate('Rest')}
+      >
+        <Ionicons name="cafe" size={16} color={theme.color.emerald} />
+        <Text style={styles.quickActionText}>休整</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.quickActionButton}
+        onPress={() => setShowDiceTray(true)}
+      >
+        <Ionicons name="dice-outline" size={16} color={theme.color.warning} />
+        <Text style={styles.quickActionText}>掷骰</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.quickActionButton}
+        onPress={() => navigation.navigate('Inventory')}
+      >
+        <Ionicons name="bag-handle" size={16} color={theme.color.accent} />
+        <Text style={styles.quickActionText}>物品</Text>
+      </TouchableOpacity>
+      {safetyState && (
+        <TouchableOpacity
+          style={styles.quickActionButton}
+          onPress={activateXCard}
+        >
+          <Ionicons name="hand-left" size={16} color={theme.color.danger} />
+          <Text style={styles.quickActionText}>X-Card</Text>
+        </TouchableOpacity>
+      )}
+      <TouchableOpacity
+        style={[styles.quickActionButton, !isHost && styles.disabledAction]}
+        disabled={!isHost}
+        onPress={() => {
+          if (!isHost) {
+            Alert.alert('权限不足', '只有主持人(GM)才能结束冒险');
+            return;
+          }
+          Alert.alert(
+            '结束冒险',
+            '确定要结束当前冒险吗？AI管家将为你生成冒险总结。',
+            [
+              { text: '取消', style: 'cancel' },
+              { text: '确定', style: 'destructive', onPress: () => sendAdventureEnd() },
+            ],
+          );
+        }}
+      >
+        <Ionicons name="book-outline" size={16} color={theme.color.muted} />
+        <Text style={styles.quickActionText}>结束冒险</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  return (
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <StatusBar barStyle="light-content" />
+      {renderLocationBar()}
+      {renderResourceBar()}
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={90}
+      >
+        <FlatList
+          ref={flatListRef}
+          data={adventureMessages}
+          keyExtractor={(item) => item.id}
+          renderItem={renderMessage}
+          contentContainerStyle={styles.messageList}
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <Ionicons name="book" size={48} color={theme.color.fog} />
+              <Text style={styles.emptyTitle}>你的冒险即将开始</Text>
+              <Text style={styles.emptySubtitle}>
+                在下方输入你的行动，AI管家将引导你的德拉肯海姆之旅
+              </Text>
+            </View>
+          }
+          ListFooterComponent={
+            gmTyping ? (
+              streamingText.length > 0 ? (
+                <NarrativeCard content={streamingText} isStreaming />
+              ) : (
+                <View style={styles.processingIndicator}>
+                  <ActivityIndicator size="small" color={theme.color.accent} />
+                  <Text style={styles.processingText}>GM正在落笔…</Text>
+                  <TouchableOpacity onPress={cancelNarration} style={styles.cancelNarrationButton}>
+                    <Ionicons name="close-circle" size={20} color="#e74c3c" />
+                  </TouchableOpacity>
+                </View>
+              )
+            ) : null
+          }
+        />
+        {renderQuickActions()}
+        <SpotlightIndicator
+          spotlight={spotlightState}
+          playerId={playerId}
+          players={players}
+          onRequestSpotlight={requestSpotlight}
+        />
+        {/* S0 Safety submission form */}
+        {safetyState && sessionZeroPhase === 'safety' ? (
+          <View style={styles.s0Form}>
+            <Text style={styles.s0FormTitle}>安全工具设定</Text>
+            <Text style={styles.s0FormHint}>设定你的边界，确保所有人都能享受游戏</Text>
+            <TextInput
+              style={styles.s0Input}
+              value={s0Lines}
+              onChangeText={setS0Lines}
+              placeholder="Lines（绝不出现的内容，逗号分隔）"
+              placeholderTextColor={theme.color.muted}
+            />
+            <TextInput
+              style={styles.s0Input}
+              value={s0Veils}
+              onChangeText={setS0Veils}
+              placeholder="Veils（只暗示不描写的内容，逗号分隔）"
+              placeholderTextColor={theme.color.muted}
+            />
+            <TextInput
+              style={styles.s0Input}
+              value={s0Tone}
+              onChangeText={setS0Tone}
+              placeholder="基调偏好（如：严肃、幽默、史诗…逗号分隔）"
+              placeholderTextColor={theme.color.muted}
+            />
+            <TouchableOpacity
+              style={styles.s0SubmitButton}
+              onPress={() => {
+                const lines = s0Lines.split(/[,，]/).map(s => s.trim()).filter(Boolean);
+                const veils = s0Veils.split(/[,，]/).map(s => s.trim()).filter(Boolean);
+                const toneFlags = s0Tone.split(/[,，]/).map(s => s.trim()).filter(Boolean);
+                if (lines.length > 0 || veils.length > 0 || toneFlags.length > 0) {
+                  submitS0(lines, veils, toneFlags);
+                  setS0Lines('');
+                  setS0Veils('');
+                  setS0Tone('');
+                }
+              }}
+            >
+              <Text style={styles.s0SubmitText}>提交</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+        <View style={styles.inputContainer}>
+          <FeatureTray selectedFeature={selectedFeature} onSelectFeature={setSelectedFeature} />
+          {/* Attribute selection row */}
+          <View style={styles.attributeRow}>
+            {(['agility', 'strength', 'finesse', 'instinct', 'presence', 'knowledge'] as Attribute[]).map((attr) => (
+              <TouchableOpacity
+                key={attr}
+                style={[styles.attributeChip, selectedAttribute === attr && styles.attributeChipActive]}
+                onPress={() => setSelectedAttribute(selectedAttribute === attr ? null : attr)}
+              >
+                <Text style={[styles.attributeChipText, selectedAttribute === attr && styles.attributeChipTextActive]}>
+                  {ATTRIBUTE_LABELS[attr]}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View style={styles.inputRow}>
+            <TextInput
+              style={[styles.textInput, sessionZeroPhase ? styles.s0TextInput : undefined]}
+              value={inputText}
+              onChangeText={setInputText}
+              placeholder={selectedFeature ? `描述你使用${selectedFeature.name}的行动...` : selectedAttribute ? `描述你的${ATTRIBUTE_LABELS[selectedAttribute]}行动...` : inputPlaceholder}
+              placeholderTextColor={theme.color.muted}
+              multiline
+              maxLength={500}
+              editable={!aiProcessing && canAct}
+              onSubmitEditing={handleSend}
+              returnKeyType="send"
+            />
+            <TouchableOpacity
+              style={[styles.sendButton, (!inputText.trim() || aiProcessing || !canAct) && styles.sendButtonDisabled]}
+              onPress={handleSend}
+              disabled={!inputText.trim() || aiProcessing || !canAct}
+            >
+              <Ionicons name={selectedFeature ? 'star' : selectedAttribute ? 'dice' : 'send'} size={20} color={theme.color.parchment} />
+            </TouchableOpacity>
+          </View>
+        </View>
+        )}
+      </KeyboardAvoidingView>
+      {/* Dice tray overlay */}
+      {showDiceTray && (
+        <View style={styles.diceTrayOverlay}>
+          <View style={styles.diceTrayHeader}>
+            <Text style={styles.diceTrayTitle}>掷骰</Text>
+            <TouchableOpacity onPress={() => setShowDiceTray(false)}>
+              <Ionicons name="close" size={20} color={theme.color.parchment} />
+            </TouchableOpacity>
+          </View>
+          <DiceTray
+            onRoll={(hopeDie, fearDie, modifier, difficulty) => {
+              sendDiceRoll(hopeDie, fearDie, modifier, difficulty);
+              setShowDiceTray(false);
+            }}
+          />
+        </View>
+      )}
+      {/* OOC Chat panel overlay */}
+      {showChatPanel && (
+        <View style={styles.chatOverlay}>
+          <View style={styles.chatHeader}>
+            <Ionicons name="chatbubbles" size={16} color={theme.color.accent} />
+            <Text style={styles.chatTitle}>玩家聊天</Text>
+            <TouchableOpacity onPress={() => setShowChatPanel(false)}>
+              <Ionicons name="close" size={20} color={theme.color.parchment} />
+            </TouchableOpacity>
+          </View>
+          <FlatList
+            data={oocMessages}
+            keyExtractor={(m) => m.id}
+            renderItem={({ item: msg }) => (
+              <View style={styles.chatMessage}>
+                <Text style={styles.chatSender}>{msg.sender}</Text>
+                <Text style={styles.chatText}>{msg.text}</Text>
+              </View>
+            )}
+            contentContainerStyle={styles.chatList}
+            ListEmptyComponent={
+              <Text style={styles.chatEmpty}>暂无消息，说点什么吧</Text>
+            }
+          />
+          <View style={styles.chatInputRow}>
+            <TextInput
+              style={styles.chatInput}
+              value={chatInput}
+              onChangeText={setChatInput}
+              placeholder="说点什么..."
+              placeholderTextColor={theme.color.muted}
+              maxLength={200}
+              onSubmitEditing={() => {
+                if (chatInput.trim()) {
+                  sendChatMessage(chatInput.trim());
+                  setChatInput('');
+                }
+              }}
+              returnKeyType="send"
+            />
+            <TouchableOpacity
+              style={[styles.chatSendBtn, !chatInput.trim() && styles.chatSendBtnDisabled]}
+              onPress={() => {
+                if (chatInput.trim()) {
+                  sendChatMessage(chatInput.trim());
+                  setChatInput('');
+                }
+              }}
+              disabled={!chatInput.trim()}
+            >
+              <Ionicons name="send" size={16} color={theme.color.parchment} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+      {/* Pending dice result banner */}
+      {pendingDiceResult && (
+        <View style={styles.diceBanner}>
+          <View style={styles.diceBannerContent}>
+            <Ionicons name="dice" size={16} color={pendingDiceResult.success ? theme.color.emerald : theme.color.danger} />
+            <Text style={styles.diceBannerText}>
+              {pendingDiceResult.isCritical ? '关键成功! ' : ''}
+              {pendingDiceResult.success ? '成功' : '失败'}
+              {'  '}
+              <Text style={{ color: theme.color.emerald }}>希望骰:{pendingDiceResult.hopeDie}</Text>
+              {' '}
+              <Text style={{ color: theme.color.blood }}>恐惧骰:{pendingDiceResult.fearDie}</Text>
+              {pendingDiceResult.modifier ? ` +${pendingDiceResult.modifier}` : ''}
+              {' = '}{pendingDiceResult.total} vs {pendingDiceResult.difficulty}
+              {pendingDiceResult.hopeGain > 0 && `  +${pendingDiceResult.hopeGain}希望`}
+              {pendingDiceResult.fearGain > 0 && `  +${pendingDiceResult.fearGain}恐惧`}
+              {pendingDiceResult.stressCleared > 0 && `  -${pendingDiceResult.stressCleared}压力`}
+              {pendingDiceResult.canTakeFreeAction && '  可执行免费行动'}
+            </Text>
+          </View>
+          <TouchableOpacity onPress={() => clearPendingDiceResult()}>
+            <Ionicons name="close-circle" size={16} color={theme.color.textDim} />
+          </TouchableOpacity>
+        </View>
+      )}
+      {/* X-Card pause overlay */}
+      {xcardPaused && (
+        <SafetyOverlay isHost={isHost} onResume={resumeSafety} />
+      )}
+      {/* Adventure summary / ending modal */}
+      <Modal visible={isAdventureEnding || !!adventureSummaryText} animationType="slide" transparent>
+        <View style={styles.summaryModalOverlay}>
+          <View style={styles.summaryModalContent}>
+            <Text style={styles.summaryTitle}>冒险总结</Text>
+            <ScrollView style={styles.summaryScroll}>
+              <Text style={styles.summaryText}>
+                {adventureSummaryText || streamingSummaryText || '正在生成总结...'}
+              </Text>
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.summaryCloseButton}
+              onPress={() => {
+                setAdventureSummaryText(null);
+                setCampaignId(null);
+              }}
+            >
+              <Text style={styles.summaryCloseText}>返回大厅</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: theme.color.ink,
+  },
+  flex: {
+    flex: 1,
+  },
+  // Location bar
+  locationBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    backgroundColor: theme.color.bgInput,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.color.fog,
+  },
+  locationText: {
+    color: theme.color.emerald,
+    fontSize: 13,
+    marginLeft: 4,
+    fontFamily: theme.font.body,
+  },
+  s0LocationBar: {
+    backgroundColor: theme.color.bgCard,
+    borderBottomColor: theme.color.warning,
+  },
+  s0LocationText: {
+    color: theme.color.warning,
+    fontSize: 13,
+    marginLeft: 4,
+    fontWeight: 'bold',
+    fontFamily: theme.font.display,
+  },
+  // Resource bar
+  resourceBar: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    backgroundColor: theme.color.bgInput,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.color.fog,
+    gap: 12,
+  },
+  // Message list
+  messageList: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexGrow: 1,
+  },
+  // Player message
+  playerMessage: {
+    alignSelf: 'flex-end',
+    backgroundColor: theme.color.bgInput,
+    borderRadius: 16,
+    borderTopRightRadius: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    maxWidth: '80%',
+    marginBottom: 8,
+  },
+  playerMessageText: {
+    color: theme.color.parchment,
+    fontSize: 15,
+    lineHeight: 20,
+    fontFamily: theme.font.body,
+  },
+  messageTime: {
+    color: theme.color.textDim,
+    fontSize: 10,
+    marginTop: 4,
+    textAlign: 'right',
+  },
+  // Narrator message
+  narratorMessage: {
+    alignSelf: 'flex-start',
+    backgroundColor: theme.color.bgCard,
+    borderRadius: 16,
+    borderTopLeftRadius: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    maxWidth: '90%',
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: theme.color.gold,
+  },
+  narratorMessageText: {
+    color: theme.color.parchment,
+    fontSize: 15,
+    lineHeight: 22,
+    fontFamily: theme.font.body,
+  },
+  // NPC message
+  npcMessage: {
+    alignSelf: 'flex-start',
+    backgroundColor: theme.color.bgCard,
+    borderRadius: 16,
+    borderTopLeftRadius: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    maxWidth: '90%',
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: theme.color.accent,
+  },
+  npcName: {
+    color: theme.color.accent,
+    fontSize: 12,
+    fontWeight: 'bold',
+    fontFamily: theme.font.display,
+    marginBottom: 4,
+  },
+  npcMessageText: {
+    color: theme.color.parchment,
+    fontSize: 15,
+    lineHeight: 22,
+    fontFamily: theme.font.body,
+  },
+  // Choices
+  choicesContainer: {
+    marginTop: 8,
+    gap: 6,
+  },
+  choiceButton: {
+    backgroundColor: theme.color.bgInput,
+    borderRadius: theme.radius.button,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: theme.color.emerald,
+  },
+  choiceText: {
+    color: theme.color.emerald,
+    fontSize: 14,
+    fontFamily: theme.font.body,
+  },
+  // Empty state
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 80,
+  },
+  emptyTitle: {
+    color: theme.color.textDim,
+    fontSize: 18,
+    fontWeight: 'bold',
+    fontFamily: theme.font.display,
+    marginTop: 16,
+  },
+  emptySubtitle: {
+    color: theme.color.muted,
+    fontSize: 14,
+    fontFamily: theme.font.body,
+    textAlign: 'center',
+    marginTop: 8,
+    paddingHorizontal: 40,
+    lineHeight: 20,
+  },
+  // Processing indicator
+  processingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+    gap: 6,
+  },
+  processingText: {
+    color: theme.color.textDim,
+    fontSize: 12,
+    fontFamily: theme.font.body,
+  },
+  cancelNarrationButton: {
+    marginLeft: 8,
+    padding: 4,
+  },
+  // Quick actions
+  quickActions: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    gap: 8,
+  },
+  quickActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.color.bgInput,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    gap: 4,
+  },
+  disabledAction: {
+    opacity: 0.4,
+  },
+  quickActionText: {
+    color: theme.color.textDim,
+    fontSize: 12,
+    fontFamily: theme.font.body,
+  },
+  // Input container
+  inputContainer: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+  },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  attributeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    paddingBottom: 4,
+    alignItems: 'center',
+  },
+  attributeChip: {
+    backgroundColor: theme.color.bgInput,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: theme.color.fog,
+  },
+  attributeChipActive: {
+    backgroundColor: theme.color.accent + '33',
+    borderColor: theme.color.accent,
+  },
+  attributeChipText: {
+    color: theme.color.textDim,
+    fontSize: 11,
+    fontFamily: theme.font.body,
+  },
+  attributeChipTextActive: {
+    color: theme.color.accent,
+    fontWeight: 'bold',
+  },
+  textInput: {
+    flex: 1,
+    backgroundColor: theme.color.bgInput,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    color: theme.color.parchment,
+    fontSize: 15,
+    fontFamily: theme.font.body,
+    maxHeight: 100,
+    borderWidth: 1,
+    borderColor: theme.color.fog,
+  },
+  s0TextInput: {
+    borderColor: theme.color.warning,
+    borderWidth: 2,
+  },
+  sendButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.color.emerald,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sendButtonDisabled: {
+    backgroundColor: theme.color.fog,
+  },
+  // S0 Safety form
+  s0Form: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  s0FormTitle: {
+    color: theme.color.warning,
+    fontSize: 16,
+    fontWeight: 'bold',
+    fontFamily: theme.font.display,
+  },
+  s0FormHint: {
+    color: theme.color.textDim,
+    fontSize: 12,
+    fontFamily: theme.font.body,
+  },
+  s0Input: {
+    backgroundColor: theme.color.bgInput,
+    borderRadius: theme.radius.input,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    color: theme.color.parchment,
+    fontSize: 14,
+    fontFamily: theme.font.body,
+    borderWidth: 1,
+    borderColor: theme.color.warning,
+  },
+  s0SubmitButton: {
+    backgroundColor: theme.color.warning,
+    borderRadius: theme.radius.button,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    alignSelf: 'center',
+  },
+  s0SubmitText: {
+    color: theme.color.ink,
+    fontSize: 15,
+    fontWeight: 'bold',
+    fontFamily: theme.font.display,
+  },
+  // Dice tray overlay
+  diceTrayOverlay: {
+    position: 'absolute',
+    top: 100,
+    left: 12,
+    right: 12,
+    backgroundColor: theme.color.bgCard,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: theme.color.warning,
+    zIndex: 100,
+    elevation: 10,
+  },
+  diceTrayHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  diceTrayTitle: {
+    color: theme.color.warning,
+    fontSize: 16,
+    fontWeight: 'bold',
+    fontFamily: theme.font.display,
+  },
+  // OOC Chat overlay
+  chatOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 320,
+    backgroundColor: theme.color.bgCard,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    borderWidth: 1,
+    borderColor: theme.color.accent,
+    zIndex: 100,
+    elevation: 10,
+  },
+  chatHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.color.fog,
+  },
+  chatTitle: {
+    color: theme.color.accent,
+    fontSize: 14,
+    fontWeight: 'bold',
+    flex: 1,
+    marginLeft: 6,
+  },
+  chatList: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  chatMessage: {
+    marginBottom: 8,
+  },
+  chatSender: {
+    color: theme.color.accent,
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  chatText: {
+    color: theme.color.text,
+    fontSize: 14,
+  },
+  chatEmpty: {
+    color: theme.color.muted,
+    fontSize: 13,
+    textAlign: 'center',
+    paddingVertical: 20,
+  },
+  chatInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: theme.color.fog,
+    gap: 8,
+  },
+  chatInput: {
+    flex: 1,
+    backgroundColor: theme.color.bgInput,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    color: theme.color.text,
+    fontSize: 14,
+    maxHeight: 60,
+  },
+  chatSendBtn: {
+    backgroundColor: theme.color.accent,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  chatSendBtnDisabled: {
+    opacity: 0.4,
+  },
+  // Dice result banner
+  diceBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: theme.color.bgCard,
+    borderTopWidth: 1,
+    borderColor: theme.color.warning,
+  },
+  diceBannerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+  },
+  diceBannerText: {
+    color: theme.color.parchment,
+    fontSize: 13,
+    fontFamily: theme.font.body,
+  },
+  // Summary modal
+  summaryModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  summaryModalContent: {
+    backgroundColor: theme.color.bgCard,
+    borderRadius: 16,
+    padding: 24,
+    width: '90%',
+    maxHeight: '80%',
+    borderWidth: 1,
+    borderColor: theme.color.gold,
+  },
+  summaryTitle: {
+    color: theme.color.gold,
+    fontSize: 20,
+    fontWeight: 'bold',
+    fontFamily: theme.font.display,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  summaryScroll: {
+    maxHeight: 400,
+    marginBottom: 16,
+  },
+  summaryText: {
+    color: theme.color.parchment,
+    fontSize: 15,
+    lineHeight: 24,
+    fontFamily: theme.font.body,
+  },
+  summaryCloseButton: {
+    backgroundColor: theme.color.emerald,
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  summaryCloseText: {
+    color: theme.color.ink,
+    fontSize: 16,
+    fontWeight: 'bold',
+    fontFamily: theme.font.display,
+  },
+});
+
+
+
+######## FILE: app/src/screens/CombatScreen.tsx ########
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  ActivityIndicator,
+  Modal,
+  FlatList,
+  TextInput,
+  Alert,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../navigation/AppNavigator';
+import { useGameStore } from '../store/gameStore';
+import { sendAttackAction, sendPlayerAction, sendCombatAddEnemy, sendCombatEnd, sendCombatEnemyTurn } from '../hooks/useSocket';
+import type { CombatEnemy } from '@trpgmaster/shared';
+import { theme } from '../theme/theme';
+
+// Enemy catalog type from server API
+interface EnemyCatalogEntry {
+  id: string;
+  name: string;
+  nameEn?: string;
+  type: string;
+  difficulty?: number;
+  description?: string;
+}
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+export function CombatScreen() {
+  const navigation = useNavigation();
+  const character = useGameStore((s) => s.character);
+  const fearPoints = useGameStore((s) => s.fearPoints);
+  const combatState = useGameStore((s) => s.combatState);
+  const aiProcessing = useGameStore((s) => s.aiProcessing);
+  const gmTyping = useGameStore((s) => s.gmTyping);
+  const streamingText = useGameStore((s) => s.streamingText);
+  const playerId = useGameStore((s) => s.playerId);
+  const isHost = useGameStore((s) => s.isHost);
+  const pendingDiceResult = useGameStore((s) => s.pendingDiceResult);
+  const clearPendingDiceResult = useGameStore((s) => s.clearPendingDiceResult);
+
+  const [selectingTarget, setSelectingTarget] = useState(false);
+  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
+  const [showEnemyCatalog, setShowEnemyCatalog] = useState(false);
+  const [enemyCatalog, setEnemyCatalog] = useState<EnemyCatalogEntry[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+
+  // Navigate back when combat is explicitly ended (no combat state at all)
+  useEffect(() => {
+    if (!combatState) {
+      navigation.goBack();
+    }
+  }, [combatState]);
+
+  const enemies: CombatEnemy[] = combatState?.enemies ?? [];
+  const round = combatState?.round ?? 1;
+
+  const handleAttack = () => {
+    if (enemies.length === 0) return;
+    if (enemies.length === 1) {
+      // Single enemy — attack directly
+      executeAttack(enemies[0]);
+    } else {
+      // Multiple enemies — enter target selection mode
+      setSelectingTarget(true);
+      setSelectedTargetId(null);
+    }
+  };
+
+  const handleSelectTarget = (enemy: CombatEnemy) => {
+    if (!selectingTarget) return;
+    setSelectingTarget(false);
+    executeAttack(enemy);
+  };
+
+  const executeAttack = (enemy: CombatEnemy) => {
+    if (!character) return;
+    const evasion = (enemy as any).evasion ?? 12;
+    sendAttackAction({
+      kind: 'attack',
+      attackerId: playerId,
+      targetId: enemy.id,
+      difficulty: evasion,
+    });
+  };
+
+  const handleOtherAction = (label: string) => {
+    sendPlayerAction(label);
+  };
+
+  const handleEndCombat = () => {
+    if (!isHost) {
+      Alert.alert('权限不足', '只有主持人(GM)才能结束战斗');
+      return;
+    }
+    Alert.alert(
+      '结束战斗',
+      '确定要结束当前战斗吗？',
+      [
+        { text: '取消', style: 'cancel' },
+        { text: '确定', style: 'destructive', onPress: () => {
+          sendCombatEnd();
+        }},
+      ],
+    );
+  };
+
+  const handleAddEnemy = async () => {
+    if (enemyCatalog.length === 0) {
+      setCatalogLoading(true);
+      try {
+        const serverUrl = useGameStore.getState().serverUrl;
+        if (serverUrl) {
+          const res = await fetch(`${serverUrl}/api/data/enemies`);
+          const data = await res.json();
+          setEnemyCatalog(data);
+        }
+      } catch {
+        // ignore fetch errors
+      }
+      setCatalogLoading(false);
+    }
+    setShowEnemyCatalog(true);
+  };
+
+  const combatActions = [
+    { id: 'attack', label: '攻击', icon: 'cut' as const, color: '#e74c3c', handler: handleAttack },
+    { id: 'spell', label: '施法', icon: 'flame' as const, color: '#9b59b6', handler: () => handleOtherAction('施法') },
+    { id: 'defend', label: '防御', icon: 'shield' as const, color: '#3498db', handler: () => handleOtherAction('防御') },
+    { id: 'move', label: '移动', icon: 'walk' as const, color: '#2ecc71', handler: () => handleOtherAction('移动') },
+    { id: 'interact', label: '交互', icon: 'hand-left' as const, color: '#f39c12', handler: () => handleOtherAction('交互') },
+    { id: 'flee', label: '撤退', icon: 'exit-outline' as const, color: '#95a5a6', handler: () => handleOtherAction('撤退') },
+  ];
+
+  const renderEnemy = (enemy: CombatEnemy) => {
+    const isTargeted = selectingTarget || selectedTargetId === enemy.id;
+    return (
+      <TouchableOpacity
+        key={enemy.id}
+        style={[styles.enemyCard, enemy.isFocused && styles.enemyCardFocused, selectingTarget && styles.enemyCardSelectable]}
+        onPress={() => selectingTarget && handleSelectTarget(enemy)}
+        activeOpacity={selectingTarget ? 0.7 : 1}
+      >
+        {enemy.isFocused && (
+          <View style={styles.focusedBadge}>
+            <Text style={styles.focusedText}>聚焦</Text>
+          </View>
+        )}
+        <Text style={styles.enemyName}>{enemy.name}</Text>
+        <View style={styles.enemyResourceRow}>
+          <Text style={styles.enemyResourceLabel}>HP</Text>
+          <View style={styles.enemyResourceBar}>
+            <View
+              style={[
+                styles.enemyResourceFill,
+                { width: `${enemy.maxHp > 0 ? (enemy.currentHp / enemy.maxHp) * 100 : 0}%`, backgroundColor: '#e74c3c' },
+              ]}
+            />
+          </View>
+          <Text style={styles.enemyResourceValue}>
+            {enemy.currentHp}/{enemy.maxHp}
+          </Text>
+        </View>
+        <View style={styles.enemyResourceRow}>
+          <Text style={styles.enemyResourceLabel}>压力</Text>
+          <View style={styles.enemyResourceBar}>
+            <View
+              style={[
+                styles.enemyResourceFill,
+                {
+                  width: `${enemy.maxStress > 0 ? (enemy.currentStress / enemy.maxStress) * 100 : 0}%`,
+                  backgroundColor: '#e67e22',
+                },
+              ]}
+            />
+          </View>
+          <Text style={styles.enemyResourceValue}>
+            {enemy.currentStress}/{enemy.maxStress}
+          </Text>
+        </View>
+        {selectingTarget && (
+          <View style={styles.targetHint}>
+            <Text style={styles.targetHintText}>点击选择目标</Text>
+          </View>
+        )}
+      </TouchableOpacity>
+    );
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      {/* Top bar */}
+      <View style={styles.topBar}>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Ionicons name="close" size={24} color="#ecf0f1" />
+        </TouchableOpacity>
+        <Text style={styles.roundText}>回合 {round}</Text>
+        <View style={styles.fearBadge}>
+          <Ionicons name="skull" size={14} color="#9b59b6" />
+          <Text style={styles.fearText}>{fearPoints}</Text>
+        </View>
+      </View>
+
+      <ScrollView style={styles.scrollContent}>
+        {/* Player stats */}
+        {character && (
+          <View style={styles.playerStats}>
+            <Text style={styles.playerName}>{character.name}</Text>
+            <View style={styles.playerResources}>
+              <View style={styles.playerResource}>
+                <Ionicons name="heart" size={12} color="#e74c3c" />
+                <Text style={styles.playerResourceText}>
+                  {character.hp}/{character.maxHp}
+                </Text>
+              </View>
+              <View style={styles.playerResource}>
+                <Ionicons name="flash" size={12} color="#e67e22" />
+                <Text style={styles.playerResourceText}>
+                  {character.stress}/{character.maxStress}
+                </Text>
+              </View>
+              <View style={styles.playerResource}>
+                <Ionicons name="sunny" size={12} color="#3498db" />
+                <Text style={styles.playerResourceText}>
+                  {character.hope}/{character.maxHope}
+                </Text>
+              </View>
+              <View style={styles.playerResource}>
+                <Ionicons name="shield" size={12} color="#95a5a6" />
+                <Text style={styles.playerResourceText}>
+                  {character.armorSlots}/{character.maxArmorSlots}
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Target selection hint */}
+        {selectingTarget && (
+          <View style={styles.targetBanner}>
+            <Text style={styles.targetBannerText}>选择攻击目标</Text>
+            <TouchableOpacity onPress={() => setSelectingTarget(false)}>
+              <Text style={styles.targetCancelText}>取消</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Enemies */}
+        <Text style={styles.sectionLabel}>敌人</Text>
+        {enemies.length > 0 ? (
+          enemies.map(renderEnemy)
+        ) : (
+          <View style={styles.noEnemies}>
+            <Text style={styles.noEnemiesText}>等待敌人数据...</Text>
+          </View>
+        )}
+
+        {/* Add enemy button */}
+        <TouchableOpacity style={styles.addEnemyButton} onPress={handleAddEnemy}>
+          <Ionicons name="add-circle-outline" size={18} color="#9b59b6" />
+          <Text style={styles.addEnemyText}>添加敌人</Text>
+        </TouchableOpacity>
+
+        {/* Combat actions */}
+        <Text style={styles.sectionLabel}>行动</Text>
+        <View style={styles.actionGrid}>
+          {combatActions.map((action) => (
+            <TouchableOpacity
+              key={action.id}
+              style={[styles.actionButton, aiProcessing && styles.actionButtonDisabled]}
+              onPress={action.handler}
+              disabled={aiProcessing}
+            >
+              <Ionicons name={action.icon} size={20} color={aiProcessing ? '#555' : action.color} />
+              <Text style={[styles.actionLabel, aiProcessing && styles.actionLabelDisabled]}>{action.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Narrative preview */}
+        {(gmTyping || streamingText.length > 0) && (
+          <View style={styles.narrativePreview}>
+            <Text style={styles.narrativePreviewLabel}>GM 叙事</Text>
+            {streamingText.length > 0 ? (
+              <Text style={styles.narrativePreviewText} numberOfLines={4}>
+                {streamingText}
+              </Text>
+            ) : (
+              <View style={styles.typingIndicator}>
+                <ActivityIndicator size="small" color="#9b59b6" />
+                <Text style={styles.typingText}>GM正在叙述...</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Enemy turn & End combat */}
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+          <TouchableOpacity
+            style={[styles.endCombatButton, { flex: 1, backgroundColor: theme.color.blood }]}
+            onPress={() => sendCombatEnemyTurn()}
+          >
+            <Text style={styles.endCombatText}>敌人回合</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.endCombatButton, { flex: 1 }]} onPress={handleEndCombat}>
+            <Text style={styles.endCombatText}>结束战斗</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+
+      {/* Dice result banner */}
+      {pendingDiceResult && (
+        <View style={styles.diceBanner}>
+          <View style={styles.diceBannerContent}>
+            <Ionicons name="dice" size={16} color={pendingDiceResult.success ? theme.color.emerald : theme.color.danger} />
+            <Text style={styles.diceBannerText}>
+              {pendingDiceResult.isCritical ? '关键成功! ' : ''}
+              {pendingDiceResult.success ? '成功' : '失败'}
+              {'  '}
+              <Text style={{ color: theme.color.emerald }}>希望骰:{pendingDiceResult.hopeDie}</Text>
+              {' '}
+              <Text style={{ color: theme.color.blood }}>恐惧骰:{pendingDiceResult.fearDie}</Text>
+              {pendingDiceResult.modifier ? ` +${pendingDiceResult.modifier}` : ''}
+              {' = '}{pendingDiceResult.total} vs {pendingDiceResult.difficulty}
+              {pendingDiceResult.hopeGain > 0 && `  +${pendingDiceResult.hopeGain}希望`}
+              {pendingDiceResult.fearGain > 0 && `  +${pendingDiceResult.fearGain}恐惧`}
+              {pendingDiceResult.stressCleared > 0 && `  -${pendingDiceResult.stressCleared}压力`}
+              {pendingDiceResult.canTakeFreeAction && '  可执行免费行动'}
+            </Text>
+          </View>
+          <TouchableOpacity onPress={() => clearPendingDiceResult()}>
+            <Ionicons name="close-circle" size={16} color={theme.color.textDim} />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Enemy catalog modal */}
+      <Modal visible={showEnemyCatalog} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>选择敌人</Text>
+              <TouchableOpacity onPress={() => setShowEnemyCatalog(false)}>
+                <Ionicons name="close" size={24} color="#ecf0f1" />
+              </TouchableOpacity>
+            </View>
+            {catalogLoading ? (
+              <ActivityIndicator size="large" color="#9b59b6" style={styles.modalLoading} />
+            ) : (
+              <FlatList
+                data={enemyCatalog}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.catalogItem}
+                    onPress={() => {
+                      sendCombatAddEnemy(item.id, item.name);
+                      setShowEnemyCatalog(false);
+                    }}
+                  >
+                    <View style={styles.catalogItemInfo}>
+                      <Text style={styles.catalogItemName}>{item.name}</Text>
+                      {item.description ? (
+                        <Text style={styles.catalogItemDesc} numberOfLines={2}>{item.description}</Text>
+                      ) : null}
+                    </View>
+                    <Ionicons name="add-circle" size={20} color="#9b59b6" />
+                  </TouchableOpacity>
+                )}
+                contentContainerStyle={styles.catalogList}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0f0f23',
+  },
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#16213e',
+  },
+  roundText: {
+    color: '#ecf0f1',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  fearBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#9b59b633',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  fearText: {
+    color: '#9b59b6',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  playerStats: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#2980b9',
+  },
+  playerName: {
+    color: '#ecf0f1',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  playerResources: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  playerResource: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  playerResourceText: {
+    color: '#bdc3c7',
+    fontSize: 12,
+  },
+  sectionLabel: {
+    color: '#7f8c8d',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    marginTop: 8,
+  },
+  enemyCard: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#2c3e50',
+  },
+  enemyCardFocused: {
+    borderColor: '#e74c3c',
+    borderWidth: 2,
+  },
+  enemyCardSelectable: {
+    borderColor: '#f39c12',
+    borderWidth: 2,
+  },
+  focusedBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 8,
+    backgroundColor: '#e74c3c33',
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  focusedText: {
+    color: '#e74c3c',
+    fontSize: 10,
+  },
+  enemyName: {
+    color: '#ecf0f1',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 6,
+  },
+  enemyResourceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  enemyResourceLabel: {
+    color: '#7f8c8d',
+    fontSize: 10,
+    width: 28,
+  },
+  enemyResourceBar: {
+    flex: 1,
+    height: 6,
+    backgroundColor: '#2c3e50',
+    borderRadius: 3,
+    marginHorizontal: 6,
+    overflow: 'hidden',
+  },
+  enemyResourceFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  enemyResourceValue: {
+    color: '#bdc3c7',
+    fontSize: 10,
+    width: 36,
+    textAlign: 'right',
+  },
+  targetHint: {
+    marginTop: 6,
+    alignItems: 'center',
+  },
+  targetHintText: {
+    color: '#f39c12',
+    fontSize: 11,
+  },
+  targetBanner: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#f39c1222',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#f39c12',
+  },
+  targetBannerText: {
+    color: '#f39c12',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  targetCancelText: {
+    color: '#e74c3c',
+    fontSize: 13,
+  },
+  noEnemies: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+  noEnemiesText: {
+    color: '#7f8c8d',
+    fontSize: 13,
+  },
+  actionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  actionButton: {
+    width: '30%',
+    backgroundColor: '#1a1a2e',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: '#2c3e50',
+  },
+  actionButtonDisabled: {
+    opacity: 0.5,
+  },
+  actionLabel: {
+    color: '#bdc3c7',
+    fontSize: 12,
+  },
+  actionLabelDisabled: {
+    color: '#555',
+  },
+  narrativePreview: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#9b59b644',
+  },
+  narrativePreviewLabel: {
+    color: '#9b59b6',
+    fontSize: 11,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  narrativePreviewText: {
+    color: '#bdc3c7',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  typingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  typingText: {
+    color: '#7f8c8d',
+    fontSize: 12,
+  },
+  endCombatButton: {
+    backgroundColor: '#e74c3c22',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: '#e74c3c44',
+  },
+  endCombatText: {
+    color: '#e74c3c',
+    fontSize: 14,
+  },
+  addEnemyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#9b59b622',
+    borderRadius: 8,
+    paddingVertical: 10,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#9b59b644',
+  },
+  addEnemyText: {
+    color: '#9b59b6',
+    fontSize: 14,
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#1a1a2e',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    maxHeight: '70%',
+    paddingBottom: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2c3e50',
+  },
+  modalTitle: {
+    color: '#ecf0f1',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  modalLoading: {
+    paddingVertical: 40,
+  },
+  catalogList: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  catalogItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#16213e',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#2c3e50',
+  },
+  catalogItemInfo: {
+    flex: 1,
+  },
+  catalogItemName: {
+    color: '#ecf0f1',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  catalogItemDesc: {
+    color: '#7f8c8d',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  diceBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: theme.color.bgCard,
+    borderTopWidth: 1,
+    borderTopColor: theme.color.fog,
+  },
+  diceBannerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+  },
+  diceBannerText: {
+    color: theme.color.text,
+    fontSize: 13,
+  },
+});
+
+
+
+######## FILE: app/src/screens/HomeScreen.tsx ########
+import React, { useState, useMemo } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, ActivityIndicator } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../navigation/AppNavigator';
+import { useGameStore, type AdventureMessage } from '../store/gameStore';
+import { connectToServer, disconnect, rejoinSessionById, joinDefaultSession } from '../hooks/useSocket';
+import type { Character } from '@trpgmaster/shared';
+
+type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
+
+interface Props {
+  navigation: HomeScreenNavigationProp;
+}
+
+const DEFAULT_SERVER_URL = 'http://localhost:3000';
+
+const SERVER_PRESETS = [
+  { label: '本机', url: 'http://localhost:3000' },
+  { label: '局域网', url: 'http://192.168.1.100:3000' },
+];
+
+interface SaveSlot {
+  character: Character;
+  sessions: Array<{
+    sessionId: string;
+    messageCount: number;
+    lastPlayed: number | undefined;
+    sceneName: string;
+  }>;
+}
+
+function getSaveSlots(
+  characters: Character[],
+  characterSessionHistory: Record<string, string[]>,
+  adventureMessagesBySession: Record<string, AdventureMessage[]>,
+): SaveSlot[] {
+  return characters.map(char => {
+    const sessionIds = characterSessionHistory[char.id] || [];
+    const sessions = sessionIds.map(sid => {
+      const messages = adventureMessagesBySession[sid] || [];
+      const lastMsg = messages[messages.length - 1];
+      return {
+        sessionId: sid,
+        messageCount: messages.length,
+        lastPlayed: lastMsg?.timestamp,
+        sceneName: '',
+      };
+    });
+    return { character: char, sessions };
+  });
+}
+
+export function HomeScreen({ navigation }: Props) {
+  const character = useGameStore((s) => s.character);
+  const characters = useGameStore((s) => s.characters);
+  const campaignId = useGameStore((s) => s.campaignId);
+  const isConnected = useGameStore((s) => s.isConnected);
+  const characterSessionHistory = useGameStore((s) => s.characterSessionHistory);
+  const adventureMessagesBySession = useGameStore((s) => s.adventureMessagesBySession);
+  const serverUrl = useGameStore((s) => s.serverUrl);
+  const pastRooms = useGameStore((s) => s.pastRooms);
+  const aiConfig = useGameStore((s) => s.aiConfig);
+
+  const [inputServerUrl, setInputServerUrl] = useState(serverUrl || DEFAULT_SERVER_URL);
+  const [connecting, setConnecting] = useState(false);
+  const [loadingSlot, setLoadingSlot] = useState<string | null>(null);
+
+  const isFirstTime = characters.length === 0 && pastRooms.length === 0;
+
+  const saveSlots = useMemo(
+    () => getSaveSlots(characters, characterSessionHistory, adventureMessagesBySession),
+    [characters, characterSessionHistory, adventureMessagesBySession],
+  );
+
+  const handleConnect = async () => {
+    if (isConnected) return;
+
+    setConnecting(true);
+    try {
+      const socketId = await connectToServer(inputServerUrl, { autoJoin: false });
+      console.log('[HomeScreen] Connected to server, socketId:', socketId);
+    } catch (err: any) {
+      console.error('[HomeScreen] Connection failed:', err);
+      Alert.alert('连接失败', `无法连接到服务器: ${err.message || '未知错误'}`);
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const handleDisconnect = () => {
+    disconnect();
+  };
+
+  const handleContinueSlot = async (slot: SaveSlot, sessionId: string) => {
+    const store = useGameStore.getState();
+    const char = slot.character;
+
+    // Switch to this character and session
+    store.loadSaveSlot(char.id, sessionId);
+
+    if (isConnected) {
+      setLoadingSlot(char.id);
+      try {
+        await rejoinSessionById(sessionId, char);
+      } catch (err: any) {
+        Alert.alert('重连失败', err.message || '无法恢复该存档的服务器会话');
+      } finally {
+        setLoadingSlot(null);
+      }
+    } else if (inputServerUrl) {
+      // Connect first, then rejoin
+      setLoadingSlot(char.id);
+      try {
+        await connectToServer(inputServerUrl, { autoJoin: false });
+        await rejoinSessionById(sessionId, char);
+      } catch (err: any) {
+        Alert.alert('连接失败', `无法连接并恢复存档: ${err.message || '未知错误'}`);
+      } finally {
+        setLoadingSlot(null);
+      }
+    }
+
+    navigation.navigate('Main');
+  };
+
+  const handleNewAdventure = (slot: SaveSlot) => {
+    const store = useGameStore.getState();
+    store.loadSaveSlot(slot.character.id, null);
+
+    // If connected, join/create a default server session for solo play
+    if (isConnected) {
+      joinDefaultSession(slot.character);
+    }
+
+    navigation.navigate('Main');
+  };
+
+  const handleCreateCharacter = () => {
+    navigation.navigate('CharacterCreate', {});
+  };
+
+  const handleCharacterRoster = () => {
+    navigation.navigate('CharacterRoster');
+  };
+
+  const handleMultiplayer = () => {
+    navigation.navigate('SessionJoin');
+  };
+
+  const handleGoToSettings = () => {
+    navigation.navigate('Main');
+  };
+
+  const getClassIcon = (classId: string) => {
+    const map: Record<string, string> = {
+      cleric: '🛡️', warrior: '⚔️', rogue: '🗡️', ranger: '🏹', wizard: '🧙',
+      druid: '🌿', bard: '🎵', necromancer: '💀',
+    };
+    return map[classId] || '⚔️';
+  };
+
+  return (
+    <SafeAreaView style={styles.screen}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        {/* Hero */}
+        <View style={styles.hero}>
+          <Text style={styles.logo}>TRPGMaster</Text>
+          <Text style={styles.tagline}>AI管家 · 匕首之心 · 德拉肯海姆</Text>
+          <View style={styles.ruleBadge}>
+            <Ionicons name="dice-outline" size={14} color="#f39c12" />
+            <Text style={styles.ruleText}>Daggerheart Rules</Text>
+          </View>
+        </View>
+
+        {/* Server connection */}
+        <View style={styles.connectionSection}>
+          <Text style={styles.sectionTitle}>服务器连接</Text>
+          <View style={styles.serverInputRow}>
+            <TextInput
+              style={styles.serverInput}
+              value={inputServerUrl}
+              onChangeText={setInputServerUrl}
+              placeholder="例如: http://192.168.1.100:3000"
+              placeholderTextColor="#7f8c8d"
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!isConnected && !connecting}
+            />
+            {isConnected ? (
+              <TouchableOpacity style={styles.disconnectButton} onPress={handleDisconnect}>
+                <Ionicons name="unlink" size={18} color="#e74c3c" />
+                <Text style={styles.disconnectText}>断开</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[styles.connectButton, connecting && styles.connectButtonDisabled]}
+                onPress={handleConnect}
+                disabled={connecting}
+              >
+                {connecting ? (
+                  <ActivityIndicator size="small" color="#ecf0f1" />
+                ) : (
+                  <>
+                    <Ionicons name="link" size={18} color="#ecf0f1" />
+                    <Text style={styles.connectText}>连接</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
+          {!isConnected && !connecting && (
+            <View style={styles.presetRow}>
+              {SERVER_PRESETS.map((preset) => (
+                <TouchableOpacity
+                  key={preset.label}
+                  style={styles.presetChip}
+                  onPress={() => setInputServerUrl(preset.url)}
+                >
+                  <Text style={styles.presetChipText}>{preset.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+          <View style={styles.connectionStatus}>
+            <View style={[styles.statusDot, isConnected ? styles.statusDotConnected : styles.statusDotDisconnected]} />
+            <Text style={[styles.statusText, isConnected && styles.statusTextConnected]}>
+              {isConnected ? '已连接' : '未连接'}
+            </Text>
+          </View>
+        </View>
+
+        {/* First-time onboarding guide */}
+        {isFirstTime && (
+          <View style={styles.onboardingCard}>
+            <Text style={styles.onboardingTitle}>开始你的冒险</Text>
+            <Text style={styles.onboardingSubtitle}>三步开启德拉肯海姆之旅</Text>
+            <View style={styles.onboardingSteps}>
+              <TouchableOpacity style={styles.onboardingStep} onPress={handleCreateCharacter}>
+                <View style={styles.onboardingStepNumber}>
+                  <Text style={styles.onboardingStepNumberText}>1</Text>
+                </View>
+                <View style={styles.onboardingStepContent}>
+                  <Text style={styles.onboardingStepTitle}>创建角色</Text>
+                  <Text style={styles.onboardingStepDesc}>选择职业、血脉与背景</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color="#7f8c8d" />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.onboardingStep} onPress={handleGoToSettings}>
+                <View style={styles.onboardingStepNumber}>
+                  <Text style={styles.onboardingStepNumberText}>2</Text>
+                </View>
+                <View style={styles.onboardingStepContent}>
+                  <Text style={styles.onboardingStepTitle}>配置AI管家</Text>
+                  <Text style={styles.onboardingStepDesc}>填入API密钥，激活AI叙事</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color="#7f8c8d" />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.onboardingStep} onPress={handleConnect}>
+                <View style={[styles.onboardingStepNumber, !aiConfig?.apiKey && styles.onboardingStepDisabled]}>
+                  <Text style={[styles.onboardingStepNumberText, !aiConfig?.apiKey && styles.onboardingStepNumberTextDisabled]}>3</Text>
+                </View>
+                <View style={styles.onboardingStepContent}>
+                  <Text style={styles.onboardingStepTitle}>连接并开始</Text>
+                  <Text style={styles.onboardingStepDesc}>连接服务器，进入冒险世界</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color="#7f8c8d" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* Save slots */}
+        <View style={styles.slotsSection}>
+          <Text style={styles.sectionTitle}>存档</Text>
+          {saveSlots.length === 0 ? (
+            <View style={styles.noSlots}>
+              <Ionicons name="folder-open-outline" size={32} color="#7f8c8d" />
+              <Text style={styles.noSlotsText}>还没有角色，创建一个开始冒险吧</Text>
+            </View>
+          ) : (
+            saveSlots.map((slot) => {
+              const isLoading = loadingSlot === slot.character.id;
+              const hasSession = slot.sessions.length > 0;
+              const latestSession = hasSession ? slot.sessions[slot.sessions.length - 1] : null;
+
+              return (
+                <View key={slot.character.id} style={styles.slotCard}>
+                  <View style={styles.slotHeader}>
+                    <Text style={styles.slotIcon}>{getClassIcon(slot.character.classId)}</Text>
+                    <View style={styles.slotInfo}>
+                      <Text style={styles.slotName}>{slot.character.name}</Text>
+                      <Text style={styles.slotDetail}>
+                        {slot.character.classId} · Lv.{slot.character.level}
+                        {slot.character.ancestryId ? ` · ${slot.character.ancestryId}` : ''}
+                      </Text>
+                    </View>
+                    <View style={styles.slotStatus}>
+                      {hasSession && (
+                        <Text style={styles.slotMsgCount}>{latestSession!.messageCount}条消息</Text>
+                      )}
+                    </View>
+                  </View>
+                  <View style={styles.slotActions}>
+                    {hasSession && latestSession && (
+                      <TouchableOpacity
+                        style={[styles.slotButton, styles.continueButton, isLoading && styles.slotButtonDisabled]}
+                        onPress={() => handleContinueSlot(slot, latestSession.sessionId)}
+                        disabled={isLoading}
+                      >
+                        {isLoading ? (
+                          <ActivityIndicator size="small" color="#2ecc71" />
+                        ) : (
+                          <>
+                            <Ionicons name="play-circle" size={16} color="#2ecc71" />
+                            <Text style={styles.continueButtonText}>继续冒险</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity
+                      style={[styles.slotButton, styles.newButton]}
+                      onPress={() => handleNewAdventure(slot)}
+                    >
+                      <Ionicons name="add-circle-outline" size={16} color="#9b59b6" />
+                      <Text style={styles.newButtonText}>新冒险</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })
+          )}
+        </View>
+
+        {/* Quick actions */}
+        <View style={styles.actions}>
+          <TouchableOpacity
+            style={[styles.actionCard, styles.newCard]}
+            onPress={handleCreateCharacter}
+          >
+            <Ionicons name="add-circle" size={32} color="#9b59b6" />
+            <View style={styles.actionTextContainer}>
+              <Text style={styles.actionTitle}>创建角色</Text>
+              <Text style={styles.actionDesc}>
+                创建新角色，开始德拉肯海姆的冒险之旅
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#7f8c8d" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionCard, styles.rosterCard]}
+            onPress={handleCharacterRoster}
+          >
+            <Ionicons name="people" size={32} color="#3498db" />
+            <View style={styles.actionTextContainer}>
+              <Text style={styles.actionTitle}>角色列表</Text>
+              <Text style={styles.actionDesc}>
+                管理你的角色，切换活跃角色
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#7f8c8d" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionCard, styles.multiCard]}
+            onPress={handleMultiplayer}
+          >
+            <Ionicons name="wifi" size={32} color="#e67e22" />
+            <View style={styles.actionTextContainer}>
+              <Text style={styles.actionTitle}>多人游戏</Text>
+              <Text style={styles.actionDesc}>
+                创建或加入房间，与朋友一起冒险
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#7f8c8d" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Campaign info */}
+        <View style={styles.campaignSection}>
+          <Text style={styles.campaignTitle}>德拉肯海姆战役</Text>
+          <Text style={styles.campaignDesc}>
+            五百年前，一颗陨石击中了德拉肯海姆，翠晶从坑洞中蔓延开来。迷雾笼罩了废墟，变异生物在阴影中游荡。五个派系在这座死城中争夺权力和翠晶的秘密。你将成为一名冒险者，踏入这片危险的领域——
+          </Text>
+
+          <View style={styles.campaignDetails}>
+            <View style={styles.detailItem}>
+              <Ionicons name="people" size={16} color="#9b59b6" />
+              <Text style={styles.detailText}>5个派系</Text>
+            </View>
+            <View style={styles.detailItem}>
+              <Ionicons name="map" size={16} color="#3498db" />
+              <Text style={styles.detailText}>10+探索地点</Text>
+            </View>
+            <View style={styles.detailItem}>
+              <Ionicons name="skull" size={16} color="#e74c3c" />
+              <Text style={styles.detailText}>污染与变异</Text>
+            </View>
+            <View style={styles.detailItem}>
+              <Ionicons name="diamond" size={16} color="#2ecc71" />
+              <Text style={styles.detailText}>翠晶收集</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Features */}
+        <View style={styles.features}>
+          <Text style={styles.featureTitle}>AI管家功能</Text>
+          <View style={styles.featureGrid}>
+            {[
+              { icon: 'chatbubbles' as const, label: '沉浸叙事', color: '#3498db' },
+              { icon: 'document-text' as const, label: '规则裁判', color: '#e74c3c' },
+              { icon: 'person' as const, label: 'NPC扮演', color: '#9b59b6' },
+              { icon: 'cut' as const, label: '战斗管理', color: '#e67e22' },
+              { icon: 'people' as const, label: '派系政治', color: '#2ecc71' },
+              { icon: 'compass' as const, label: '战役推进', color: '#f39c12' },
+            ].map((f, i) => (
+              <View key={i} style={styles.featureItem}>
+                <View style={[styles.featureIcon, { backgroundColor: `${f.color}22` }]}>
+                  <Ionicons name={f.icon} size={18} color={f.color} />
+                </View>
+                <Text style={styles.featureLabel}>{f.label}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: '#0f0f23',
+  },
+  scrollContent: {
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+  },
+  // Hero
+  hero: {
+    alignItems: 'center',
+    marginTop: 20,
+    marginBottom: 24,
+  },
+  logo: {
+    color: '#ecf0f1',
+    fontSize: 36,
+    fontWeight: 'bold',
+    letterSpacing: 2,
+  },
+  tagline: {
+    color: '#9b59b6',
+    fontSize: 14,
+    marginTop: 4,
+  },
+  ruleBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#f39c1222',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginTop: 8,
+  },
+  ruleText: {
+    color: '#f39c12',
+    fontSize: 11,
+  },
+  // Connection section
+  connectionSection: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#2c3e50',
+  },
+  sectionTitle: {
+    color: '#bdc3c7',
+    fontSize: 13,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  serverInputRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 8,
+  },
+  serverInput: {
+    flex: 1,
+    backgroundColor: '#16213e',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#ecf0f1',
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: '#2c3e50',
+  },
+  connectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#2980b9',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  connectButtonDisabled: {
+    opacity: 0.6,
+  },
+  connectText: {
+    color: '#ecf0f1',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  disconnectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#e74c3c22',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#e74c3c44',
+  },
+  disconnectText: {
+    color: '#e74c3c',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  connectionStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  statusDotConnected: {
+    backgroundColor: '#2ecc71',
+  },
+  statusDotDisconnected: {
+    backgroundColor: '#e74c3c',
+  },
+  statusText: {
+    color: '#7f8c8d',
+    fontSize: 12,
+  },
+  statusTextConnected: {
+    color: '#2ecc71',
+  },
+  // Preset chips
+  presetRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 8,
+  },
+  presetChip: {
+    backgroundColor: '#16213e',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: '#2c3e50',
+  },
+  presetChipText: {
+    color: '#bdc3c7',
+    fontSize: 11,
+  },
+  // Onboarding
+  onboardingCard: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#9b59b644',
+  },
+  onboardingTitle: {
+    color: '#ecf0f1',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  onboardingSubtitle: {
+    color: '#9b59b6',
+    fontSize: 13,
+    marginBottom: 14,
+  },
+  onboardingSteps: {
+    gap: 10,
+  },
+  onboardingStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  onboardingStepNumber: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#9b59b6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  onboardingStepDisabled: {
+    backgroundColor: '#2c3e50',
+  },
+  onboardingStepNumberText: {
+    color: '#ecf0f1',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  onboardingStepNumberTextDisabled: {
+    color: '#7f8c8d',
+  },
+  onboardingStepContent: {
+    flex: 1,
+  },
+  onboardingStepTitle: {
+    color: '#ecf0f1',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  onboardingStepDesc: {
+    color: '#7f8c8d',
+    fontSize: 12,
+    marginTop: 1,
+  },
+  // Save slots section
+  slotsSection: {
+    marginBottom: 20,
+  },
+  noSlots: {
+    alignItems: 'center',
+    paddingVertical: 20,
+    backgroundColor: '#1a1a2e',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2c3e50',
+  },
+  noSlotsText: {
+    color: '#7f8c8d',
+    fontSize: 13,
+    marginTop: 8,
+  },
+  slotCard: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#2c3e50',
+  },
+  slotHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 12,
+  },
+  slotIcon: {
+    fontSize: 28,
+  },
+  slotInfo: {
+    flex: 1,
+  },
+  slotName: {
+    color: '#ecf0f1',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  slotDetail: {
+    color: '#7f8c8d',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  slotStatus: {
+    alignItems: 'flex-end',
+  },
+  slotMsgCount: {
+    color: '#2ecc71',
+    fontSize: 12,
+  },
+  slotActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  slotButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 1,
+  },
+  slotButtonDisabled: {
+    opacity: 0.5,
+  },
+  continueButton: {
+    backgroundColor: '#2ecc7122',
+    borderColor: '#2ecc71',
+  },
+  continueButtonText: {
+    color: '#2ecc71',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  newButton: {
+    backgroundColor: '#9b59b622',
+    borderColor: '#9b59b644',
+  },
+  newButtonText: {
+    color: '#9b59b6',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  // Actions
+  actions: {
+    gap: 12,
+    marginBottom: 24,
+  },
+  actionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    gap: 16,
+  },
+  newCard: {
+    backgroundColor: '#1a1a2e',
+    borderColor: '#9b59b6',
+  },
+  rosterCard: {
+    backgroundColor: '#1a1a2e',
+    borderColor: '#3498db',
+  },
+  multiCard: {
+    backgroundColor: '#1a1a2e',
+    borderColor: '#e67e22',
+  },
+  actionTextContainer: {
+    flex: 1,
+  },
+  actionTitle: {
+    color: '#ecf0f1',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  actionDesc: {
+    color: '#7f8c8d',
+    fontSize: 13,
+  },
+  // Campaign section
+  campaignSection: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+  },
+  campaignTitle: {
+    color: '#ecf0f1',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  campaignDesc: {
+    color: '#bdc3c7',
+    fontSize: 13,
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  campaignDetails: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  detailItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  detailText: {
+    color: '#bdc3c7',
+    fontSize: 12,
+  },
+  // Features
+  features: {
+    marginTop: 8,
+  },
+  featureTitle: {
+    color: '#bdc3c7',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 12,
+  },
+  featureGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  featureItem: {
+    alignItems: 'center',
+    width: '30%',
+  },
+  featureIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  featureLabel: {
+    color: '#bdc3c7',
+    fontSize: 11,
+    textAlign: 'center',
+  },
+});
+
+
+

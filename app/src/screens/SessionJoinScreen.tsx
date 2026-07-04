@@ -86,9 +86,7 @@ export function SessionJoinScreen({ navigation }: Props) {
     setLoading('create');
     try {
       const result = await createSession(selectedCharacter);
-      Alert.alert('房间已创建', `房间码: ${result.code}`, [
-        { text: '确定', onPress: () => navigation.navigate('Main') },
-      ]);
+      navigation.navigate('SessionLobby', { sessionCode: result.code, isHost: true });
     } catch (err: any) {
       Alert.alert('创建失败', err.message || '未知错误');
     } finally {
@@ -113,9 +111,7 @@ export function SessionJoinScreen({ navigation }: Props) {
     setLoading('join');
     try {
       const result = await joinSessionByCode(roomCode.trim(), selectedCharacter);
-      Alert.alert('已加入房间', `房间码: ${result.code}`, [
-        { text: '确定', onPress: () => navigation.navigate('Main') },
-      ]);
+      navigation.navigate('SessionLobby', { sessionCode: result.code, isHost: false });
     } catch (err: any) {
       Alert.alert('加入失败', err.message || '未知错误');
     } finally {

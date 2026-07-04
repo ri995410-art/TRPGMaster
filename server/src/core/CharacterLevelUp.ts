@@ -38,6 +38,8 @@ export interface LevelUpRequest {
   experienceChoices?: [string, string]; // For improveExperiences: experience IDs
   domainCardChoice?: string; // For gainDomainCard: domain card ID
   domainCardSwap?: { add: string; remove: string }; // Swap domain card
+  multiclassClassId?: string; // For multiclass: second class ID
+  multiclassDomain?: string; // For multiclass: chosen domain from second class
 }
 
 export interface LevelUpResult {
@@ -107,7 +109,14 @@ export class CharacterLevelUp {
     const classData = daggerheartData.classes.find(c => c.id === character.classId);
     const classDomains = classData?.domains || [];
     const availableDomainCards = (daggerheartData.domains as DomainCard[]).filter(
-      (c: DomainCard) => classDomains.includes(c.domain) && c.level <= nextLevel
+      (c: DomainCard) => {
+        if (!classDomains.includes(c.domain)) return false;
+        // Rules: Ch2 "兼职规则" — multiclass domain cards capped at ceil(level/2)
+        const levelLimit = character.multiclass && character.multiclass.domain === c.domain
+          ? Math.ceil(nextLevel / 2)
+          : nextLevel;
+        return c.level <= levelLimit;
+      },
     );
     options.push({
       type: 'gainDomainCard',
@@ -129,12 +138,16 @@ export class CharacterLevelUp {
     });
 
     // 7. Gain subclass card
+    // Rules: Ch2 "兼职规则" — multiclass only blocks original class mastery cards, not all subclass cards
+    const isMulticlassMasteryBlock = character.multiclass
+      && !character.featureUses?.[`subclass_mastery_${character.subclassId}`];
     options.push({
       type: 'gainSubclassCard',
       label: '获取子职业卡牌',
       description: '获得子职业的下一张卡牌（进阶→精通）',
       slotCost: 1,
-      available: true, // Always available as an option
+      available: !isMulticlassMasteryBlock,
+      reason: isMulticlassMasteryBlock ? '兼职后不能获得原职业的精通卡' : undefined,
     });
 
     // 8. Increase proficiency (costs 2 slots)
@@ -152,8 +165,9 @@ export class CharacterLevelUp {
       label: '兼职',
       description: '从另一个职业中选择一个领域，获得其职业特性。此选项占用2个升级槽位。',
       slotCost: 2,
-      available: nextLevel >= 5,
-      reason: nextLevel < 5 ? '5级才能选择兼职' : undefined,
+      available: nextLevel >= 5 && !character.multiclass,
+      reason: nextLevel < 5 ? '5级才能选择兼职' : character.multiclass ? '已经兼职，不能再次兼职' : undefined,
+      data: { availableClasses: daggerheartData.classes.filter((c: any) => c.id !== character.classId).map((c: any) => ({ id: c.id, name: c.name })) },
     });
 
     return options;
@@ -289,8 +303,12 @@ export class CharacterLevelUp {
             errors.push(`未找到领域卡: ${cardId}`);
             continue;
           }
-          if (card.level > request.newLevel) {
-            errors.push(`领域卡等级(${card.level})超过当前等级(${request.newLevel})`);
+          // Rules: Ch2 "兼职规则" — multiclass domain cards capped at ceil(level/2)
+          const effectiveLevelLimit = updated.multiclass && updated.multiclass.domain === card.domain
+            ? Math.ceil(request.newLevel / 2)
+            : request.newLevel;
+          if (card.level > effectiveLevelLimit) {
+            errors.push(`领域卡等级(${card.level})超过可用等级上限(${effectiveLevelLimit})${updated.multiclass?.domain === card.domain ? '（兼职领域卡限制为等级一半向上取整）' : ''}`);
             continue;
           }
           // Validate domain belongs to class
@@ -318,8 +336,54 @@ export class CharacterLevelUp {
         }
 
         case 'gainSubclassCard': {
-          // Mark that subclass upgrade was chosen - actual card data would come from subclasses.json
-          // For now, just track the choice
+          // Unlock the next subclass feature tier based on current level
+          const subclassData = daggerheartData.subclasses?.find(
+            (sc: any) => sc.id === updated.subclassId,
+          );
+          if (subclassData && subclassData.features) {
+            const { features } = subclassData;
+            // Determine which tier to unlock next
+            // base=1, advanced=5, mastery=8
+            let nextFeature: { name: string; nameEn: string; description: string; level: number; isCard: boolean } | null = null;
+            if (request.newLevel >= 5 && !updated.featureUses[`subclass_advanced_${updated.subclassId}`]) {
+              nextFeature = features.advanced;
+            } else if (request.newLevel >= 8 && !updated.featureUses[`subclass_mastery_${updated.subclassId}`]) {
+              nextFeature = features.mastery;
+            } else if (!updated.featureUses[`subclass_base_${updated.subclassId}`]) {
+              nextFeature = features.base;
+            }
+            if (nextFeature) {
+              // Mark the feature as unlocked
+              const featureKey = request.newLevel >= 8 ? `subclass_mastery_${updated.subclassId}`
+                : request.newLevel >= 5 ? `subclass_advanced_${updated.subclassId}`
+                : `subclass_base_${updated.subclassId}`;
+              updated.featureUses[featureKey] = -1; // -1 = passive/unlimited uses
+              // If the feature is a card, add it to the domain card loadout
+              if (nextFeature.isCard) {
+                // Create a synthetic domain card for the subclass feature
+                const card: DomainCard = {
+                  id: `${updated.subclassId}_${featureKey}`,
+                  name: nextFeature.name,
+                  nameEn: nextFeature.nameEn,
+                  domain: (daggerheartData.classes.find((c: any) => c.id === updated.classId)?.domains?.[0] as DomainType) || 'codex',
+                  level: nextFeature.level || request.newLevel,
+                  type: 'ability',
+                  recallCost: 0,
+                  description: nextFeature.description,
+                  effect: nextFeature.description,
+                };
+                if (updated.domainCardConfig.loadout.length < updated.domainCardConfig.maxLoadout) {
+                  updated.domainCardConfig.loadout.push(card);
+                } else {
+                  updated.domainCardConfig.vault.push(card);
+                }
+              }
+            } else {
+              errors.push('没有可解锁的子职业特性');
+            }
+          } else {
+            errors.push(`未找到子职业数据: ${updated.subclassId}`);
+          }
           break;
         }
 
@@ -329,8 +393,72 @@ export class CharacterLevelUp {
         }
 
         case 'multiclass': {
-          // Multiclass is tracked but complex - for now just mark the choice
-          // Full implementation would need multiclass domain selection
+          // Rules: Ch2 "兼职规则" — gain another class's base subclass card, choose a domain from it
+          const secondClassId = request.multiclassClassId;
+          if (!secondClassId) {
+            errors.push('请选择一个兼职职业');
+            break;
+          }
+          if (updated.multiclass) {
+            errors.push('角色已经兼职，不能再次兼职');
+            break;
+          }
+          const secondClassData = daggerheartData.classes.find((c: any) => c.id === secondClassId);
+          if (!secondClassData) {
+            errors.push(`未找到职业: ${secondClassId}`);
+            break;
+          }
+          // Find domains from the second class that the character doesn't already have
+          const currentClassData = daggerheartData.classes.find((c: any) => c.id === updated.classId);
+          const currentDomains = currentClassData?.domains || [];
+          const newDomains = (secondClassData.domains as DomainType[]).filter(
+            (d: DomainType) => !currentDomains.includes(d),
+          );
+          if (newDomains.length === 0) {
+            errors.push(`职业 ${secondClassData.name} 的领域与当前职业完全重叠`);
+            break;
+          }
+          // Pick the selected domain, or the first available
+          const selectedDomain: DomainType = (request.multiclassDomain as DomainType) || newDomains[0];
+          if (!newDomains.includes(selectedDomain)) {
+            errors.push(`领域 ${selectedDomain} 不属于职业 ${secondClassData.name} 或已被当前职业拥有`);
+            break;
+          }
+          updated.multiclass = {
+            classId: secondClassId,
+            domain: selectedDomain,
+          };
+
+          // Rules: Ch2 "兼职规则" — gain the second class's base subclass card
+          const secondSubclassIds = secondClassData.subclassIds as [string, string];
+          if (secondSubclassIds && secondSubclassIds.length > 0) {
+            const secondSubclass = daggerheartData.subclasses?.find(
+              (sc: any) => sc.id === secondSubclassIds[0],
+            );
+            if (secondSubclass?.features?.base) {
+              const baseFeature = secondSubclass.features.base;
+              if (baseFeature.isCard) {
+                const card: DomainCard = {
+                  id: `multiclass_${secondSubclass.id}_base`,
+                  name: baseFeature.name,
+                  nameEn: baseFeature.nameEn,
+                  domain: selectedDomain,
+                  level: baseFeature.level || 1,
+                  type: 'ability',
+                  recallCost: 0,
+                  description: baseFeature.description,
+                  effect: baseFeature.description,
+                };
+                if (updated.domainCardConfig.loadout.length < updated.domainCardConfig.maxLoadout) {
+                  updated.domainCardConfig.loadout.push(card);
+                } else {
+                  updated.domainCardConfig.vault.push(card);
+                }
+              }
+              // Mark the base feature as unlocked
+              updated.featureUses[`subclass_base_${secondSubclass.id}`] = -1;
+            }
+          }
           break;
         }
       }

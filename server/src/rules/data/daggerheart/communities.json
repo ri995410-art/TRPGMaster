@@ -8,7 +8,15 @@
       "name": "高人一等",
       "nameEn": "Above It All",
       "description": "你在与贵族交际、议价或利用你的声誉来达到目的的掷骰中具有优势。",
-      "type": "passive"
+      "type": "passive",
+      "mechanicalEffects": [
+        {
+          "trigger": "onRoll",
+          "type": "advantage",
+          "triggerSituation": "与贵族交际、议价或利用声誉",
+          "description": "与贵族交际、议价或利用声誉的掷骰具有优势"
+        }
+      ]
     }
   },
   {
@@ -20,7 +28,15 @@
       "name": "博览群书",
       "nameEn": "Well Read",
       "description": "你在关于重要人物或地点的历史、文化和政治的掷骰中具有优势。",
-      "type": "passive"
+      "type": "passive",
+      "mechanicalEffects": [
+        {
+          "trigger": "onRoll",
+          "type": "advantage",
+          "triggerSituation": "历史、文化和政治知识",
+          "description": "关于历史、文化和政治的掷骰具有优势"
+        }
+      ]
     }
   },
   {
@@ -32,7 +48,15 @@
       "name": "恪守不渝",
       "nameEn": "Steadfast",
       "description": "记录三个你的成长经历灌输给你的格言或价值观。每次休息一次，当你描述你如何通过当前行动来体现这些原则之一时，你可以将一个d20作为你的希望骰，而不是d12。",
-      "type": "action"
+      "type": "action",
+      "mechanicalEffects": [
+        {
+          "trigger": "onRoll",
+          "type": "narrative",
+          "usesPer": "shortRest",
+          "description": "每次休息一次，描述体现原则时希望骰使用d20代替d12"
+        }
+      ]
     }
   },
   {
@@ -44,7 +68,15 @@
       "name": "脚踏实地",
       "nameEn": "Sure Footed",
       "description": "你在穿越危险的悬崖峭壁、在恶劣环境中导航以及使用你的生存知识的掷骰上具有优势。",
-      "type": "passive"
+      "type": "passive",
+      "mechanicalEffects": [
+        {
+          "trigger": "onRoll",
+          "type": "advantage",
+          "triggerSituation": "穿越危险地形、恶劣环境导航、生存知识",
+          "description": "穿越危险地形、导航和生存知识的掷骰具有优势"
+        }
+      ]
     }
   },
   {
@@ -56,7 +88,14 @@
       "name": "潮起潮落",
       "nameEn": "Ebb and Flow",
       "description": "你深谙生命和生活的变化无常。当你掷出恐惧结果时，在这张卡牌上放置一个指示物。你可以持有最大等于你等级数量的指示物。在你进行动作掷骰之前，你可以花费任意数量指示物，每个指示物使你的掷骰获得+1加值。在每场游戏结束时，清除所有未使用的指示物。",
-      "type": "passive"
+      "type": "passive",
+      "mechanicalEffects": [
+        {
+          "trigger": "onFearResult",
+          "type": "narrative",
+          "description": "恐惧结果时获得1个指示物（最多等级数），掷骰前可花费指示物获得+1/个加值，游戏结束清除"
+        }
+      ]
     }
   },
   {
@@ -68,7 +107,15 @@
       "name": "恶贯满盈",
       "nameEn": "Notorious",
       "description": "你在与罪犯谈判、侦测谎言或寻找安全藏身之处的掷骰中具有优势。",
-      "type": "passive"
+      "type": "passive",
+      "mechanicalEffects": [
+        {
+          "trigger": "onRoll",
+          "type": "advantage",
+          "triggerSituation": "与罪犯谈判、侦测谎言、寻找安全藏身处",
+          "description": "与罪犯谈判、侦测谎言或寻找藏身处的掷骰具有优势"
+        }
+      ]
     }
   },
   {
@@ -80,7 +127,15 @@
       "name": "微光生存",
       "nameEn": "Low Light Living",
       "description": "当你处于微光或严重遮蔽的区域时，在隐匿、调查或感知该区域内细节的掷骰中具有优势。",
-      "type": "passive"
+      "type": "passive",
+      "mechanicalEffects": [
+        {
+          "trigger": "onRoll",
+          "type": "advantage",
+          "triggerSituation": "微光/遮蔽区域中的隐匿、调查或感知",
+          "description": "微光或遮蔽区域中隐匿、调查和感知的掷骰具有优势"
+        }
+      ]
     }
   },
   {
@@ -93,7 +148,15 @@
       "nameEn": "Traveler's Pack",
       "description": "将一个游牧行囊添加到你的携带物品中。每局游戏一次，你可以花费1希望点从背包中拿出一件对当前情况有用的普通物品。与游戏主持人一起确定这件物品是什么。",
       "type": "action",
-      "hopeCost": 1
+      "hopeCost": 1,
+      "mechanicalEffects": [
+        {
+          "trigger": "action",
+          "type": "narrative",
+          "usesPer": "session",
+          "description": "每场游戏一次花费1希望点，从行囊中取出一件有用的普通物品"
+        }
+      ]
     }
   },
   {
@@ -105,7 +168,15 @@
       "name": "轻盈步伐",
       "nameEn": "Light Step",
       "description": "你的移动天然无声。在试图不被察觉的移动掷骰中具有优势。",
-      "type": "passive"
+      "type": "passive",
+      "mechanicalEffects": [
+        {
+          "trigger": "onRoll",
+          "type": "advantage",
+          "triggerSituation": "不被察觉的移动/隐匿",
+          "description": "隐匿移动的掷骰具有优势"
+        }
+      ]
     }
   }
 ]

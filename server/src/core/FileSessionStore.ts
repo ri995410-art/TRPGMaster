@@ -1,5 +1,5 @@
 import type { AIMessage } from '@trpgmaster/shared';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, unlinkSync, renameSync } from 'fs';
 import { join } from 'path';
 import type { SessionStore, HistoryEntry } from './SessionStore';
 
@@ -171,20 +171,43 @@ export class FileSessionStore implements SessionStore {
       const entries = this.history.get(sessionId);
       if (!entries) return;
       const filePath = join(this.dataDir, `${sessionId}_history.json`);
-      writeFileSync(filePath, JSON.stringify(entries), 'utf-8');
+      const bakPath = filePath + '.bak';
+      // Back up current file before overwriting
+      if (existsSync(filePath)) {
+        try { copyFileSync(filePath, bakPath); } catch { /* ignore */ }
+      }
+      const tmpPath = `${filePath}.tmp.${process.pid}`;
+      writeFileSync(tmpPath, JSON.stringify(entries), 'utf-8');
+      try {
+        renameSync(tmpPath, filePath); // POSIX atomic, same-drive atomic on Windows
+      } catch (e) {
+        try { unlinkSync(tmpPath); } catch { /* ignore */ }
+        throw e;
+      }
     } catch {
       // Write failure is non-critical — data is still in memory
     }
   }
 
   private loadHistoryFromDisk(sessionId: string): HistoryEntry[] {
+    const filePath = join(this.dataDir, `${sessionId}_history.json`);
     try {
-      const filePath = join(this.dataDir, `${sessionId}_history.json`);
       if (!existsSync(filePath)) return [];
       const raw = readFileSync(filePath, 'utf-8');
       return JSON.parse(raw) as HistoryEntry[];
     } catch {
-      return [];
+      // Main file corrupted — try backup
+      const bakPath = filePath + '.bak';
+      try {
+        if (!existsSync(bakPath)) return [];
+        const raw = readFileSync(bakPath, 'utf-8');
+        const entries = JSON.parse(raw) as HistoryEntry[];
+        // Restore backup
+        copyFileSync(bakPath, filePath);
+        return entries;
+      } catch {
+        return [];
+      }
     }
   }
 }

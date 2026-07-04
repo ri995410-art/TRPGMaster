@@ -7,6 +7,25 @@ import consumablesData from './data/daggerheart/consumables.json';
 import type { LootResult } from '@trpgmaster/shared';
 import { rollDualD12 } from './systems/DaggerHeartRules';
 
+/** Loot table entry structure */
+interface LootTableEntry {
+  id: string;
+  name: string;
+  description?: string;
+  roll: number;
+}
+
+/** Consumable data structure */
+interface ConsumableEntry {
+  id: string;
+  name: string;
+  description?: string;
+  rarity: 'common' | 'uncommon' | 'rare';
+}
+
+const typedLootData = lootData as LootTableEntry[];
+const typedConsumablesData = consumablesData as ConsumableEntry[];
+
 /** Simple dN roll */
 function rollD(n: number): number {
   return Math.floor(Math.random() * n) + 1;
@@ -21,7 +40,7 @@ export function rollLootTable(difficulty: number, tier: number = 1): LootResult 
   const itemCount = difficulty >= 20 ? 2 : 1;
 
   // Roll for consumables (1 per combat, tier-based)
-  const consumablePool = (consumablesData as any[]).filter((c: any) => {
+  const consumablePool = typedConsumablesData.filter(c => {
     if (tier >= 3) return true;
     if (tier >= 2) return c.rarity !== 'rare';
     return c.rarity === 'common';
@@ -29,9 +48,9 @@ export function rollLootTable(difficulty: number, tier: number = 1): LootResult 
 
   for (let i = 0; i < itemCount; i++) {
     // 50% chance loot item, 50% chance consumable
-    if (Math.random() < 0.5 && (lootData as any[]).length > 0) {
-      const roll = rollD(Math.min((lootData as any[]).length, 20));
-      const entry = (lootData as any[]).find((l: any) => l.roll === roll);
+    if (Math.random() < 0.5 && typedLootData.length > 0) {
+      const roll = rollD(Math.min(typedLootData.length, 20));
+      const entry = typedLootData.find(l => l.roll === roll);
       if (entry) {
         items.push({
           id: entry.id,
@@ -69,7 +88,7 @@ export function rollSceneSearchLoot(): LootResult {
   // Scene search gives fewer items
   if (Math.random() < 0.4) {
     // 40% chance to find a consumable
-    const pool = (consumablesData as any[]).filter((c: any) => c.rarity === 'common');
+    const pool = typedConsumablesData.filter(c => c.rarity === 'common');
     if (pool.length > 0) {
       const idx = Math.floor(Math.random() * pool.length);
       const entry = pool[idx];

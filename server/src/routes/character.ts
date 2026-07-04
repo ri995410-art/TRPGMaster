@@ -3,8 +3,9 @@ import type { StateManager } from '../core/StateManager';
 import type { SocketServer } from '../network/SocketServer';
 import { CharacterCreator } from '../core/CharacterCreator';
 import { CharacterLevelUp } from '../core/CharacterLevelUp';
-import type { LevelUpRequest } from '../core/CharacterLevelUp';
-import type { Character } from '@trpgmaster/shared';
+import type { LevelUpRequest, LevelUpOptionType } from '../core/CharacterLevelUp';
+import type { Character, Attribute } from '@trpgmaster/shared';
+import { validateCharacterSheet } from '../rules/systems/DaggerHeartRules';
 
 export function createCharacterRouter(
   stateManager: StateManager,
@@ -22,9 +23,15 @@ export function createCharacterRouter(
   });
 
   router.put('/api/character', (req, res) => {
-    const character = req.body;
+    const character = req.body as Character;
     if (!character || !character.id || !character.name) {
       res.status(400).json({ errors: ['无效的角色数据'] });
+      return;
+    }
+    // Validate character structure before accepting
+    const validationErrors = validateCharacterSheet(character);
+    if (validationErrors.length > 0) {
+      res.status(400).json({ errors: validationErrors });
       return;
     }
     stateManager.setCharacter(character);
@@ -47,8 +54,8 @@ export function createCharacterRouter(
     const creator = new CharacterCreator();
     creator.setStepData(data);
     const { character, errors } = creator.buildCharacter();
-    if (errors.length > 0) {
-      res.status(400).json({ errors });
+    if (!character || errors.length > 0) {
+      res.status(400).json({ errors: errors.length > 0 ? errors : ['角色创建失败'] });
     } else {
       stateManager.setCharacter(character);
       socketServer.broadcastState(stateManager.getState());
@@ -76,8 +83,8 @@ export function createCharacterRouter(
     const request: LevelUpRequest = {
       characterId: character.id,
       newLevel,
-      options: options as any[],
-      attributeChoices: attributeChoices as any,
+      options: options as LevelUpOptionType[],
+      attributeChoices: attributeChoices as [Attribute, Attribute] | undefined,
       experienceChoices,
       domainCardChoice,
       domainCardSwap,

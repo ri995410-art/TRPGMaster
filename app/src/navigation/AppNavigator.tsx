@@ -3,6 +3,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 import { AdventureScreen } from '../screens/AdventureScreen';
 import { CharacterScreen } from '../screens/CharacterScreen';
@@ -17,6 +18,8 @@ import { CombatScreen } from '../screens/CombatScreen';
 import { RestScreen } from '../screens/RestScreen';
 import { InventoryScreen } from '../screens/InventoryScreen';
 import { LevelUpScreen } from '../screens/LevelUpScreen';
+import { GMPanelScreen } from '../screens/GMPanelScreen';
+import { TutorialScreen } from '../screens/TutorialScreen';
 
 // ===== Tab Navigator (Main Game) =====
 
@@ -67,7 +70,7 @@ function MainTabNavigator() {
 export type RootStackParamList = {
   Home: undefined;
   Main: undefined;
-  CharacterCreate: { campaignId?: string };
+  CharacterCreate: { campaignId?: string; systemId?: string; coreId?: string };
   CharacterRoster: undefined;
   SessionJoin: undefined;
   SessionLobby: { sessionCode: string; isHost: boolean };
@@ -75,14 +78,17 @@ export type RootStackParamList = {
   Rest: undefined;
   Inventory: undefined;
   LevelUp: undefined;
+  GMPanel: undefined;
+  Tutorial: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export function AppNavigator() {
   return (
-    <NavigationContainer>
-      <Stack.Navigator
+    <ErrorBoundary>
+      <NavigationContainer>
+        <Stack.Navigator
         initialRouteName="Home"
         screenOptions={{
           headerStyle: { backgroundColor: '#0f0f23' },
@@ -142,7 +148,18 @@ export function AppNavigator() {
           component={InventoryScreen}
           options={{ title: '物品', presentation: 'modal' }}
         />
+        <Stack.Screen
+          name="GMPanel"
+          component={GMPanelScreen}
+          options={{ title: 'GM控制面板', presentation: 'modal' }}
+        />
+        <Stack.Screen
+          name="Tutorial"
+          component={TutorialScreen}
+          options={{ title: '新手教程', presentation: 'modal' }}
+        />
       </Stack.Navigator>
     </NavigationContainer>
+    </ErrorBoundary>
   );
 }

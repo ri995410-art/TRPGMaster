@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import { createServer } from 'http';
 import { AIGateway } from './ai/AIGateway';
-import { AIGameMaster } from './ai/AIGameMaster';
+import { AIGameMasterPool } from './ai/AIGameMasterPool';
 import { buildWorldLore } from './campaign/buildWorldLore';
 import { getAIConfig, loadPersistedConfig, savePersistedConfig, deletePersistedConfig, maskApiKey } from './ai/AIConfigService';
 import type { AIConfig } from './ai/AIGateway';
@@ -17,8 +17,16 @@ import { createCharacterRouter } from './routes/character';
 import { createAiRouter } from './routes/ai';
 import type { AIRouterState } from './routes/ai';
 import { createDataRouter } from './routes/data';
+import { validateAllData, logValidationResults } from './rules/data/dataValidator';
+import daggerheartData from './rules/data/daggerheart';
+import type { ClassData, AncestryData, CommunityData, WeaponData, ArmorData, DomainCard, EnemyStatBlock, SubclassData } from '@trpgmaster/shared';
 
-const PORT = parseInt(process.env.PORT || '3000', 10);
+const PORT_RAW = process.env.PORT || '3000';
+const PORT = Number(PORT_RAW);
+if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
+  console.error(`Invalid PORT: ${PORT_RAW}`);
+  process.exit(1);
+}
 
 async function main() {
   const app = express();
@@ -27,7 +35,7 @@ async function main() {
   app.use(express.json());
   app.use((_req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type');
     if (_req.method === 'OPTIONS') { res.sendStatus(204); return; }
     next();
@@ -35,6 +43,19 @@ async function main() {
 
   // Session store (history persistence + turn lock)
   const sessionStore: SessionStore = new FileSessionStore();
+
+  // Validate game data at startup
+  const validationResult = validateAllData({
+    classes: daggerheartData.classes as ClassData[],
+    ancestries: daggerheartData.ancestries as AncestryData[],
+    communities: daggerheartData.communities as CommunityData[],
+    weapons: daggerheartData.weapons as WeaponData[],
+    armor: daggerheartData.armor as ArmorData[],
+    domains: daggerheartData.domains as DomainCard[],
+    enemies: daggerheartData.enemies as EnemyStatBlock[],
+    subclasses: daggerheartData.subclasses as SubclassData[],
+  });
+  logValidationResults(validationResult);
 
   // Initialize AI
   let aiConfig = getAIConfig();
@@ -52,8 +73,8 @@ async function main() {
     console.log('Warning: No SILICONFLOW_API_KEY set, AI GM will use fallback responses');
   }
 
-  let aiGM = aiGateway && aiConfig
-    ? new AIGameMaster({
+  let gmPool = aiGateway && aiConfig
+    ? new AIGameMasterPool({
         gateway: aiConfig,
         narratorModel: currentNarratorModel || aiConfig.defaultModel,
         combatModel: currentCombatModel || aiConfig.defaultModel,
@@ -61,7 +82,7 @@ async function main() {
         temperature: currentTemperature,
       }, sessionStore)
     : undefined;
-  aiGM?.setWorldLore(buildWorldLore());
+  gmPool?.setWorldLore(buildWorldLore());
 
   // Session registry
   const sessionRegistry = new SessionRegistry();
@@ -70,7 +91,11 @@ async function main() {
 
   if (persistedData && Object.keys(persistedData.sessions).length > 0) {
     for (const [sessionId, sessionData] of Object.entries(persistedData.sessions)) {
-      sessionRegistry.createSessionFromPersisted(sessionData);
+      try {
+        sessionRegistry.createSessionFromPersisted(sessionData);
+      } catch (e) {
+        console.error(`Failed to restore session ${sessionId}:`, e);
+      }
     }
     const defaultSessionId = persistedData.defaultSessionId || Object.keys(persistedData.sessions)[0];
     const restoredDefault = sessionRegistry.findById(defaultSessionId);
@@ -101,7 +126,7 @@ async function main() {
   }
 
   // Socket.IO
-  const socketServer = new SocketServer(httpServer, sessionRegistry, aiGM);
+  const socketServer = new SocketServer(httpServer, sessionRegistry, gmPool);
   socketServer.setSessionStore(sessionStore);
 
   // Register onChange for ALL sessions (once per session, including default)
@@ -124,7 +149,7 @@ async function main() {
     const errors: string[] = [];
     if (updates.apiKey !== undefined && updates.apiKey.length === 0) errors.push('API Key 不能为空');
     if (updates.baseUrl !== undefined && !/^https?:\/\/.+/.test(updates.baseUrl)) errors.push('API 地址格式无效');
-    if (updates.temperature !== undefined && ![0.4, 0.8, 1.2].includes(updates.temperature)) errors.push('温度值无效');
+    if (updates.temperature !== undefined && (updates.temperature < 0 || updates.temperature > 2)) errors.push('温度值需在 0-2 之间');
     if (updates.maxTokens !== undefined && (updates.maxTokens < 256 || updates.maxTokens > 1048576)) errors.push('最大Token需在 256-1048576 之间');
     if (errors.length > 0) return { success: false, errors };
 
@@ -137,8 +162,8 @@ async function main() {
     if (updates.maxTokens !== undefined) currentMaxTokens = updates.maxTokens;
 
     if (!newApiKey) {
-      aiConfig = null; aiGateway = undefined; aiGM = undefined;
-      socketServer.setAIGM(undefined);
+      aiConfig = null; aiGateway = undefined; gmPool = undefined;
+      socketServer.setGMPool(undefined);
       deletePersistedConfig();
       console.log('AI disabled: no API key');
       return { success: true };
@@ -146,9 +171,9 @@ async function main() {
 
     aiConfig = { apiKey: newApiKey, baseUrl: newBaseUrl, defaultModel: newDefaultModel, maxRetries: 3, retryDelay: 1000, maxConcurrent: 5 };
     aiGateway = new AIGateway(aiConfig);
-    aiGM = new AIGameMaster({ gateway: aiConfig, narratorModel: currentNarratorModel || aiConfig.defaultModel, combatModel: currentCombatModel || aiConfig.defaultModel, maxTokensPerResponse: currentMaxTokens, temperature: currentTemperature }, sessionStore);
-    aiGM.setWorldLore(buildWorldLore());
-    socketServer.setAIGM(aiGM);
+    gmPool = new AIGameMasterPool({ gateway: aiConfig, narratorModel: currentNarratorModel || aiConfig.defaultModel, combatModel: currentCombatModel || aiConfig.defaultModel, maxTokensPerResponse: currentMaxTokens, temperature: currentTemperature }, sessionStore);
+    gmPool.setWorldLore(buildWorldLore());
+    socketServer.setGMPool(gmPool);
 
     savePersistedConfig({ apiKey: newApiKey, baseUrl: newBaseUrl, defaultModel: newDefaultModel, narratorModel: currentNarratorModel, combatModel: currentCombatModel, temperature: currentTemperature, maxTokens: currentMaxTokens });
     console.log(`AI Gateway re-initialized (${aiConfig.baseUrl}, model: ${aiConfig.defaultModel})`);
@@ -179,13 +204,44 @@ async function main() {
     console.log('Waiting for players to connect...');
   });
 
-  process.on('SIGINT', () => {
-    console.log('\nShutting down...');
-    sessionRegistry.persistAll();
-    console.log('Session data saved.');
+  // Graceful shutdown handler — persists all data before exiting
+  function gracefulShutdown(signal: string): void {
+    console.log(`\nReceived ${signal}, shutting down...`);
+    try {
+      sessionRegistry.persistAll();
+      console.log('Session data saved.');
+    } catch (err) {
+      console.error('Failed to persist session data during shutdown:', err);
+    }
     socketServer.close();
     httpServer.close();
     process.exit(0);
+  }
+
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+  // Catch unhandled errors — persist data before crashing
+  process.on('uncaughtException', (err) => {
+    console.error('Uncaught exception:', err);
+    try {
+      sessionRegistry.persistAll();
+      console.log('Session data saved after uncaught exception.');
+    } catch (persistErr) {
+      console.error('Failed to persist after uncaught exception:', persistErr);
+    }
+    process.exit(1);
+  });
+
+  process.on('unhandledRejection', (reason) => {
+    console.error('Unhandled rejection:', reason);
+    try {
+      sessionRegistry.persistAll();
+      console.log('Session data saved after unhandled rejection.');
+    } catch (persistErr) {
+      console.error('Failed to persist after unhandled rejection:', persistErr);
+    }
+    process.exit(1);
   });
 }
 

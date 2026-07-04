@@ -148,7 +148,10 @@ export function CharacterRosterScreen({ navigation }: Props) {
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.actionBtn}
-                      onPress={() => navigation.navigate('Main', { screen: 'Character' } as any)}
+                      onPress={() => {
+                        setActiveCharacter(char.id);
+                        navigation.navigate('Main');
+                      }}
                     >
                       <Ionicons name="document-text-outline" size={16} color="#3498db" />
                       <Text style={[styles.actionBtnText, { color: '#3498db' }]}>详情</Text>

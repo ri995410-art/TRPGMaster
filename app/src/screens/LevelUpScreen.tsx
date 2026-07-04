@@ -13,6 +13,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import { useGameStore } from '../store/gameStore';
+import { sendLevelUp } from '../hooks/useSocket';
 import { ATTRIBUTE_LABELS, TIER_LEVELS, getTier } from '@trpgmaster/shared';
 import type { Attribute } from '@trpgmaster/shared';
 
@@ -60,18 +61,28 @@ export function LevelUpScreen() {
   };
 
   const handleConfirm = () => {
-    // TODO: Send to server for full level-up resolution via DaggerHeartRules
+    const attributeEntries = Object.entries(attributePoints).filter(([_, v]) => v > 0) as [Attribute, number][];
+    const attributeChoices = attributeEntries.length >= 2
+      ? [attributeEntries[0][0], attributeEntries[1][0]] as [string, string]
+      : undefined;
+
+    // Apply locally for immediate UI feedback
     const newAttributes = { ...character.attributes };
     for (const [attr, bonus] of Object.entries(attributePoints)) {
       if (bonus > 0) {
         newAttributes[attr as Attribute] += bonus;
       }
     }
-
     updateCharacter({
       level: nextLevel,
       attributes: newAttributes,
     });
+
+    // Also send to server for full level-up resolution
+    sendLevelUp(
+      ['increaseAttributes', 'increaseHp'],
+      attributeChoices,
+    );
 
     Alert.alert('升级成功', `你已升级到 ${nextLevel} 级！`);
     navigation.goBack();
